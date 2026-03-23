@@ -11,6 +11,7 @@ let connecting: Promise<Client> | null = null;
 
 // In-memory fallback (used when REDIS_URL is not set)
 const mem = new Map<string, { value: string; expiresAt?: number }>();
+const memLists = new Map<string, string[]>();
 
 function nowMs() {
   return Date.now();
@@ -34,6 +35,22 @@ function memSet(key: string, value: string, ttlSeconds?: number) {
 
 function memDel(key: string) {
   mem.delete(key);
+}
+
+function memLpush(key: string, value: string): number {
+  const list = memLists.get(key) ?? [];
+  list.unshift(value);
+  memLists.set(key, list);
+  return list.length;
+}
+
+function memRpop(key: string): string | null {
+  const list = memLists.get(key);
+  if (!list || list.length === 0) return null;
+  const item = list.pop() ?? null;
+  if (list.length === 0) memLists.delete(key);
+  else memLists.set(key, list);
+  return item;
 }
 
 function memIncr(key: string): number {
@@ -107,10 +124,23 @@ export async function set(
 export async function del(key: string): Promise<void> {
   if (!hasRedisEnabled()) {
     memDel(key);
+    memLists.delete(key);
     return;
   }
   const c = await getClient();
   await c.del(key);
+}
+
+export async function lpush(key: string, value: string): Promise<number> {
+  if (!hasRedisEnabled()) return memLpush(key, value);
+  const c = await getClient();
+  return await c.lPush(key, value);
+}
+
+export async function rpop(key: string): Promise<string | null> {
+  if (!hasRedisEnabled()) return memRpop(key);
+  const c = await getClient();
+  return await c.rPop(key);
 }
 
 export async function getJSON<T = Json>(key: string): Promise<T | null> {

@@ -22,9 +22,8 @@
     "copy-audio-assets": "mkdir -p dist/audio/vendor/amrwb && cp -R src/audio/vendor/amrwb/amrwb.js src/audio/vendor/amrwb/amrwb.wasm dist/audio/vendor/amrwb/"
   },
   "dependencies": {
-    "@veralux/shared": "*",
-    "@discordjs/opus": "^0.10.0",
     "@roamhq/wrtc": "^0.9.1",
+    "@veralux/shared": "*",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "ioredis": "^5.8.2",

@@ -76,6 +76,7 @@ async function checkSchedules(): Promise<void> {
   try {
     const workflows = await getScheduledWorkflows();
     const now = new Date();
+    const dueWorkflows: Array<{ tenantId: string; id: string; name: string }> = [];
 
     for (const wf of workflows) {
       const cronExpr = wf.triggerConfig.cronExpression;
@@ -96,11 +97,16 @@ async function checkSchedules(): Promise<void> {
         const fireKey = `${wf.id}:${adjustedDate.getFullYear()}-${adjustedDate.getMonth()}-${adjustedDate.getDate()}-${adjustedDate.getHours()}-${adjustedDate.getMinutes()}`;
         if (lastFiredMap.has(fireKey)) continue;
         lastFiredMap.set(fireKey, Date.now());
-
-        console.log(`[scheduler] Firing scheduled workflow "${wf.name}" (${wf.id})`);
-        await handleScheduledTrigger(wf.tenantId, wf.id);
+        dueWorkflows.push({ tenantId: wf.tenantId, id: wf.id, name: wf.name });
       }
     }
+
+    await Promise.allSettled(
+      dueWorkflows.map(async (wf) => {
+        console.log(`[scheduler] Firing scheduled workflow "${wf.name}" (${wf.id})`);
+        await handleScheduledTrigger(wf.tenantId, wf.id);
+      }),
+    );
 
     // Clean old fire keys (keep only last hour)
     const oneHourAgo = Date.now() - 3600000;

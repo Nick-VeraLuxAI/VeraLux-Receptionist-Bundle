@@ -7,6 +7,8 @@
  *   VERALUX_WEBHOOK_URL   - The public webhook URL for voice calls (used when creating connections)
  */
 
+import { fetchWithTimeoutRetry } from "./httpClient";
+
 const TELNYX_API_BASE = "https://api.telnyx.com/v2";
 
 function getApiKey(): string {
@@ -30,13 +32,15 @@ async function telnyxFetch<T = unknown>(
   const apiKey = getApiKey();
   const url = endpoint.startsWith("http") ? endpoint : `${TELNYX_API_BASE}${endpoint}`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeoutRetry(url, {
     ...options,
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       ...options.headers,
     },
+    timeoutMs: 15_000,
+    retries: 2,
   });
 
   if (!res.ok) {

@@ -33,3 +33,7 @@ export function setTestEnv(): void {
     }
   }
 }
+
+// Apply defaults immediately when imported so modules that validate env
+// at import-time can run in tests without explicit setup ordering.
+setTestEnv();

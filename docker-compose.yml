@@ -19,7 +19,7 @@ services:
   # =============================================================================
 
   control:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/veralux-control-plane:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/veralux-control-plane:${VERSION:-0.1.0}
     build:
       context: .
       dockerfile: control-plane/Dockerfile
@@ -93,7 +93,7 @@ services:
       - veralux-network
 
   runtime:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/veralux-voice-runtime:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/veralux-voice-runtime:${VERSION:-0.1.0}
     build:
       context: .
       dockerfile: veralux-voice-runtime/Dockerfile
@@ -235,7 +235,7 @@ services:
 
   # Option A: Cloudflare Tunnel (recommended for production)
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:${CLOUDFLARED_TAG:?Set CLOUDFLARED_TAG}
     container_name: veralux-cloudflared
     restart: unless-stopped
     logging: *default-logging
@@ -259,7 +259,7 @@ services:
 
   # Option B: ngrok (for quick testing)
   ngrok:
-    image: ngrok/ngrok:latest
+    image: ngrok/ngrok:${NGROK_TAG:?Set NGROK_TAG}
     container_name: veralux-ngrok
     restart: unless-stopped
     logging: *default-logging
@@ -286,7 +286,7 @@ services:
   # =============================================================================
 
   whisper-gpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/whisper:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/whisper:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.whisper
@@ -321,7 +321,7 @@ services:
           - whisper
 
   kokoro-gpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/kokoro:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/kokoro:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.kokoro
@@ -356,7 +356,7 @@ services:
           - kokoro
 
   xtts-gpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/xtts:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/xtts:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.xtts
@@ -397,7 +397,7 @@ services:
   # =============================================================================
 
   whisper-cpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/whisper:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/whisper:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.whisper
@@ -431,7 +431,7 @@ services:
           - whisper
 
   kokoro-cpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/kokoro:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/kokoro:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.kokoro
@@ -465,7 +465,7 @@ services:
           - kokoro
 
   xtts-cpu:
-    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/xtts:${VERSION:-latest}
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/xtts:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
       dockerfile: Dockerfile.xtts

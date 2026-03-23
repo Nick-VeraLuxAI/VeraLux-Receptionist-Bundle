@@ -6,6 +6,7 @@
 
 import { env } from './env';
 import pino from 'pino';
+import { fetchWithTimeoutRetry } from './httpClient';
 
 const log = pino({ name: 'control-plane' });
 
@@ -40,7 +41,7 @@ export async function reportCallEnd(params: ReportCallEndParams): Promise<void> 
   const apiKey = env.CONTROL_PLANE_API_KEY!;
 
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeoutRetry(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -58,6 +59,8 @@ export async function reportCallEnd(params: ReportCallEndParams): Promise<void> 
           history: params.turns,
         },
       }),
+      timeoutMs: 10_000,
+      retries: 1,
     });
 
     if (!resp.ok) {

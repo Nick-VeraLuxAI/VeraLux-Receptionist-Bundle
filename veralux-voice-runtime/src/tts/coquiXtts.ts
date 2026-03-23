@@ -1,6 +1,7 @@
 import { env } from '../env';
 import { log } from '../log';
 import { TTSRequest, TTSResult } from './types';
+import { fetchWithTimeoutRetry } from '../httpClient';
 
 /**
  * Coqui XTTS HTTP client. Matches XTTS model API: text + language + speaker_wav (reference for voice cloning).
@@ -46,12 +47,14 @@ export async function synthesizeSpeechCoquiXtts(request: TTSRequest): Promise<TT
     'coqui xtts request',
   );
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeoutRetry(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
+    timeoutMs: 20_000,
+    retries: 1,
   });
 
   const contentType = response.headers.get('content-type') ?? '';

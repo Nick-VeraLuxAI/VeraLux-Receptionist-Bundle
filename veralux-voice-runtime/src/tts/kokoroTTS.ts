@@ -1,6 +1,7 @@
 import { env } from '../env';
 import { log } from '../log';
 import { TTSRequest, TTSResult } from './types';
+import { fetchWithTimeoutRetry } from '../httpClient';
 
 export async function synthesizeSpeech(request: TTSRequest): Promise<TTSResult> {
   const kokoroUrl = request.kokoroUrl ?? env.KOKORO_URL;
@@ -13,7 +14,7 @@ export async function synthesizeSpeech(request: TTSRequest): Promise<TTSResult> 
     { event: 'tts_request', sample_rate: sampleRate, voice: request.voice, format },
     'tts request',
   );
-  const response = await fetch(kokoroUrl, {
+  const response = await fetchWithTimeoutRetry(kokoroUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -24,6 +25,8 @@ export async function synthesizeSpeech(request: TTSRequest): Promise<TTSResult> 
       format,
       sampleRate,
     }),
+    timeoutMs: 15_000,
+    retries: 1,
   });
 
   if (!response.ok) {

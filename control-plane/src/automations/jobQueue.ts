@@ -1,14 +1,14 @@
 /**
  * Redis-backed (or in-memory fallback) job queue for workflow execution.
- * Uses LPUSH/BRPOP for reliable FIFO processing.
+ * Uses LPUSH/RPOP for FIFO processing.
  */
 
 import * as redis from "../redis";
 import type { WorkflowEvent } from "./types";
 
 const QUEUE_KEY = "veralux:workflow:jobs";
-const RETRY_KEY = "veralux:workflow:retry";
 const MAX_RETRIES = 3;
+const DEFAULT_MAX_JOBS_PER_POLL = 20;
 
 export interface WorkflowJob {
   workflowId: string;
@@ -19,7 +19,7 @@ export interface WorkflowJob {
 
 // In-memory queue fallback (when Redis is not available)
 const memQueue: WorkflowJob[] = [];
-const jobListeners: Array<(job: WorkflowJob) => void> = [];
+const jobListeners: Array<(job: WorkflowJob) => void | Promise<void>> = [];
 let processing = false;
 
 /**
@@ -29,15 +29,7 @@ export async function enqueueJob(job: WorkflowJob): Promise<void> {
   const payload = JSON.stringify({ ...job, retries: job.retries ?? 0 });
 
   try {
-    await redis.set(`__queue_check__`, "1", 5);
-    // If redis.set succeeded, we have Redis
-    // Use LPUSH via redis setJSON (store in list)
-    // Since our redis module doesn't expose lpush directly, we store in a sorted set pattern
-    const current = await redis.get(QUEUE_KEY);
-    const queue: string[] = current ? JSON.parse(current) : [];
-    queue.push(payload);
-    await redis.set(QUEUE_KEY, JSON.stringify(queue));
-    await redis.del("__queue_check__");
+    await redis.lpush(QUEUE_KEY, payload);
   } catch {
     // Fallback to in-memory
     const parsed: WorkflowJob = JSON.parse(payload);
@@ -52,12 +44,8 @@ export async function enqueueJob(job: WorkflowJob): Promise<void> {
  */
 export async function dequeueJob(): Promise<WorkflowJob | null> {
   try {
-    const current = await redis.get(QUEUE_KEY);
-    if (!current) return null;
-    const queue: string[] = JSON.parse(current);
-    if (queue.length === 0) return null;
-    const payload = queue.shift()!;
-    await redis.set(QUEUE_KEY, JSON.stringify(queue));
+    const payload = await redis.rpop(QUEUE_KEY);
+    if (!payload) return null;
     return JSON.parse(payload);
   } catch {
     // In-memory fallback
@@ -89,7 +77,7 @@ export async function retryJob(job: WorkflowJob): Promise<boolean> {
 /**
  * Register a job processor function. Called when jobs arrive.
  */
-export function onJob(fn: (job: WorkflowJob) => void): void {
+export function onJob(fn: (job: WorkflowJob) => void | Promise<void>): void {
   jobListeners.push(fn);
 }
 
@@ -98,20 +86,27 @@ export function onJob(fn: (job: WorkflowJob) => void): void {
  */
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
-export function startPolling(intervalMs = 2000): void {
+async function processJob(job: WorkflowJob): Promise<void> {
+  await Promise.allSettled(
+    jobListeners.map(async (fn) => {
+      try {
+        await fn(job);
+      } catch (err) {
+        console.error("[jobQueue] Processor error:", err);
+      }
+    }),
+  );
+}
+
+export function startPolling(intervalMs = 2000, maxJobsPerPoll = DEFAULT_MAX_JOBS_PER_POLL): void {
   if (pollInterval) return;
 
   pollInterval = setInterval(async () => {
     try {
-      const job = await dequeueJob();
-      if (job) {
-        for (const fn of jobListeners) {
-          try {
-            fn(job);
-          } catch (err) {
-            console.error("[jobQueue] Processor error:", err);
-          }
-        }
+      for (let i = 0; i < maxJobsPerPoll; i++) {
+        const job = await dequeueJob();
+        if (!job) break;
+        await processJob(job);
       }
     } catch (err) {
       console.error("[jobQueue] Poll error:", err);
@@ -139,13 +134,7 @@ function processMemQueue(): void {
   setImmediate(async () => {
     while (memQueue.length > 0) {
       const job = memQueue.shift()!;
-      for (const fn of jobListeners) {
-        try {
-          fn(job);
-        } catch (err) {
-          console.error("[jobQueue] In-memory processor error:", err);
-        }
-      }
+      await processJob(job);
     }
     processing = false;
   });

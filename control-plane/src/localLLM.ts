@@ -1,5 +1,6 @@
 import type { LLMProvider, LLMConfigStore } from "./config";
 import { tenants, DEFAULT_TENANT_ID } from "./tenants";
+import { fetchWithTimeoutRetry } from "./httpClient";
 
 export interface LocalLLMInput {
   prompt: string;
@@ -35,10 +36,12 @@ export async function callLocalLLM(
     stream: false,
   };
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeoutRetry(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    timeoutMs: 20_000,
+    retries: 1,
   });
 
   if (!res.ok) {
@@ -99,7 +102,7 @@ export async function callOpenAILLM(
     process.env.OPENAI_MODEL ||
     DEFAULT_OPENAI_MODEL;
 
-  const res = await fetch(baseUrl, {
+  const res = await fetchWithTimeoutRetry(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -111,6 +114,8 @@ export async function callOpenAILLM(
       temperature: 0.3,
       max_tokens: 400,
     }),
+    timeoutMs: 25_000,
+    retries: 1,
   });
 
   if (!res.ok) {

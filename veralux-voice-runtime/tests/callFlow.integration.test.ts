@@ -7,7 +7,7 @@
  * Run with: npm test -- tests/callFlow.integration.test.ts
  */
 
-import { describe, it, beforeAll, afterAll, before } from 'node:test';
+import { describe, it, beforeAll, afterAll } from 'node:test';
 import assert from 'node:assert';
 import http from 'node:http';
 import { setTestEnv } from './testEnv';

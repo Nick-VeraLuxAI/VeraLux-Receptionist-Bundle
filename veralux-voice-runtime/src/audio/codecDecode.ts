@@ -659,7 +659,7 @@ function normalizeTelnyxEncoding(raw: string | undefined): { raw: string; normal
     s = parts[parts.length - 1] ?? s;
   }
 
-  s = s.replace(/[.\-]/g, '_');
+  s = s.replace(/[.-]/g, '_');
 
   const aliases: Record<string, string> = {
     MULAW: 'PCMU',

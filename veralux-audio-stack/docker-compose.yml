@@ -40,7 +40,7 @@ services:
       - audio-stack
 
   kokoro:
-    image: ghcr.io/nick-veraluxai/kokoro:${VERSION:-latest}
+    image: ghcr.io/nick-veraluxai/kokoro:${VERSION:-0.1.0}
     build:
       context: .
       dockerfile: Dockerfile.kokoro
@@ -74,7 +74,7 @@ services:
       - audio-stack
 
   xtts:
-    image: ghcr.io/nick-veraluxai/xtts:${VERSION:-latest}
+    image: ghcr.io/nick-veraluxai/xtts:${VERSION:-0.1.0}
     build:
       context: .
       dockerfile: Dockerfile.xtts
@@ -115,7 +115,7 @@ services:
       - audio-stack
 
   whisper:
-    image: ghcr.io/nick-veraluxai/whisper:${VERSION:-latest}
+    image: ghcr.io/nick-veraluxai/whisper:${VERSION:-0.1.0}
     build:
       context: .
       dockerfile: Dockerfile.whisper

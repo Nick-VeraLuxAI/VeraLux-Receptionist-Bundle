@@ -9,6 +9,7 @@ import type { PipelineContext, CallEndedEvent } from "./types";
 import { createLead } from "./db";
 import { pool } from "../db";
 import * as crypto from "crypto";
+import { fetchWithTimeoutRetry } from "../httpClient";
 
 // ── send_email ───────────────────────────────────
 
@@ -87,7 +88,7 @@ export async function sendSms(
   }
 
   try {
-    const resp = await fetch("https://api.telnyx.com/v2/messages", {
+    const resp = await fetchWithTimeoutRetry("https://api.telnyx.com/v2/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -98,6 +99,8 @@ export async function sendSms(
         to: config.to,
         text: message,
       }),
+      timeoutMs: 10_000,
+      retries: 2,
     });
 
     if (!resp.ok) {
@@ -162,10 +165,12 @@ export async function fireWebhook(
     headers["X-Veralux-Signature"] = sig;
   }
 
-  const resp = await fetch(config.url, {
+  const resp = await fetchWithTimeoutRetry(config.url, {
     method: config.method || "POST",
     headers,
     body: bodyStr,
+    timeoutMs: 10_000,
+    retries: 2,
   });
 
   return {
@@ -201,7 +206,7 @@ export async function aiSummarize(
 
   const model = config.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const resp = await fetchWithTimeoutRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -216,6 +221,8 @@ export async function aiSummarize(
       max_tokens: config.maxTokens || 500,
       temperature: 0.3,
     }),
+    timeoutMs: 25_000,
+    retries: 1,
   });
 
   if (!resp.ok) {
@@ -259,7 +266,7 @@ export async function aiExtract(
 
   const model = config.model || process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+  const resp = await fetchWithTimeoutRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -275,6 +282,8 @@ export async function aiExtract(
       temperature: 0,
       response_format: { type: "json_object" },
     }),
+    timeoutMs: 25_000,
+    retries: 1,
   });
 
   if (!resp.ok) {

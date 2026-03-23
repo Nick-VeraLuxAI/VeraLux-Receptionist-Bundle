@@ -83,7 +83,12 @@ test("wrong master key returns undefined (hits DB when no match)", async () => {
     const principal = await authenticateAdminKey("wrong-key");
     assert.strictEqual(principal, undefined);
   } catch (err) {
-    if (err.code === "ECONNREFUSED" || err.code === "EPERM" || err.name === "AggregateError") {
+    if (
+      err.code === "ECONNREFUSED" ||
+      err.code === "EPERM" ||
+      err.code === "28P01" ||
+      err.name === "AggregateError"
+    ) {
       return; // Skip when DB not available (e.g. sandbox, no Postgres)
     }
     throw err;
