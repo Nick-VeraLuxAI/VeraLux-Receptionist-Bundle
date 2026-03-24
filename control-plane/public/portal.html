@@ -288,6 +288,256 @@
         position: relative; z-index: 1; text-align: center; padding: 28px; font-size: 13px; color: var(--muted);
       }
       .owner-footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+
+      /* ── Premium portal layout ── */
+      .portal-topbar {
+        position: relative; z-index: 2;
+        padding: 16px 28px;
+        display: flex; align-items: center; justify-content: space-between; gap: 16px;
+        flex-wrap: wrap;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,0.035) 0%, transparent 100%);
+      }
+      .portal-topbar__brand {
+        display: flex; align-items: center; gap: 12px;
+        font-size: 14px; font-weight: 600; color: var(--text-soft);
+        letter-spacing: 0.02em;
+      }
+      .portal-topbar__brand img { width: 36px; height: 36px; border-radius: 10px; object-fit: cover; }
+      .portal-topbar__actions { display: flex; align-items: center; gap: 12px; }
+
+      .portal-body {
+        position: relative; z-index: 1;
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 28px 24px 48px;
+      }
+
+      .portal-overview {
+        margin-bottom: 32px;
+        animation: panelIn 0.45s ease backwards;
+      }
+      .portal-overview__welcome {
+        font-size: 13px; font-weight: 500; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.12em;
+        margin: 0 0 10px;
+      }
+      .portal-overview__title {
+        margin: 0 0 8px;
+        font-size: clamp(1.65rem, 3.5vw, 2.15rem);
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        line-height: 1.15;
+      }
+      .portal-overview__subtitle {
+        margin: 0 0 22px;
+        font-size: 16px;
+        color: var(--text-soft);
+        line-height: 1.55;
+        max-width: 42rem;
+      }
+      .portal-overview__row {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 14px 20px;
+        margin-bottom: 22px;
+      }
+
+      .portal-status {
+        display: inline-flex; align-items: center; gap: 10px;
+        padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+        border: 1px solid transparent;
+      }
+      .portal-status--live {
+        background: rgba(52, 211, 153, 0.1); color: #6ee7b7;
+        border-color: rgba(52, 211, 153, 0.28);
+      }
+      .portal-status--warm {
+        background: rgba(201, 160, 78, 0.12); color: var(--accent);
+        border-color: rgba(201, 160, 78, 0.28);
+      }
+      .portal-status--idle {
+        background: rgba(246, 243, 236, 0.06); color: var(--text-soft);
+        border-color: var(--border);
+      }
+      .portal-status__dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 14px currentColor;
+        animation: pulse 2.2s ease-in-out infinite;
+      }
+
+      .portal-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 12px;
+        margin-bottom: 24px;
+      }
+      .portal-stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 16px 18px;
+        transition: border-color 0.2s, background 0.2s;
+      }
+      .portal-stat-card:hover { border-color: rgba(255,255,255,0.12); background: var(--surface-hover); }
+      .portal-stat-card__label {
+        font-size: 12px; font-weight: 500; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.06em;
+        margin: 0 0 6px;
+      }
+      .portal-stat-card__value {
+        font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em;
+        color: var(--text);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .portal-activity {
+        background: linear-gradient(135deg, rgba(201, 160, 78, 0.06) 0%, rgba(255,255,255,0.02) 100%);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px;
+      }
+      .portal-activity__head {
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        margin-bottom: 12px;
+      }
+      .portal-activity__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
+      .portal-activity__hint { font-size: 12px; color: var(--muted); }
+      .portal-activity__list { margin: 0; padding: 0; list-style: none; }
+      .portal-activity__list li {
+        font-size: 14px; color: var(--text-soft);
+        padding: 10px 0;
+        border-bottom: 1px solid rgba(246, 243, 236, 0.06);
+        display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+      }
+      .portal-activity__list li:last-child { border-bottom: none; padding-bottom: 0; }
+      .portal-activity__empty {
+        margin: 0; font-size: 14px; color: var(--muted); line-height: 1.5;
+      }
+
+      .portal-workspace {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 28px;
+        align-items: start;
+      }
+      @media (min-width: 900px) {
+        .portal-workspace {
+          grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+          gap: 32px;
+        }
+      }
+
+      .portal-live {
+        position: relative;
+      }
+      @media (min-width: 900px) {
+        .portal-live { position: sticky; top: 20px; }
+      }
+      .portal-live__label {
+        font-size: 12px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.1em; color: var(--muted); margin: 0 0 12px;
+      }
+      .portal-live-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 22px 22px 20px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+        animation: panelIn 0.5s ease 0.06s backwards;
+      }
+      .portal-live-card__title {
+        margin: 0 0 6px; font-size: 17px; font-weight: 600;
+      }
+      .portal-live-card__sub {
+        margin: 0 0 20px; font-size: 13px; color: var(--muted); line-height: 1.45;
+      }
+      .portal-live-block { margin-bottom: 20px; }
+      .portal-live-block:last-child { margin-bottom: 0; }
+      .portal-live-block__label {
+        font-size: 11px; font-weight: 600; text-transform: uppercase;
+        letter-spacing: 0.08em; color: var(--muted); margin: 0 0 8px;
+      }
+      .portal-live-block__body {
+        font-size: 14px; color: var(--text-soft); line-height: 1.55;
+        margin: 0;
+      }
+      .portal-live-greeting {
+        margin: 0;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border-left: 3px solid var(--primary);
+        background: rgba(201, 160, 78, 0.08);
+        font-size: 14px; line-height: 1.55;
+        color: var(--text);
+        font-style: italic;
+      }
+      .portal-live-list { margin: 0; padding-left: 1.1rem; color: var(--text-soft); font-size: 14px; line-height: 1.6; }
+      .portal-live-list li { margin-bottom: 4px; }
+      .portal-live-pill {
+        display: inline-block;
+        font-size: 12px; font-weight: 600;
+        padding: 4px 10px; border-radius: 999px;
+        background: rgba(52, 211, 153, 0.12); color: #6ee7b7;
+        border: 1px solid rgba(52, 211, 153, 0.22);
+      }
+      .portal-live-pill--muted {
+        background: rgba(246, 243, 236, 0.06);
+        color: var(--muted);
+        border-color: var(--border);
+      }
+
+      .portal-edit__head {
+        margin-bottom: 18px;
+        animation: panelIn 0.45s ease 0.04s backwards;
+      }
+      .portal-edit__title { margin: 0 0 6px; font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+      .portal-edit__sub { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.5; }
+
+      details.portal-acc {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        animation: panelIn 0.45s ease backwards;
+      }
+      details.portal-acc:nth-of-type(1) { animation-delay: 0.05s; }
+      details.portal-acc:nth-of-type(2) { animation-delay: 0.08s; }
+      details.portal-acc:nth-of-type(3) { animation-delay: 0.11s; }
+      details.portal-acc:nth-of-type(4) { animation-delay: 0.14s; }
+      details.portal-acc:nth-of-type(5) { animation-delay: 0.17s; }
+      details.portal-acc[open] { border-color: rgba(201, 160, 78, 0.22); }
+      summary.portal-acc__summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 16px 18px;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+        font-weight: 600; font-size: 15px;
+        color: var(--text);
+        user-select: none;
+        transition: background 0.15s;
+      }
+      summary.portal-acc__summary::-webkit-details-marker { display: none; }
+      summary.portal-acc__summary:hover { background: rgba(255,255,255,0.03); }
+      .portal-acc__chev {
+        color: var(--muted); font-size: 12px; transition: transform 0.2s;
+      }
+      details.portal-acc[open] .portal-acc__chev { transform: rotate(180deg); }
+      .portal-acc__body {
+        padding: 0 18px 20px;
+        border-top: 1px solid rgba(246, 243, 236, 0.06);
+      }
+      .portal-acc__intro {
+        font-size: 13px; color: var(--muted); line-height: 1.5; margin: 14px 0 16px;
+      }
+      .portal-acc .owner-panel-inner { padding-top: 4px; }
+      .portal-mini-stats {
+        display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+      }
+      .portal-mini-stats .stat { margin: 0; }
+
+      .portal-table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+      .portal-table-wrap table { margin-top: 0 !important; }
     </style>
   </head>
   <body>
@@ -312,163 +562,244 @@
 
     <!-- ═══════════════ DASHBOARD ═══════════════ -->
     <div id="dashboard" class="dashboard">
-      <header class="owner-header">
-        <div class="owner-brand">
-          <div class="owner-logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
-          <div>
-            <h1 id="dash-tenant-name">Your receptionist</h1>
-            <div class="tagline">Manage your AI receptionist settings</div>
-          </div>
+      <header class="portal-topbar">
+        <div class="portal-topbar__brand">
+          <img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="" width="36" height="36" />
+          <span>VeraLux · Client portal</span>
         </div>
-        <div class="owner-actions">
-          <span id="dash-status" class="owner-status">Connected</span>
+        <div class="portal-topbar__actions">
+          <span id="dash-status" class="portal-status portal-status--live" aria-live="polite"><span class="portal-status__dot" aria-hidden="true"></span><span id="dash-status-text">Answering calls</span></span>
           <button class="btn-logout" id="logout-btn" type="button">Sign out</button>
         </div>
       </header>
 
-      <main class="owner-main">
-        <!-- Forwarding profiles -->
-        <section class="owner-panel">
-          <h2>When to transfer calls</h2>
-          <p class="help">Who should the receptionist transfer callers to? Add your team members.</p>
-          <div class="row">
-            <input type="text" id="fp-name" class="sm" placeholder="Name" />
-            <input type="text" id="fp-number" class="mid" placeholder="+15551234567" />
-            <input type="text" id="fp-role" class="mid" placeholder="Role (e.g. Owner)" />
-            <button type="button" id="fp-add">Add</button>
-          </div>
-          <ul id="fp-list" class="owner-list"></ul>
-        </section>
+      <main class="portal-body">
+        <section class="portal-overview" aria-labelledby="portal-business-name">
+          <p class="portal-overview__welcome">Your business</p>
+          <h1 class="portal-overview__title" id="portal-business-name"><span id="dash-tenant-name">Your receptionist</span></h1>
+          <p class="portal-overview__subtitle">Here’s how your AI receptionist is doing. Review what callers experience on the left, then open a section below when you want to make a change—no need to scan one long form.</p>
 
-        <!-- Prompts -->
-        <section class="owner-panel">
-          <h2>How your receptionist speaks</h2>
-          <p class="help">Customize what your AI receptionist says and how it behaves.</p>
-
-          <label for="p-greeting">Greeting message (what callers hear first)</label>
-          <textarea id="p-greeting" rows="2" placeholder="e.g. Hi! Thanks for calling King-Sod Lawn Care. How can I help you today?"></textarea>
-
-          <label for="p-system">Business description &amp; instructions</label>
-          <textarea id="p-system" rows="4" placeholder="e.g. You're the receptionist for King-Sod Lawn Care. Be friendly and helpful. Ask callers if they need a quote or want to schedule service."></textarea>
-
-          <label for="p-voice">Tone of voice</label>
-          <textarea id="p-voice" rows="2" placeholder="e.g. Warm and helpful, like a real person. Keep answers short and natural."></textarea>
-
-          <label for="p-policy">Things it should never do</label>
-          <textarea id="p-policy" rows="3" placeholder="e.g. Don't give out personal phone numbers. Don't promise specific prices. Always offer to take a message if unsure."></textarea>
-
-          <div class="row" style="margin-top: 6px;">
-            <button type="button" id="save-prompts">Save</button>
-            <button type="button" class="secondary" id="refresh-prompts">Reset</button>
-          </div>
-          <div id="prompt-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
-        </section>
-
-        <!-- Pricing -->
-        <section class="owner-panel">
-          <h2>Services & products</h2>
-          <p class="help">Services, products, and prices the receptionist can reference when quoting callers.</p>
-          <div class="row">
-            <select id="price-type" class="sm" style="min-width:100px;">
-              <option value="service">Service</option>
-              <option value="product">Product</option>
-            </select>
-            <input type="text" id="price-name" class="sm" placeholder="Name" />
-            <input type="text" id="price-amount" class="sm" placeholder="$50" />
-            <input type="text" id="price-desc" style="flex:1; min-width:120px;" placeholder="Description" />
-            <button type="button" id="price-add">Add</button>
-          </div>
-          <ul id="price-list" class="owner-list"></ul>
-          <label for="price-notes" style="margin-top: 12px;">Pricing notes</label>
-          <textarea id="price-notes" rows="2" placeholder="e.g. All prices are estimates. Final price depends on lawn size."></textarea>
-          <button type="button" id="price-save" style="margin-top: 6px;">Save pricing</button>
-        </section>
-
-        <!-- Billing (hidden if admin disables) -->
-        <section class="owner-panel" id="billing-section" style="display:none;">
-          <h2>Your subscription</h2>
-          <p class="help">Your current plan and payment details.</p>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0;">
-            <div class="stat">Plan: <strong id="bill-plan">—</strong></div>
-            <div class="stat">Status: <strong id="bill-status">—</strong></div>
-            <div class="stat">Price: <strong id="bill-price">—</strong></div>
-            <div class="stat">Frequency: <strong id="bill-frequency">—</strong></div>
-            <div class="stat">Next billing: <strong id="bill-next">—</strong></div>
-            <div class="stat">Payment: <strong id="bill-payment">—</strong></div>
-          </div>
-          <!-- Stripe actions (shown when Stripe is configured) -->
-          <div id="bill-stripe-actions" style="display:none; margin-top:14px;">
-            <div id="bill-checkout-area" style="display:none; margin-bottom:10px;">
-              <button type="button" id="bill-pay-now" style="width:100%; padding:12px; font-size:15px;">Pay now</button>
+          <div class="portal-stat-grid" role="group" aria-label="Summary">
+            <div class="portal-stat-card">
+              <p class="portal-stat-card__label">Calls handled</p>
+              <p class="portal-stat-card__value" id="overview-stat-calls">—</p>
             </div>
-            <button type="button" id="bill-manage-billing" style="width:100%;">Manage billing & payment methods</button>
-            <div id="bill-stripe-msg" class="help" style="margin-top:6px;"></div>
-          </div>
-          <!-- Manual fallback (shown when Stripe is NOT configured at all) -->
-          <div id="bill-manual-actions" style="display:none; margin-top:14px;">
-            <h3>Update payment method</h3>
-            <div class="row" style="gap:8px;">
-              <select id="bill-card-brand" class="sm" style="min-width:110px;">
-                <option value="">Select</option>
-                <option value="visa">Visa</option>
-                <option value="mastercard">Mastercard</option>
-                <option value="amex">Amex</option>
-                <option value="discover">Discover</option>
-                <option value="other">Other</option>
-              </select>
-              <input type="text" id="bill-card-last4" class="sm" maxlength="4" placeholder="Last 4 digits" style="max-width:120px;" />
-              <button type="button" id="bill-update-payment">Update</button>
+            <div class="portal-stat-card">
+              <p class="portal-stat-card__label">Caller messages</p>
+              <p class="portal-stat-card__value" id="overview-stat-messages">—</p>
             </div>
-            <div id="bill-status-msg" class="help" style="margin-top:6px;"></div>
+            <div class="portal-stat-card">
+              <p class="portal-stat-card__label">Transfer contacts</p>
+              <p class="portal-stat-card__value" id="overview-stat-contacts">—</p>
+            </div>
+            <div class="portal-stat-card">
+              <p class="portal-stat-card__label">Services &amp; products</p>
+              <p class="portal-stat-card__value" id="overview-stat-services">—</p>
+            </div>
+          </div>
+
+          <div class="portal-activity">
+            <div class="portal-activity__head">
+              <h2 class="portal-activity__title">Recent activity</h2>
+              <span class="portal-activity__hint">Latest from your receptionist</span>
+            </div>
+            <ul id="overview-activity-list" class="portal-activity__list" hidden></ul>
+            <p id="overview-activity-empty" class="portal-activity__empty">No leads yet—when callers leave their details, they’ll show up here. Your receptionist is ready to capture them.</p>
           </div>
         </section>
 
-        <!-- Analytics -->
-        <section class="owner-panel">
-          <h2>Call activity</h2>
-          <p class="help">How your receptionist is performing.</p>
-          <div class="stat-row" id="analytics-stats">
-            <div class="stat">Total calls: <strong id="stat-calls">—</strong></div>
-            <div class="stat">Messages: <strong id="stat-messages">—</strong></div>
+        <div class="portal-workspace">
+          <aside class="portal-live" aria-label="What callers experience now">
+            <p class="portal-live__label">At a glance</p>
+            <div class="portal-live-card">
+              <h2 class="portal-live-card__title">Live summary</h2>
+              <p class="portal-live-card__sub">This mirrors what you’ve set below. It updates as you edit (save where noted so changes go live on calls).</p>
+
+              <div class="portal-live-block">
+                <p class="portal-live-block__label">Greeting callers hear</p>
+                <p id="preview-greeting" class="portal-live-greeting">—</p>
+              </div>
+              <div class="portal-live-block">
+                <p class="portal-live-block__label">Transfer destinations</p>
+                <ul id="preview-transfers" class="portal-live-list"><li>—</li></ul>
+              </div>
+              <div class="portal-live-block">
+                <p class="portal-live-block__label">Services &amp; pricing</p>
+                <p id="preview-services-line" class="portal-live-block__body">—</p>
+              </div>
+              <div class="portal-live-block">
+                <p class="portal-live-block__label">Pricing notes</p>
+                <p id="preview-pricing-notes" class="portal-live-block__body">—</p>
+              </div>
+              <div class="portal-live-block">
+                <p class="portal-live-block__label">Lead capture</p>
+                <p class="portal-live-block__body"><span id="preview-leads-pill" class="portal-live-pill portal-live-pill--muted">—</span></p>
+              </div>
+            </div>
+          </aside>
+
+          <div class="portal-edit">
+            <div class="portal-edit__head">
+              <h2 class="portal-edit__title">Adjust your receptionist</h2>
+              <p class="portal-edit__sub">Open one topic at a time. Save prompts and pricing when you’re happy with them.</p>
+            </div>
+
+            <details class="portal-acc" open>
+              <summary class="portal-acc__summary">Greeting &amp; tone <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">Shape the first impression and how your receptionist talks about your business.</p>
+                <div class="owner-panel-inner">
+                  <label for="p-greeting">Opening greeting</label>
+                  <textarea id="p-greeting" rows="2" placeholder="e.g. Hi! Thanks for calling King-Sod Lawn Care. How can I help you today?"></textarea>
+
+                  <label for="p-system">What your business does (context for the AI)</label>
+                  <textarea id="p-system" rows="4" placeholder="e.g. You're the receptionist for King-Sod Lawn Care. Be friendly and helpful. Ask callers if they need a quote or want to schedule service."></textarea>
+
+                  <label for="p-voice">Tone &amp; style</label>
+                  <textarea id="p-voice" rows="2" placeholder="e.g. Warm and helpful, like a real person. Keep answers short and natural."></textarea>
+
+                  <label for="p-policy">Boundaries (what to avoid)</label>
+                  <textarea id="p-policy" rows="3" placeholder="e.g. Don't give out personal phone numbers. Don't promise specific prices. Always offer to take a message if unsure."></textarea>
+
+                  <div class="row" style="margin-top: 6px;">
+                    <button type="button" id="save-prompts">Save to receptionist</button>
+                    <button type="button" class="secondary" id="refresh-prompts">Discard unsaved</button>
+                  </div>
+                  <div id="prompt-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
+              <summary class="portal-acc__summary">Transfer contacts <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">People your receptionist can warm-transfer or connect callers to.</p>
+                <div class="owner-panel-inner">
+                  <div class="row">
+                    <input type="text" id="fp-name" class="sm" placeholder="Name" />
+                    <input type="text" id="fp-number" class="mid" placeholder="+15551234567" />
+                    <input type="text" id="fp-role" class="mid" placeholder="Role (e.g. Owner)" />
+                    <button type="button" id="fp-add">Add contact</button>
+                  </div>
+                  <ul id="fp-list" class="owner-list"></ul>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
+              <summary class="portal-acc__summary">Services &amp; pricing <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">What the receptionist can mention when callers ask about work you do or what things cost.</p>
+                <div class="owner-panel-inner">
+                  <div class="row">
+                    <select id="price-type" class="sm" style="min-width:100px;">
+                      <option value="service">Service</option>
+                      <option value="product">Product</option>
+                    </select>
+                    <input type="text" id="price-name" class="sm" placeholder="Name" />
+                    <input type="text" id="price-amount" class="sm" placeholder="$50" />
+                    <input type="text" id="price-desc" style="flex:1; min-width:120px;" placeholder="Description" />
+                    <button type="button" id="price-add">Add</button>
+                  </div>
+                  <ul id="price-list" class="owner-list"></ul>
+                  <label for="price-notes" style="margin-top: 12px;">Notes for callers (disclaimers, ranges)</label>
+                  <textarea id="price-notes" rows="2" placeholder="e.g. All prices are estimates. Final price depends on lawn size."></textarea>
+                  <button type="button" id="price-save" style="margin-top: 6px;">Save pricing</button>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
+              <summary class="portal-acc__summary">Leads &amp; activity <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">Performance at a glance, captured leads, and any automations on your account.</p>
+                <div class="owner-panel-inner">
+                  <div class="portal-mini-stats" id="analytics-stats">
+                    <div class="stat">Calls: <strong id="stat-calls">—</strong></div>
+                    <div class="stat">Messages: <strong id="stat-messages">—</strong></div>
+                  </div>
+
+                  <h3 style="margin:18px 0 8px; font-size:15px; font-weight:600;">Leads</h3>
+                  <p class="help" style="margin-bottom:10px;">Contacts captured from conversations.</p>
+                  <div id="portal-leads-empty" class="help" style="margin:12px 0;">No leads captured yet.</div>
+                  <div class="portal-table-wrap">
+                    <table id="portal-leads-table" style="display:none; width:100%; border-collapse:collapse; margin-top:0;">
+                      <thead>
+                        <tr style="text-align:left; border-bottom:1px solid var(--border);">
+                          <th class="help" style="padding:6px 8px;">Name</th>
+                          <th class="help" style="padding:6px 8px;">Phone</th>
+                          <th class="help" style="padding:6px 8px;">Issue</th>
+                          <th class="help" style="padding:6px 8px;">Priority</th>
+                          <th class="help" style="padding:6px 8px;">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody id="portal-leads-body"></tbody>
+                    </table>
+                  </div>
+
+                  <section id="workflows-section" style="display:none; margin-top:22px;">
+                    <h3 style="margin:0 0 8px; font-size:15px; font-weight:600;">Automations</h3>
+                    <p class="help" style="margin-bottom:10px;">Workflows your provider has enabled.</p>
+                    <div id="portal-wf-empty" class="help" style="margin:12px 0;">No workflows configured.</div>
+                    <div class="portal-table-wrap">
+                      <table id="portal-wf-table" style="display:none; width:100%; border-collapse:collapse; margin-top:0;">
+                        <thead>
+                          <tr style="text-align:left; border-bottom:1px solid var(--border);">
+                            <th class="help" style="padding:6px 8px;">Name</th>
+                            <th class="help" style="padding:6px 8px;">Trigger</th>
+                            <th class="help" style="padding:6px 8px;">Steps</th>
+                            <th class="help" style="padding:6px 8px;">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody id="portal-wf-body"></tbody>
+                      </table>
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc" id="billing-section" style="display:none;">
+              <summary class="portal-acc__summary">Subscription &amp; billing <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">Your plan and how you pay—same information, tucked away until you need it.</p>
+                <div class="owner-panel-inner">
+                  <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0;">
+                    <div class="stat">Plan: <strong id="bill-plan">—</strong></div>
+                    <div class="stat">Status: <strong id="bill-status">—</strong></div>
+                    <div class="stat">Price: <strong id="bill-price">—</strong></div>
+                    <div class="stat">Frequency: <strong id="bill-frequency">—</strong></div>
+                    <div class="stat">Next billing: <strong id="bill-next">—</strong></div>
+                    <div class="stat">Payment: <strong id="bill-payment">—</strong></div>
+                  </div>
+                  <div id="bill-stripe-actions" style="display:none; margin-top:14px;">
+                    <div id="bill-checkout-area" style="display:none; margin-bottom:10px;">
+                      <button type="button" id="bill-pay-now" style="width:100%; padding:12px; font-size:15px;">Pay now</button>
+                    </div>
+                    <button type="button" id="bill-manage-billing" style="width:100%;">Manage billing &amp; payment methods</button>
+                    <div id="bill-stripe-msg" class="help" style="margin-top:6px;"></div>
+                  </div>
+                  <div id="bill-manual-actions" style="display:none; margin-top:14px;">
+                    <h3 style="font-size:15px;">Update payment method</h3>
+                    <div class="row" style="gap:8px;">
+                      <select id="bill-card-brand" class="sm" style="min-width:110px;">
+                        <option value="">Select</option>
+                        <option value="visa">Visa</option>
+                        <option value="mastercard">Mastercard</option>
+                        <option value="amex">Amex</option>
+                        <option value="discover">Discover</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <input type="text" id="bill-card-last4" class="sm" maxlength="4" placeholder="Last 4 digits" style="max-width:120px;" />
+                      <button type="button" id="bill-update-payment">Update</button>
+                    </div>
+                    <div id="bill-status-msg" class="help" style="margin-top:6px;"></div>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
-        </section>
-
-        <!-- Leads -->
-        <section class="owner-panel" id="leads-section">
-          <h2>Leads</h2>
-          <p class="help">Contacts and leads automatically captured from calls.</p>
-          <div id="portal-leads-empty" class="help" style="margin:12px 0;">No leads captured yet.</div>
-          <table id="portal-leads-table" style="display:none; width:100%; border-collapse:collapse; margin-top:12px;">
-            <thead>
-              <tr style="text-align:left; border-bottom:1px solid var(--border);">
-                <th class="help" style="padding:6px 8px;">Name</th>
-                <th class="help" style="padding:6px 8px;">Phone</th>
-                <th class="help" style="padding:6px 8px;">Issue</th>
-                <th class="help" style="padding:6px 8px;">Priority</th>
-                <th class="help" style="padding:6px 8px;">Date</th>
-              </tr>
-            </thead>
-            <tbody id="portal-leads-body"></tbody>
-          </table>
-        </section>
-
-        <!-- Workflows (visible when admin enables owner editing) -->
-        <section class="owner-panel" id="workflows-section" style="display:none;">
-          <h2>Automations</h2>
-          <p class="help">Active workflow automations for your business.</p>
-          <div id="portal-wf-empty" class="help" style="margin:12px 0;">No workflows configured.</div>
-          <table id="portal-wf-table" style="display:none; width:100%; border-collapse:collapse; margin-top:12px;">
-            <thead>
-              <tr style="text-align:left; border-bottom:1px solid var(--border);">
-                <th class="help" style="padding:6px 8px;">Name</th>
-                <th class="help" style="padding:6px 8px;">Trigger</th>
-                <th class="help" style="padding:6px 8px;">Steps</th>
-                <th class="help" style="padding:6px 8px;">Status</th>
-              </tr>
-            </thead>
-            <tbody id="portal-wf-body"></tbody>
-          </table>
-        </section>
+        </div>
       </main>
 
       <footer class="owner-footer">
@@ -484,11 +815,123 @@
       let tenantName = "";
       let forwardingProfiles = [];
       let pricingItems = [];
+      let recentLeadsForOverview = [];
+      let portalLeadTotalCount = 0;
+      let liveSummaryTimer = null;
 
       function escapeHtml(s) {
         const d = document.createElement("div");
         d.textContent = s;
         return d.innerHTML;
+      }
+
+      function truncate(str, max) {
+        const t = (str || "").trim();
+        if (t.length <= max) return t;
+        return t.slice(0, max - 1).trim() + "…";
+      }
+
+      function refreshLiveSummary() {
+        const greetEl = $("preview-greeting");
+        const transfersEl = $("preview-transfers");
+        const svcLine = $("preview-services-line");
+        const notesEl = $("preview-pricing-notes");
+        const leadsPill = $("preview-leads-pill");
+        const oc = $("overview-stat-contacts");
+        const os = $("overview-stat-services");
+        if (oc) oc.textContent = String(forwardingProfiles.length);
+        if (os) os.textContent = String(pricingItems.length);
+
+        const g = $("p-greeting") ? $("p-greeting").value.trim() : "";
+        if (greetEl) {
+          const shown = g ? truncate(g, 320) : "";
+          greetEl.textContent = shown || "You haven’t set a greeting yet. Add one under Greeting & tone.";
+        }
+
+        if (transfersEl) {
+          if (!forwardingProfiles.length) {
+            transfersEl.innerHTML = "<li>No transfer contacts yet—add your team under Transfer contacts.</li>";
+          } else {
+            transfersEl.innerHTML = forwardingProfiles.map((p) =>
+              `<li><strong>${escapeHtml(p.name)}</strong> · ${escapeHtml(p.number)}${p.role ? ` <span style="color:var(--muted)">(${escapeHtml(p.role)})</span>` : ""}</li>`
+            ).join("");
+          }
+        }
+
+        if (svcLine) {
+          if (!pricingItems.length) {
+            svcLine.textContent = "No services or products listed yet.";
+          } else {
+            const names = pricingItems.slice(0, 4).map((i) => i.name).filter(Boolean);
+            const extra = pricingItems.length > 4 ? ` +${pricingItems.length - 4} more` : "";
+            svcLine.textContent = `${pricingItems.length} on file: ${names.join(", ")}${extra}`;
+          }
+        }
+
+        if (notesEl) {
+          const n = $("price-notes") ? $("price-notes").value.trim() : "";
+          notesEl.textContent = n || "No extra notes for callers.";
+        }
+
+        if (leadsPill) {
+          const n = portalLeadTotalCount;
+          if (n === 0) {
+            leadsPill.textContent = "Ready — we’ll capture leads from calls";
+            leadsPill.className = "portal-live-pill portal-live-pill--muted";
+          } else {
+            leadsPill.textContent = `${n} lead${n === 1 ? "" : "s"} captured`;
+            leadsPill.className = "portal-live-pill";
+          }
+        }
+
+        updateReceptionistStatus();
+      }
+
+      function updateReceptionistStatus() {
+        const wrap = $("dash-status");
+        const label = $("dash-status-text");
+        if (!wrap || !label) return;
+        const g = $("p-greeting") ? $("p-greeting").value.trim() : "";
+        const hasGreeting = g.length >= 8;
+        const hasTransfers = forwardingProfiles.length > 0;
+        wrap.classList.remove("portal-status--live", "portal-status--warm", "portal-status--idle");
+        if (hasGreeting && hasTransfers) {
+          wrap.classList.add("portal-status--live");
+          label.textContent = "Live — ready for callers";
+        } else if (hasGreeting) {
+          wrap.classList.add("portal-status--warm");
+          label.textContent = "Almost there — add a transfer contact";
+        } else {
+          wrap.classList.add("portal-status--warm");
+          label.textContent = "Finish your greeting to go live";
+        }
+      }
+
+      function scheduleLiveSummary() {
+        if (liveSummaryTimer) clearTimeout(liveSummaryTimer);
+        liveSummaryTimer = setTimeout(() => { refreshLiveSummary(); liveSummaryTimer = null; }, 120);
+      }
+
+      function renderOverviewActivity() {
+        const list = $("overview-activity-list");
+        const empty = $("overview-activity-empty");
+        if (!list || !empty) return;
+        const leads = recentLeadsForOverview || [];
+        if (!leads.length) {
+          list.hidden = true;
+          list.innerHTML = "";
+          empty.hidden = false;
+          return;
+        }
+        empty.hidden = true;
+        list.hidden = false;
+        list.innerHTML = leads.map((lead) => {
+          const date = lead.createdAt ? new Date(lead.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+          const title = lead.name || lead.phone || "New lead";
+          const sub = [lead.issue, lead.priority && lead.priority !== "normal" ? lead.priority : ""].filter(Boolean).join(" · ");
+          const detail = sub ? ` <span class="help">— ${escapeHtml(sub)}</span>` : "";
+          return `<li><span>${escapeHtml(title)}${detail}</span><span class="help" style="white-space:nowrap;">${escapeHtml(date)}</span></li>`;
+        }).join("");
       }
 
       async function apiFetch(url, opts = {}) {
@@ -600,6 +1043,7 @@
           loadPortalLeads(),
           loadPortalWorkflows(),
         ]);
+        refreshLiveSummary();
       }
 
       // ── Billing ──
@@ -717,6 +1161,7 @@
           const data = await apiFetch("/api/admin/forwarding-profiles");
           forwardingProfiles = data.profiles || [];
           renderForwarding();
+          refreshLiveSummary();
         } catch (err) {
           console.error("loadForwarding:", err);
         }
@@ -759,6 +1204,7 @@
             body: JSON.stringify({ profiles: forwardingProfiles }),
           });
           renderForwarding();
+          refreshLiveSummary();
         } catch (err) {
           console.error("saveForwarding:", err);
         }
@@ -772,6 +1218,7 @@
           $("p-system").value = data.systemPreamble || "";
           $("p-voice").value = data.voicePrompt || "";
           $("p-policy").value = data.policyPrompt || "";
+          refreshLiveSummary();
         } catch (err) {
           console.error("loadPrompts:", err);
         }
@@ -791,6 +1238,7 @@
             }),
           });
           $("prompt-status").textContent = "Saved!";
+          refreshLiveSummary();
           setTimeout(() => { $("prompt-status").textContent = ""; }, 3000);
         } catch (err) {
           $("prompt-status").textContent = "Save failed: " + err.message;
@@ -804,6 +1252,7 @@
           pricingItems = data.items || [];
           $("price-notes").value = data.notes || "";
           renderPricing();
+          refreshLiveSummary();
         } catch (err) {
           console.error("loadPricing:", err);
         }
@@ -831,6 +1280,7 @@
         if (!name || !price) return;
         pricingItems.push({ id: crypto.randomUUID(), type, name, price, description });
         renderPricing();
+        refreshLiveSummary();
         $("price-name").value = "";
         $("price-amount").value = "";
         $("price-desc").value = "";
@@ -839,6 +1289,7 @@
       function removePricing(idx) {
         pricingItems.splice(idx, 1);
         renderPricing();
+        refreshLiveSummary();
       }
 
       async function savePricing() {
@@ -848,6 +1299,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ items: pricingItems, notes: $("price-notes").value }),
           });
+          refreshLiveSummary();
         } catch (err) {
           console.error("savePricing:", err);
         }
@@ -857,8 +1309,16 @@
       async function loadAnalytics() {
         try {
           const data = await apiFetch("/api/admin/analytics");
-          $("stat-calls").textContent = data.callCount ?? "—";
-          $("stat-messages").textContent = data.callerMessageCount ?? "—";
+          const calls = data.callCount ?? "—";
+          const msgs = data.callerMessageCount ?? "—";
+          const sc = $("stat-calls");
+          const sm = $("stat-messages");
+          if (sc) sc.textContent = calls;
+          if (sm) sm.textContent = msgs;
+          const oc = $("overview-stat-calls");
+          const om = $("overview-stat-messages");
+          if (oc) oc.textContent = calls;
+          if (om) om.textContent = msgs;
         } catch (err) {
           console.error("loadAnalytics:", err);
         }
@@ -877,6 +1337,10 @@
         try {
           const data = await apiFetch("/api/admin/leads?limit=100");
           const leads = data.leads || [];
+          portalLeadTotalCount = leads.length;
+          recentLeadsForOverview = leads.slice(0, 5);
+          renderOverviewActivity();
+          refreshLiveSummary();
           const empty = $("portal-leads-empty");
           const table = $("portal-leads-table");
           const body = $("portal-leads-body");
@@ -902,6 +1366,10 @@
           }).join("");
         } catch (err) {
           console.error("loadPortalLeads:", err);
+          portalLeadTotalCount = 0;
+          recentLeadsForOverview = [];
+          renderOverviewActivity();
+          refreshLiveSummary();
         }
       }
 
@@ -959,6 +1427,11 @@
         $("bill-update-payment").addEventListener("click", updatePaymentMethod);
         $("bill-manage-billing").addEventListener("click", openBillingPortal);
         $("bill-pay-now").addEventListener("click", payNow);
+
+        ["p-greeting", "p-system", "p-voice", "p-policy", "price-notes"].forEach((id) => {
+          const el = $(id);
+          if (el) el.addEventListener("input", scheduleLiveSummary);
+        });
 
         // Auto-refresh
         setInterval(loadAnalytics, 30000);
