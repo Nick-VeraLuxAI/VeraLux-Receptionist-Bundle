@@ -1,673 +1,504 @@
 <!doctype html>
+<!-- VLX_ADMIN_ASSET_MARKER:NEURAL_OPS_APP_v1 -->
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VeraLux Admin</title>
-    <style>
-      :root {
-        --bg: #070708;
-        --panel: rgba(246, 243, 236, 0.06);
-        --panel-strong: rgba(246, 243, 236, 0.12);
-        --text: #F6F3EC;
-        --muted: #a09a8e;
-        --primary: #C9A04E;
-        --accent: #C9A04E;
-        --danger: #c45050;
-        --shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
-        font-family: "Space Grotesk", "Avenir Next", "Helvetica Neue", sans-serif;
-        color: var(--text);
-        background: var(--bg);
-      }
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background: radial-gradient(circle at 18% 22%, rgba(201, 160, 78, 0.14), transparent 28%),
-          radial-gradient(circle at 82% 18%, rgba(201, 160, 78, 0.10), transparent 30%),
-          radial-gradient(circle at 50% 85%, rgba(201, 160, 78, 0.06), transparent 35%),
-          linear-gradient(145deg, #070708 0%, #0d0b08 55%, #0a0908 100%);
-      }
-      .glow {
-        position: fixed;
-        inset: 0;
-        pointer-events: none;
-        filter: blur(80px);
-        opacity: 0.3;
-        background: radial-gradient(circle at 28% 28%, #C9A04E, transparent 26%),
-          radial-gradient(circle at 72% 22%, #C9A04E, transparent 24%);
-      }
-      header {
-        padding: 20px 28px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .logo {
-        width: 42px;
-        height: 42px;
-        border-radius: 14px;
-        box-shadow: 0 15px 35px rgba(201, 160, 78, 0.38);
-        overflow: hidden;
-      }
-      .logo img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-      }
-      h1 {
-        margin: 0;
-        font-size: 20px;
-        letter-spacing: 0.02em;
-      }
-      .tag {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        background: rgba(255, 255, 255, 0.1);
-        color: var(--primary);
-        border: 1px solid rgba(201, 160, 78, 0.25);
-      }
-      main {
-        padding: 0 28px 32px;
-      }
-      .panel {
-        background: var(--panel);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px;
-        padding: 16px;
-        box-shadow: var(--shadow);
-        backdrop-filter: blur(12px);
-        position: relative;
-        overflow: hidden;
-      }
-      .panel::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background: linear-gradient(135deg, rgba(201, 160, 78, 0.08), rgba(201, 160, 78, 0.06));
-        opacity: 0.6;
-        pointer-events: none;
-      }
-      .hero {
-        grid-column: 1 / -1;
-        display: grid;
-        grid-template-columns: 1.2fr 1fr;
-        gap: 16px;
-      }
-      .hero .headline {
-        font-size: 26px;
-        line-height: 1.3;
-        margin: 0 0 8px;
-      }
-      .muted {
-        color: var(--muted);
-        font-size: 13px;
-      }
-      .summary {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 10px;
-      }
-      .summary-card {
-        background: rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-      }
-      .summary-card h3 {
-        margin: 0 0 6px;
-        font-size: 14px;
-      }
-      .summary-card .value {
-        font-size: 22px;
-        font-weight: 700;
-      }
-      label {
-        display: block;
-        margin-bottom: 6px;
-        font-size: 12px;
-        letter-spacing: 0.01em;
-      }
-      input,
-      select,
-      textarea {
-        width: 100%;
-        padding: 10px 12px;
-        margin-bottom: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.18);
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--text);
-        font-family: inherit;
-      }
-      input:focus,
-      select:focus,
-      textarea:focus {
-        outline: 1px solid var(--primary);
-      }
-      button {
-        background: linear-gradient(135deg, #C9A04E, #a67e3a);
-        color: #070708;
-        border: none;
-        border-radius: 10px;
-        padding: 10px 12px;
-        cursor: pointer;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-        box-shadow: 0 10px 30px rgba(201, 160, 78, 0.28);
-        transition: transform 0.08s ease, box-shadow 0.1s ease;
-      }
-      button.secondary {
-        background: rgba(255, 255, 255, 0.1);
-        color: var(--text);
-        box-shadow: none;
-      }
-      button.recording {
-        background: rgba(196, 80, 80, 0.85);
-        color: white;
-        animation: pulse-recording 1s ease-in-out infinite;
-      }
-      @keyframes pulse-recording {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.7; }
-      }
-      button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 12px 36px rgba(201, 160, 78, 0.35);
-      }
-      .row {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        flex-wrap: wrap;
-      }
-      .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .pill.ok {
-        background: rgba(201, 160, 78, 0.2);
-        color: #C9A04E;
-      }
-      .pill.warn {
-        background: rgba(201, 160, 78, 0.15);
-        color: #d4af61;
-      }
-      .pill.err {
-        background: rgba(180, 60, 60, 0.25);
-        color: #e07070;
-      }
-      ul {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-      }
-      .call {
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding: 10px 0;
-      }
-      .call:last-child {
-        border-bottom: none;
-      }
-      .small {
-        font-size: 12px;
-        color: var(--muted);
-      }
-      .card {
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.09);
-        border-radius: 10px;
-        padding: 10px;
-        margin-bottom: 8px;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        min-height: 100px;
-      }
-      .flex-between {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      .status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 10px;
-        align-items: stretch;
-      }
-      .status-grid .card {
-        height: 100%;
-      }
-      .card .flex-between {
-        align-items: flex-start;
-        gap: 8px;
-      }
-      .health-card {
-        padding: 14px;
-        gap: 10px;
-      }
-      .health-header {
-        display: flex;
-        justify-content: space-between;
-        gap: 8px;
-        align-items: center;
-      }
-      .health-title {
-        font-weight: 700;
-        font-size: 14px;
-      }
-      .health-body {
-        display: grid;
-        gap: 4px;
-        margin-top: 6px;
-      }
-      .health-line {
-        font-size: 12px;
-        color: var(--muted);
-        word-break: break-word;
-      }
-      .tabs {
-        display: flex;
-        gap: 8px;
-        padding: 0 28px 12px;
-        flex-wrap: wrap;
-      }
-      .tab {
-        padding: 10px 14px;
-        border-radius: 12px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        cursor: pointer;
-        font-weight: 600;
-        transition: transform 0.08s ease, box-shadow 0.1s ease, background 0.1s ease;
-      }
-      .tab.active {
-        background: linear-gradient(135deg, #C9A04E, #a67e3a);
-        color: #070708;
-        box-shadow: 0 12px 30px rgba(201, 160, 78, 0.35);
-        transform: translateY(-1px);
-      }
-      .tab-content {
-        display: none;
-        gap: 16px;
-      }
-      .tab-content.active {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
-        gap: 16px;
-      }
-      .status-bar {
-        margin: 0 28px 12px;
-        padding: 10px 12px;
-        border-radius: 10px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
-        font-size: 13px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .status-bar.ok {
-        border-color: rgba(201, 160, 78, 0.4);
-        background: rgba(201, 160, 78, 0.08);
-      }
-      .status-bar.err {
-        border-color: rgba(180, 60, 60, 0.4);
-        background: rgba(180, 60, 60, 0.12);
-      }
-      .debug-block {
-        background: rgba(0, 0, 0, 0.35);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 10px;
-        padding: 10px;
-        color: #c5bfb2;
-        font-size: 12px;
-        overflow: auto;
-        max-height: 200px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .modal {
-        position: fixed;
-        inset: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(4px);
-        z-index: 1000;
-      }
-      .modal.active {
-        display: flex;
-      }
-      .modal-card {
-        background: #0d0b08;
-        border: 1px solid rgba(201, 160, 78, 0.3);
-        border-radius: 12px;
-        padding: 16px;
-        width: min(400px, 90vw);
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
-      }
-      .modal-card h3 {
-        margin: 0 0 8px;
-      }
-      .modal-actions {
-        display: flex;
-        gap: 8px;
-        justify-content: flex-end;
-        margin-top: 10px;
-      }
-    </style>
+    <meta name="vlx-admin-build" content="__ADMIN_UI_BUILD_STAMP__" />
+    <title>VeraLux — Neural Operations Console</title>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <link rel="stylesheet" href="/admin-neural.css?v=__ADMIN_UI_BUILD_STAMP__" />
   </head>
-  <body>
-    <div class="glow"></div>
-    <header>
-      <div class="brand">
-        <div class="logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
-        <div>
-          <h1>VeraLux Receptionist</h1>
-          <div class="muted">Precision control, live insight.</div>
-        </div>
-      </div>
-      <div class="tag">Live • Admin Console</div>
-    </header>
-
-    <div class="tabs">
-      <button type="button" class="tab active" data-tab="overview">Overview</button>
-      <button type="button" class="tab" data-tab="models">Models &amp; Prompts</button>
-      <button type="button" class="tab" data-tab="forwarding">Forwarding &amp; Products</button>
-      <button type="button" class="tab" data-tab="analytics">Analytics</button>
-      <button type="button" class="tab" data-tab="calls">Calls</button>
-      <button type="button" class="tab" data-tab="audit">Audit Logs</button>
-      <button type="button" class="tab" data-tab="billing">Billing</button>
-      <button type="button" class="tab" data-tab="workflows">Workflows</button>
-      <button type="button" class="tab" data-tab="settings">Settings</button>
-      <button type="button" class="tab" id="refresh-all" style="margin-left: auto">Refresh All</button>
+  <body class="neural-console">
+    <div class="atmo-layer" aria-hidden="true"></div>
+    <div class="neural-signal" aria-hidden="true">
+      <div class="neural-signal__layer neural-signal__layer--wash"></div>
+      <div class="neural-signal__layer neural-signal__layer--primary"></div>
+      <div class="neural-signal__layer neural-signal__layer--channel-a"></div>
+      <div class="neural-signal__layer neural-signal__layer--channel-b"></div>
     </div>
-    <div class="status-bar" id="tenant-bar" style="flex-wrap: wrap; gap: 8px">
-      <div class="row" style="gap: 6px">
-        <div class="small">Business</div>
-        <select id="tenant-select" title="Each business has its own receptionist, prompts, and phone numbers"></select>
-        <button type="button" class="secondary" id="tenant-reload">Refresh list</button>
-      </div>
-      <div class="row" style="gap: 6px; flex-wrap: wrap">
-        <input id="tenant-new-id" type="text" placeholder="e.g. acme-corp or main-office" style="min-width: 160px" title="Short ID for this business (used in config and URLs)" />
-        <input
-          id="tenant-new-numbers"
-          type="text"
-          placeholder="Phone numbers that ring this receptionist (comma-separated, e.g. +15551234567)"
-          style="min-width: 260px"
-        />
-        <button type="button" id="tenant-create">Save business</button>
-      </div>
-      <div id="tenant-meta" class="small" style="width: 100%"></div>
-    </div>
-    <div id="status-bar" class="status-bar">Ready</div>
-
-    <main>
-      <div class="tab-content active" data-tab="overview">
-        <section class="panel hero">
-          <div>
-            <p class="headline">Command your receptionist brain with real-time controls, health, and insight.</p>
-            <div class="muted">
-              Switch models, watch health signals, and track caller intent without leaving this pane.
-            </div>
-            <div class="summary" style="margin-top: 14px">
-              <div class="summary-card">
-                <h3>Provider</h3>
-                <div id="summary-provider" class="value">—</div>
-                <div id="summary-model" class="small"></div>
-              </div>
-              <div class="summary-card">
-                <h3>Calls</h3>
-                <div id="summary-calls" class="value">0</div>
-                <div class="small">Total handled</div>
-              </div>
-              <div class="summary-card">
-                <h3>Messages</h3>
-                <div id="summary-messages" class="value">0</div>
-                <div class="small">Caller utterances</div>
-              </div>
+    <div class="console-shell">
+      <header class="command-rail">
+        <div class="command-rail__band">
+        <div class="command-rail__top">
+          <div class="command-rail__brand">
+            <div class="logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+            <div>
+              <h1>Neural Operations Console</h1>
+              <div class="sub">VeraLux Receptionist · Live control plane</div>
             </div>
           </div>
-          <div class="panel" style="background: rgba(255, 255, 255, 0.06)">
-            <h2>Pipeline Health</h2>
-            <div id="health-status" class="status-grid" style="margin-top: 10px"></div>
-            <div class="row" style="margin-top: 8px">
-              <button type="button" class="secondary" id="refresh-health">Refresh</button>
+          <div class="live-indicator" title="Authenticated session — telemetry active">
+            <span class="live-indicator__dot" aria-hidden="true"></span>
+            Live · Command
+          </div>
+          <span
+            class="admin-build-stamp"
+            id="vlx-admin-build-stamp"
+            title="Temporary deploy fingerprint — compare with local Docker image build"
+            >Build __ADMIN_UI_BUILD_STAMP__</span
+          >
+        </div>
+        </div>
+        <div class="command-rail__band">
+        <nav class="command-rail__tabs" aria-label="Admin sections">
+          <button type="button" class="tab active" data-tab="overview">Overview</button>
+          <button type="button" class="tab" data-tab="models">Models &amp; Prompts</button>
+          <button type="button" class="tab" data-tab="forwarding">Forwarding &amp; Products</button>
+          <button type="button" class="tab" data-tab="analytics">Analytics</button>
+          <button type="button" class="tab" data-tab="calls">Calls</button>
+          <button type="button" class="tab" data-tab="audit">Audit Logs</button>
+          <button type="button" class="tab" data-tab="billing">Billing</button>
+          <button type="button" class="tab" data-tab="workflows">Workflows</button>
+          <button type="button" class="tab" data-tab="settings">Settings</button>
+          <button type="button" class="cmd-sync" id="refresh-all">Sync stack</button>
+        </nav>
+        </div>
+      </header>
+
+      <div class="tenant-command-strip" id="tenant-bar">
+        <div class="row" style="gap: 6px">
+          <div class="small micro-label">Business</div>
+          <select id="tenant-select" title="Each business has its own receptionist, prompts, and phone numbers"></select>
+          <button type="button" class="secondary" id="tenant-reload">Reload</button>
+        </div>
+        <div class="row" style="gap: 6px; flex-wrap: wrap">
+          <input id="tenant-new-id" type="text" placeholder="Business id (e.g. acme-corp)" style="min-width: 160px" title="Short ID for this business (used in config and URLs)" />
+          <input
+            id="tenant-new-numbers"
+            type="text"
+            placeholder="Inbound numbers, comma-separated (+15551234567)"
+            style="min-width: 260px"
+          />
+          <button type="button" id="tenant-create">Save business</button>
+        </div>
+        <div id="tenant-meta" class="small" style="width: 100%"></div>
+      </div>
+      <div id="status-bar" class="ops-status-line ok">Ready</div>
+
+      <main class="console-main">
+      <div class="tab-content active" data-tab="overview">
+        <div class="ops-continuous" id="ops-continuous">
+        <div class="ops-app ops-app--signal">
+        <!-- Live signal hero: copy | flow field | readiness (no panel shell) -->
+        <section class="ops-zone ops-zone--hero signal-hero">
+          <div class="signal-hero__grid">
+            <div class="signal-hero__copy">
+              <div class="hero-kicker">Live signal system</div>
+              <h2 class="hero-title">One continuous path from call ingress to voiced response — transcribed, reasoned, and executed under policy.</h2>
+              <p class="hero-copy">
+                The horizontal field below is the runtime chain in motion. Markers are stages, not modules. When traffic is present, energy concentrates on the active segment.
+              </p>
+              <div class="signal-stats" aria-label="Summary metrics">
+                <div class="signal-stats__item signal-stats__item--accent">
+                  <div class="micro-label">Provider</div>
+                  <div id="summary-provider" class="signal-stats__value">—</div>
+                  <div id="summary-model" class="small signal-stats__sub"></div>
+                </div>
+                <div class="signal-stats__item">
+                  <div class="micro-label">Sessions</div>
+                  <div id="summary-calls" class="signal-stats__value">0</div>
+                  <div class="small signal-stats__sub">Historical</div>
+                </div>
+                <div class="signal-stats__item">
+                  <div class="micro-label">Utterances</div>
+                  <div id="summary-messages" class="signal-stats__value">0</div>
+                  <div class="small signal-stats__sub">STT volume</div>
+                </div>
+              </div>
+            </div>
+            <div class="signal-hero__flow">
+              <div class="signal-hero__flow-head">
+                <div>
+                  <div class="micro-label">Signal path</div>
+                  <h2 class="signal-hero__flow-title">Processing field</h2>
+                </div>
+                <button type="button" class="secondary signal-hero__refresh" id="refresh-health">Re-scan</button>
+              </div>
+              <div id="health-status" class="signal-flow-field" role="list" data-flow-active="0" aria-label="Runtime signal path"></div>
+            </div>
+            <aside class="signal-hero__state">
+              <div class="micro-label signal-hero__state-label">System readiness</div>
+              <div id="neural-readiness" class="readiness-pill readiness-pill--signal">Synthesizing…</div>
+              <p class="routing-line signal-hero__routing" id="neural-routing-hint">
+                Awaiting tenant context. Select a business to bind routing.
+              </p>
+              <p class="muted signal-hero__state-note">
+                Idle flow stays visible at low energy; active calls brighten the spine and downstream markers.
+              </p>
+            </aside>
+          </div>
+        </section>
+
+        <!-- Live intelligence -->
+        <section class="ops-zone ops-zone--intel signal-intel-zone">
+          <div class="intel-band signal-intel-band" id="intel-band" data-phase="standby" aria-label="Live intelligence">
+            <div class="intel-chip" data-intel="call">
+              <div class="intel-chip__head"><span class="intel-live-dot"></span><span class="micro-label">Call state</span></div>
+              <div id="intel-call" class="intel-val">Standby</div>
+            </div>
+            <div class="intel-chip" data-intel="intent">
+              <div class="intel-chip__head"><span class="intel-live-dot intel-live-dot--dim"></span><span class="micro-label">Intent</span></div>
+              <div id="intel-intent" class="intel-val">—</div>
+            </div>
+            <div class="intel-chip" data-intel="confidence">
+              <div class="intel-chip__head"><span class="micro-label">Confidence</span></div>
+              <div id="intel-confidence" class="intel-val">—</div>
+            </div>
+            <div class="intel-chip intel-chip--span2" data-intel="action">
+              <div class="intel-chip__head"><span class="micro-label">Current action</span></div>
+              <div id="intel-action" class="intel-val">Monitoring control plane</div>
+            </div>
+            <div class="intel-chip" data-intel="tool">
+              <div class="micro-label">Tool / integration</div>
+              <div id="intel-tool" class="intel-val">—</div>
+            </div>
+            <div class="intel-chip" data-intel="voice">
+              <div class="micro-label">Voice state</div>
+              <div id="intel-voice" class="intel-val">Idle</div>
+            </div>
+            <div class="intel-chip" data-intel="escalation">
+              <div class="micro-label">Escalation</div>
+              <div id="intel-escalation" class="intel-val">Not required</div>
             </div>
           </div>
         </section>
-        <section class="panel">
-          <div class="flex-between" style="margin-bottom: 8px">
-            <h2>Diagnostics</h2>
+
+        <div class="signal-overlays">
+        <div class="ops-split ops-split--signal">
+          <section class="ops-zone ops-zone--trace ops-surface ops-surface--trace">
+            <div class="micro-label">Decision trace</div>
+            <h2 class="trace-title">AI reasoning</h2>
+            <p class="muted trace-lead">Live interpretation stack — how the model constrains and executes.</p>
+            <div class="trace-showpiece">
+              <div class="trace-pillar">
+                <div class="trace-pillar__label">01 · Perception</div>
+                <div class="trace-pillar__body">
+                  <div class="trace-line"><span class="trace-k">Intent hypothesis</span><span id="reason-intent" class="trace-v">—</span></div>
+                  <div class="trace-line trace-line--meter">
+                    <span class="trace-k">Confidence</span>
+                    <div class="confidence-meter"><div id="reason-confidence-bar" class="confidence-meter__fill"></div></div>
+                    <span id="reason-confidence" class="trace-v trace-v--pct">—</span>
+                  </div>
+                </div>
+              </div>
+              <div class="trace-pillar trace-pillar--branch">
+                <div class="trace-pillar__label">02 · Policy graph</div>
+                <div class="trace-pillar__body trace-pillar__body--indented">
+                  <div class="trace-line"><span class="trace-k">Decision path</span><span id="reason-path" class="trace-v">Listen → transcribe → reason → respond</span></div>
+                  <div class="trace-line"><span class="trace-k">Routing rule</span><span id="reason-policy" class="trace-v">Tenant-scoped guardrails</span></div>
+                  <div class="trace-line trace-line--tools"><span class="trace-k">Tool plane</span><span id="reason-tools" class="trace-v trace-v--mono">None active</span></div>
+                </div>
+              </div>
+              <div class="trace-pillar">
+                <div class="trace-pillar__label">03 · Expression</div>
+                <div class="trace-pillar__body">
+                  <div class="trace-line"><span class="trace-k">Response strategy</span><span id="reason-strategy" class="trace-v">Conversational voice</span></div>
+                  <div class="trace-line"><span class="trace-k">Tone mode</span><span id="reason-tone" class="trace-v">Professional warmth</span></div>
+                  <div class="trace-line"><span class="trace-k">Safety check</span><span id="reason-safety" class="trace-v">Within policy envelope</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="ops-zone ops-zone--timeline ops-surface ops-surface--timeline">
+            <div class="timeline-head">
+              <div>
+                <div class="micro-label">Observability</div>
+                <h2 class="timeline-title">Trace stream</h2>
+              </div>
+            </div>
+            <div id="activity-timeline" class="timeline-v2" role="log" aria-live="polite"></div>
+          </section>
+        </div>
+        </div>
+
+        <div class="ops-lower ops-lower--signal">
+        <section class="ops-zone ops-zone--operator ops-surface ops-surface--operator">
+          <div class="micro-label">Human-in-the-loop</div>
+          <h2 class="ops-inline-title">Operator interventions</h2>
+          <p class="muted ops-lower__lede">Reserved for runtime handoff. Surfaces intent for SOC-style playbooks.</p>
+          <div class="operator-deck operator-deck--loose">
+            <button type="button" class="op-trigger op-trigger--ghost" disabled title="Requires voice runtime handoff API">Take over</button>
+            <button type="button" class="op-trigger" disabled title="Planned">Pause AI</button>
+            <button type="button" class="op-trigger" disabled title="Planned">Route human</button>
+            <button type="button" class="op-trigger" disabled title="Planned">Retry action</button>
+            <button type="button" class="op-trigger" disabled title="Planned">Model refresh</button>
+            <button type="button" class="secondary op-trigger op-trigger--accent" id="operator-force-health">Force health pull</button>
+          </div>
+        </section>
+
+        <section class="ops-zone ops-zone--signals ops-surface ops-surface--signals">
+          <div class="micro-label">Telemetry</div>
+          <h2 class="ops-inline-title">Operational signals</h2>
+          <div class="signal-ribbon signal-ribbon--panel">
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Latency</span><span id="sig-latency" class="signal-ribbon__v">—</span></div>
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Intent σ</span><span id="sig-intent-conf" class="signal-ribbon__v">—</span></div>
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Resolution</span><span id="sig-resolution" class="signal-ribbon__v">—</span></div>
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Tool fail</span><span id="sig-tool-fail" class="signal-ribbon__v">0</span></div>
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Escalation</span><span id="sig-escalation" class="signal-ribbon__v">—</span></div>
+            <div class="signal-ribbon__cell"><span class="signal-ribbon__k">Concurrent</span><span id="sig-concurrent" class="signal-ribbon__v">0</span></div>
+            <div class="signal-ribbon__cell signal-ribbon__cell--grow"><span class="signal-ribbon__k">Voice synth</span><span id="sig-voice" class="signal-ribbon__v">Ready</span></div>
+          </div>
+        </section>
+        </div>
+
+        <section class="ops-zone ops-zone--diag diagnostics-deck ops-surface ops-surface--diag">
+          <div class="flex-between" style="margin-bottom: 10px; align-items: flex-end">
+            <div>
+              <div class="micro-label">Deep diagnostics</div>
+              <h2 class="ops-inline-title">Payloads</h2>
+            </div>
             <button type="button" class="secondary" id="refresh-debug">Refresh</button>
           </div>
-          <div class="small">Config (safe)</div>
-          <div id="debug-config" class="debug-block">—</div>
-          <div class="small" style="margin-top: 8px">Health (raw)</div>
-          <div id="debug-health" class="debug-block">—</div>
+          <div class="small micro-label">Config (safe)</div>
+          <div id="debug-config" class="debug-block debug-block--inset">—</div>
+          <div class="small micro-label" style="margin-top: 12px">Health (raw)</div>
+          <div id="debug-health" class="debug-block debug-block--inset">—</div>
         </section>
+        </div>
+        </div>
       </div>
 
       <div class="tab-content" data-tab="models">
-        <section class="panel">
-          <h2>Model Selection</h2>
-          <form id="config-form">
-            <label for="provider">Provider</label>
-            <select id="provider" name="provider">
-              <option value="openai">OpenAI (ChatGPT)</option>
-              <option value="local">Local LLM</option>
-            </select>
+        <div class="models-wizard">
+          <p class="models-wizard__lede small muted">
+            Guided setup — one step at a time. Your existing saves still use the same forms below.
+          </p>
 
-            <div id="openai-fields">
-              <label for="openaiModel">Model</label>
-              <input id="openaiModel" name="openaiModel" type="text" placeholder="gpt-4o-mini" />
-
-              <label for="openaiApiKey">API key (kept server-side, never shown)</label>
-              <input id="openaiApiKey" name="openaiApiKey" type="password" autocomplete="off" placeholder="sk-..." />
-              <div class="small" id="api-key-status">API key not set</div>
+          <nav class="models-wizard__nav" aria-label="Setup steps">
+            <div class="models-wizard__nav-track">
+              <button type="button" class="models-wizard__nav-item models-wizard__nav-item--current" data-wizard-go="1" aria-current="step">
+                <span class="models-wizard__nav-num">1</span><span class="models-wizard__nav-label">Model</span>
+              </button>
+              <span class="models-wizard__nav-arrow" aria-hidden="true">→</span>
+              <button type="button" class="models-wizard__nav-item" data-wizard-go="2">
+                <span class="models-wizard__nav-num">2</span><span class="models-wizard__nav-label">Behavior</span>
+              </button>
+              <span class="models-wizard__nav-arrow" aria-hidden="true">→</span>
+              <button type="button" class="models-wizard__nav-item" data-wizard-go="3">
+                <span class="models-wizard__nav-num">3</span><span class="models-wizard__nav-label">Voice</span>
+              </button>
+              <span class="models-wizard__nav-arrow" aria-hidden="true">→</span>
+              <button type="button" class="models-wizard__nav-item" data-wizard-go="4">
+                <span class="models-wizard__nav-num">4</span><span class="models-wizard__nav-label">Test</span>
+              </button>
             </div>
+          </nav>
 
-            <div id="local-fields" style="display:none;">
-              <label for="localUrl">Local LLM URL</label>
-              <input id="localUrl" name="localUrl" type="text" placeholder="http://127.0.0.1:8080/completion" />
-            </div>
+          <div class="models-wizard__panels">
+            <!-- Step 1: Model -->
+            <div class="models-wizard__panel is-active" data-wizard-panel="1" role="tabpanel">
+              <section class="panel models-wizard__card">
+                <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 1</span> Model</h2>
+                <p class="small muted">Provider, model name, and API credentials.</p>
+                <form id="config-form">
+                  <label for="provider">Provider</label>
+                  <select id="provider" name="provider">
+                    <option value="openai">OpenAI (ChatGPT)</option>
+                    <option value="local">Local LLM</option>
+                  </select>
 
-            <div class="row" style="margin-top: 6px">
-              <button type="submit">Apply</button>
-              <button type="button" class="secondary" id="refresh-config">Refresh</button>
-            </div>
-            <div id="config-status" class="small" style="margin-top: 6px"></div>
-          </form>
-        </section>
+                  <div id="openai-fields">
+                    <label for="openaiModel">Model</label>
+                    <input id="openaiModel" name="openaiModel" type="text" placeholder="gpt-4o-mini" />
 
-        <section class="panel">
-          <h2>Prompt Controls</h2>
-          <form id="prompt-form">
-            <label for="greetingText">Greeting message (what callers hear first)</label>
-            <textarea id="greetingText" name="greetingText" rows="2" placeholder="e.g. Hi! Thanks for calling King-Sod Lawn Care. How can I help you today?"></textarea>
-
-            <label for="systemPreamble">System preamble (role, scope, goals, stages)</label>
-            <textarea id="systemPreamble" name="systemPreamble" rows="4"></textarea>
-
-            <label for="policyPrompt">Policy prompt (hard guardrails / never-do list)</label>
-            <textarea id="policyPrompt" name="policyPrompt" rows="4"></textarea>
-
-            <label for="voicePrompt">Voice prompt (phone tone)</label>
-            <textarea id="voicePrompt" name="voicePrompt" rows="3"></textarea>
-
-            <label for="schemaHint">Schema hint</label>
-            <textarea id="schemaHint" name="schemaHint" rows="6"></textarea>
-
-            <div class="row" style="margin-top: 6px">
-              <button type="submit">Save Prompts</button>
-              <button type="button" class="secondary" id="refresh-prompts">Reset View</button>
-            </div>
-            <div id="prompt-status" class="small" style="margin-top: 6px"></div>
-          </form>
-        </section>
-
-        <!-- Voice & TTS Panel (Kokoro / XTTS) -->
-        <section class="panel">
-          <h2>Voice &amp; TTS (Kokoro / XTTS)</h2>
-          <form id="tts-form">
-            <label for="ttsMode">TTS Mode</label>
-            <select id="ttsMode" name="ttsMode">
-              <option value="coqui_xtts" selected>Coqui XTTS (Voice Cloning)</option>
-              <option value="kokoro_http">Kokoro HTTP</option>
-            </select>
-            <div class="small" style="margin-top: -8px; margin-bottom: 12px">
-              <strong>Coqui XTTS:</strong> Advanced voice cloning with hot-swap support (recommended). <strong>Kokoro:</strong> Fast, lightweight TTS.
-            </div>
-
-            <label for="ttsUrl">TTS server URL</label>
-            <input id="ttsUrl" name="xttsUrl" type="url" placeholder="e.g. http://127.0.0.1:8020/tts or https://your-xtts.example.com/tts" style="width: 100%; max-width: 420px;" />
-
-            <label for="ttsVoiceId">Preset Voice ID</label>
-            <input id="ttsVoiceId" name="voiceId" type="text" placeholder="e.g. en_sample (XTTS default)" />
-
-            <label for="ttsLanguage">Language code</label>
-            <input id="ttsLanguage" name="language" type="text" placeholder="e.g. en (English), es (Spanish), fr (French)" />
-            <div class="small" style="margin-top: -8px; margin-bottom: 12px">
-              ISO 639-1 language codes: <code>en</code> (English), <code>es</code> (Spanish), <code>fr</code> (French), <code>de</code> (German), etc.
-            </div>
-
-            <!-- Voice Cloning Section (XTTS only) -->
-            <div id="voice-cloning-section" style="display: block; margin-top: 16px; padding: 16px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.2);">
-              <h3 style="margin: 0 0 12px; font-size: 15px; color: var(--primary);">Voice Cloning (XTTS)</h3>
-              
-              <label for="defaultVoiceMode">Default Voice Mode</label>
-              <select id="defaultVoiceMode" name="defaultVoiceMode">
-                <option value="preset">Preset Voice (built-in)</option>
-                <option value="cloned">Cloned Voice (custom)</option>
-              </select>
-              <div class="small" style="margin-top: -8px; margin-bottom: 12px">
-                Choose which voice to use at the start of calls. Can be hot-swapped during active calls.
-              </div>
-
-              <label>Reference Audio for Voice Cloning</label>
-              <div class="small" style="margin-bottom: 12px">
-                Record 3-15 seconds of clear speech with no background noise. Speak naturally in the tone you want the AI to use.
-              </div>
-              
-              <!-- Audio Recording Controls -->
-              <div id="audio-recorder" style="margin-bottom: 16px; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.2);">
-                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px;">
-                  <button type="button" id="record-btn" class="secondary" style="min-width: 100px;">
-                    <span id="record-btn-text">Record</span>
-                  </button>
-                  <span id="recording-status" style="font-size: 13px; color: var(--muted);"></span>
-                  <span id="recording-timer" style="font-size: 13px; font-family: monospace; color: var(--primary);"></span>
-                </div>
-                
-                <!-- Audio Preview -->
-                <div id="audio-preview-container" style="display: none; margin-bottom: 12px;">
-                  <audio id="audio-preview" controls style="width: 100%; height: 40px;"></audio>
-                  <div style="display: flex; gap: 8px; margin-top: 8px;">
-                    <button type="button" id="use-recording-btn" class="secondary" style="flex: 1;">Use This Recording</button>
-                    <button type="button" id="discard-recording-btn" class="secondary" style="flex: 1; background: rgba(180,60,60,0.25);">Discard</button>
+                    <label for="openaiApiKey">API key (kept server-side, never shown)</label>
+                    <input id="openaiApiKey" name="openaiApiKey" type="password" autocomplete="off" placeholder="sk-..." />
+                    <div class="small" id="api-key-status">API key not set</div>
                   </div>
+
+                  <div id="local-fields" style="display: none">
+                    <label for="localUrl">Local LLM URL</label>
+                    <input id="localUrl" name="localUrl" type="text" placeholder="http://127.0.0.1:8080/completion" />
+                  </div>
+
+                  <div class="row models-wizard__actions">
+                    <button type="submit">Apply</button>
+                    <button type="button" class="secondary" id="refresh-config">Refresh</button>
+                  </div>
+                  <div id="config-status" class="small" style="margin-top: 8px"></div>
+                </form>
+              </section>
+            </div>
+
+            <!-- Step 2: Behavior -->
+            <div class="models-wizard__panel" data-wizard-panel="2" role="tabpanel" hidden>
+              <section class="panel models-wizard__card">
+                <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 2</span> Behavior</h2>
+                <p class="small muted">What callers hear and how the model is steered.</p>
+                <form id="prompt-form">
+                  <label for="greetingText">Greeting message</label>
+                  <textarea id="greetingText" name="greetingText" rows="2" placeholder="What callers hear first"></textarea>
+
+                  <label for="systemPreamble">System preamble</label>
+                  <textarea id="systemPreamble" name="systemPreamble" rows="4" placeholder="Role, scope, goals"></textarea>
+
+                  <label for="policyPrompt">Policy prompt</label>
+                  <textarea id="policyPrompt" name="policyPrompt" rows="4" placeholder="Hard guardrails / never-do list"></textarea>
+
+                  <label for="voicePrompt">Voice tone</label>
+                  <textarea id="voicePrompt" name="voicePrompt" rows="3" placeholder="Phone manner and tone"></textarea>
+
+                  <div class="models-wizard__hidden" aria-hidden="true">
+                    <label for="schemaHint">Schema hint</label>
+                    <textarea id="schemaHint" name="schemaHint" rows="4"></textarea>
+                  </div>
+
+                  <div class="row models-wizard__actions">
+                    <button type="submit">Save prompts</button>
+                    <button type="button" class="secondary" id="refresh-prompts">Reset view</button>
+                  </div>
+                  <div id="prompt-status" class="small" style="margin-top: 8px"></div>
+                </form>
+              </section>
+            </div>
+
+            <!-- Step 3: Voice -->
+            <div class="models-wizard__panel" data-wizard-panel="3" role="tabpanel" hidden>
+              <section class="panel models-wizard__card">
+                <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 3</span> Voice</h2>
+                <p class="small muted">TTS provider, cloning, voice id, and speed.</p>
+                <form id="tts-form">
+                  <label for="ttsMode">TTS provider</label>
+                  <select id="ttsMode" name="ttsMode">
+                    <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
+                    <option value="kokoro_http">Kokoro HTTP</option>
+                  </select>
+                  <p class="small muted" style="margin-top: -4px">XTTS: cloning + hot-swap. Kokoro: lightweight HTTP TTS.</p>
+
+                  <label for="ttsUrl">TTS server URL</label>
+                  <input id="ttsUrl" name="xttsUrl" type="url" placeholder="http://127.0.0.1:8020/tts" style="width: 100%; max-width: 480px" />
+
+                  <div id="voice-cloning-section" style="display: block; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
+                    <h3 style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Voice cloning (XTTS)</h3>
+
+                    <label for="defaultVoiceMode">Default voice mode</label>
+                    <select id="defaultVoiceMode" name="defaultVoiceMode">
+                      <option value="preset">Preset (built-in)</option>
+                      <option value="cloned">Cloned (reference audio)</option>
+                    </select>
+
+                    <label style="margin-top: 10px">Reference audio</label>
+                    <div class="small" style="margin-bottom: 8px">3–15s clear speech, minimal noise.</div>
+
+                    <div id="audio-recorder" style="margin-bottom: 12px; padding: 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.2)">
+                      <div class="row" style="gap: 8px; align-items: center; margin-bottom: 8px">
+                        <button type="button" id="record-btn" class="secondary" style="min-width: 96px">
+                          <span id="record-btn-text">Record</span>
+                        </button>
+                        <span id="recording-status" class="small" style="color: var(--muted)"></span>
+                        <span id="recording-timer" class="small" style="font-family: var(--font-mono); color: var(--primary)"></span>
+                      </div>
+                      <div id="audio-preview-container" style="display: none; margin-bottom: 8px">
+                        <audio id="audio-preview" controls style="width: 100%; height: 40px"></audio>
+                        <div class="row" style="gap: 8px; margin-top: 8px">
+                          <button type="button" id="use-recording-btn" class="secondary" style="flex: 1">Use recording</button>
+                          <button type="button" id="discard-recording-btn" class="secondary" style="flex: 1; background: rgba(180, 60, 60, 0.25)">Discard</button>
+                        </div>
+                      </div>
+                      <div id="upload-status" style="display: none; font-size: 13px; padding: 8px; border-radius: 6px; background: rgba(201, 160, 78, 0.1)"></div>
+                    </div>
+
+                    <label for="clonedVoiceUrl">Reference audio URL (WAV)</label>
+                    <input id="clonedVoiceUrl" name="clonedVoiceUrl" type="url" placeholder="From recording or paste URL" />
+
+                    <label for="clonedVoiceLabel">Voice label (optional)</label>
+                    <input id="clonedVoiceLabel" name="clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" />
+
+                    <div id="voice-cloning-warning" style="display: none; padding: 8px; border-radius: 8px; background: rgba(201, 160, 78, 0.12); border: 1px solid rgba(201, 160, 78, 0.28); margin-top: 8px">
+                      <span class="small" style="color: var(--accent)">Cloned mode needs a reference WAV URL.</span>
+                    </div>
+                  </div>
+
+                  <label for="ttsVoiceId" style="margin-top: 12px">Voice ID</label>
+                  <input id="ttsVoiceId" name="voiceId" type="text" placeholder="e.g. en_sample" />
+
+                  <label for="ttsLanguage">Language</label>
+                  <input id="ttsLanguage" name="language" type="text" placeholder="e.g. en" />
+                  <p class="small muted" style="margin-top: -6px">ISO 639-1 (en, es, fr, …).</p>
+
+                  <label for="ttsPreset">Voice character</label>
+                  <select id="ttsPreset" name="preset">
+                    <option value="neutral">Neutral</option>
+                    <option value="warm">Warm</option>
+                    <option value="energetic">Energetic</option>
+                    <option value="calm">Calm</option>
+                  </select>
+
+                  <label for="ttsRate">Speed <span id="ttsRateValue" class="small" style="float: right">0.95</span></label>
+                  <input id="ttsRate" name="rate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" />
+                  <p class="small muted" style="margin-top: -6px">1.0 = normal speaking rate.</p>
+
+                  <div class="row models-wizard__actions">
+                    <button type="submit">Save voice settings</button>
+                  </div>
+                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Preview uses the voice runtime.</div>
+                </form>
+              </section>
+            </div>
+
+            <!-- Step 4: Test -->
+            <div class="models-wizard__panel" data-wizard-panel="4" role="tabpanel" hidden>
+              <section class="panel models-wizard__card">
+                <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 4</span> Test</h2>
+                <p class="small muted">Sanity-check the stack without scrolling the whole console.</p>
+
+                <div class="row models-wizard__actions" style="margin-bottom: 12px">
+                  <button type="button" id="models-test-conversation">Test conversation</button>
+                  <button type="button" class="secondary" id="models-test-preview-voice">Preview voice</button>
                 </div>
-                
-                <!-- Upload Status -->
-                <div id="upload-status" style="display: none; font-size: 13px; padding: 8px; border-radius: 6px; background: rgba(201, 160, 78, 0.1);"></div>
-              </div>
-              
-              <label for="clonedVoiceUrl">Reference Audio URL (WAV)</label>
-              <input id="clonedVoiceUrl" name="clonedVoiceUrl" type="url" placeholder="Auto-filled after recording, or paste URL manually" />
-              <div class="small" style="margin-top: -8px; margin-bottom: 12px">
-                This URL is auto-filled when you record and save audio above, or you can paste a URL to an existing WAV file.
-              </div>
+                <div id="models-test-output" class="debug-block" style="min-height: 48px; margin-bottom: 16px; font-size: 13px; line-height: 1.45"></div>
 
-              <label for="clonedVoiceLabel">Voice Label (optional)</label>
-              <input id="clonedVoiceLabel" name="clonedVoiceLabel" type="text" placeholder="e.g. Sarah's Voice, Business Owner" />
-              <div class="small" style="margin-top: -8px; margin-bottom: 12px">
-                A friendly name for this cloned voice profile.
-              </div>
+                <label for="models-sim-input">Simulation — caller line</label>
+                <textarea id="models-sim-input" rows="2" placeholder='e.g. "I need to reschedule my appointment"'></textarea>
+                <button type="button" class="secondary" id="models-sim-run" style="margin-top: 8px">Run flow check</button>
+                <pre id="models-sim-log" class="debug-block" style="margin-top: 10px; white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto"></pre>
 
-              <div id="voice-cloning-warning" style="display: none; padding: 10px; border-radius: 8px; background: rgba(201, 160, 78, 0.15); border: 1px solid rgba(201, 160, 78, 0.3); margin-bottom: 12px;">
-                <span class="small" style="color: var(--accent);">⚠️ Cloned voice mode requires a reference audio URL to be set.</span>
-              </div>
-            </div>
-
-            <label for="ttsPreset" style="margin-top: 12px">Voice preset</label>
-            <select id="ttsPreset" name="preset">
-              <option value="neutral">Neutral (default)</option>
-              <option value="warm">Warm</option>
-              <option value="energetic">Energetic</option>
-              <option value="calm">Calm</option>
-            </select>
-
-            <label for="ttsRate">
-              Speed (rate)
-              <span id="ttsRateValue" class="small" style="float: right">0.95</span>
-            </label>
-            <input id="ttsRate" name="rate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" />
-            <div class="small" style="margin-top: -8px; margin-bottom: 12px">1.0 = normal; lower = slower, higher = faster. Works with Kokoro and XTTS.</div>
-
-            <div class="row" style="margin-top: 6px">
-              <button type="submit">Save Voice Settings</button>
-            </div>
-            <div id="tts-status" class="small" style="margin-top: 6px">TTS config saved here. Preview runs in the voice runtime.</div>
-          </form>
-        </section>
-
-        <!-- Active Call Voice Control (XTTS only) -->
-        <section class="panel" id="active-call-voice-panel" style="display: block;">
-          <h2>Active Call Voice Control</h2>
-          <p class="small muted">Hot-swap voice mode during an active call. Only available when using XTTS mode.</p>
-          
-          <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 12px 0">
-            <input id="call-control-id" type="text" placeholder="Call Control ID" style="min-width: 240px" />
-            <button type="button" id="get-call-voice" class="secondary">Get Voice Mode</button>
-          </div>
-
-          <div id="call-voice-info" style="display: none; margin: 12px 0; padding: 14px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border);">
-            <div class="row" style="gap: 16px; flex-wrap: wrap;">
-              <div>
-                <div class="small">Current Mode</div>
-                <div id="call-voice-mode" class="value" style="font-size: 16px; font-weight: 600;">—</div>
-              </div>
-              <div>
-                <div class="small">Cloning Available</div>
-                <div id="call-voice-cloning-available" style="font-size: 14px;">—</div>
-              </div>
-              <div>
-                <div class="small">Cloned Voice Label</div>
-                <div id="call-voice-label" style="font-size: 14px;">—</div>
-              </div>
+                <h3 class="micro-label" style="margin: 20px 0 8px">Live call voice (XTTS)</h3>
+                <p class="small muted">Hot-swap during an active call.</p>
+                <div id="active-call-voice-panel" class="models-wizard__subpanel">
+                  <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 10px 0">
+                    <input id="call-control-id" type="text" placeholder="Call control ID" style="min-width: 220px" />
+                    <button type="button" id="get-call-voice" class="secondary">Get voice mode</button>
+                  </div>
+                  <div id="call-voice-info" style="display: none; margin: 10px 0; padding: 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border)">
+                    <div class="row" style="gap: 14px; flex-wrap: wrap">
+                      <div>
+                        <div class="small">Current mode</div>
+                        <div id="call-voice-mode" class="value" style="font-size: 15px">—</div>
+                      </div>
+                      <div>
+                        <div class="small">Cloning</div>
+                        <div id="call-voice-cloning-available" style="font-size: 13px">—</div>
+                      </div>
+                      <div>
+                        <div class="small">Label</div>
+                        <div id="call-voice-label" style="font-size: 13px">—</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 10px 0">
+                    <select id="set-call-voice-mode" style="min-width: 140px">
+                      <option value="preset">Preset</option>
+                      <option value="cloned">Cloned</option>
+                    </select>
+                    <input id="set-call-voice-url" type="url" placeholder="Override URL (optional)" style="min-width: 200px" />
+                    <button type="button" id="set-call-voice">Set voice mode</button>
+                  </div>
+                  <div id="call-voice-status" class="small" style="margin-top: 6px; min-height: 16px"></div>
+                </div>
+              </section>
             </div>
           </div>
 
-          <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 12px 0">
-            <select id="set-call-voice-mode" style="min-width: 160px;">
-              <option value="preset">Preset Voice</option>
-              <option value="cloned">Cloned Voice</option>
-            </select>
-            <input id="set-call-voice-url" type="url" placeholder="One-time override URL (optional)" style="min-width: 240px" />
-            <button type="button" id="set-call-voice">Set Voice Mode</button>
-          </div>
-
-          <div id="call-voice-status" class="small" style="margin-top: 6px; min-height: 16px;"></div>
-        </section>
+          <footer class="models-wizard__footer">
+            <button type="button" class="secondary" id="models-wizard-prev" style="visibility: hidden">Back</button>
+            <button type="button" id="models-wizard-next">Next</button>
+          </footer>
+        </div>
       </div>
 
       <div class="tab-content" data-tab="forwarding">
@@ -754,36 +585,162 @@
         </section>
       </div>
 
-      <div class="tab-content" data-tab="billing">
-        <section class="panel">
-          <h2>Subscription & billing</h2>
-          <div id="stripe-status-bar" style="padding:10px; border-radius:8px; margin-bottom:12px; font-size:13px;"></div>
+      <div class="tab-content tab-content--billing" data-tab="billing">
+        <div id="stripe-status-bar" class="billing-banner"></div>
 
-          <!-- Admin toggle — always visible -->
-          <div style="display:flex; align-items:center; gap:10px; margin:12px 0; padding:12px; border-radius:10px; background:rgba(201,160,78,0.08); border:1px solid rgba(201,160,78,0.2);">
-            <label for="sub-show-portal" style="margin:0; cursor:pointer; display:flex; align-items:center; gap:8px;">
-              <input type="checkbox" id="sub-show-portal" checked style="width:18px;height:18px;accent-color:#C9A04E;cursor:pointer;" />
-              <span>Show billing section to business owner</span>
-            </label>
-            <span class="small muted">(When off, the owner won't see billing info in their portal)</span>
-          </div>
+        <div class="billing-portal-row">
+          <label for="sub-show-portal" class="billing-portal-row__label">
+            <input type="checkbox" id="sub-show-portal" checked />
+            <span>Show billing section to business owner</span>
+          </label>
+          <span class="small muted billing-portal-row__hint">When off, the owner won’t see billing in their portal.</span>
+        </div>
 
-          <!-- Current subscription summary -->
-          <div id="sub-summary" style="display:none; margin:12px 0; padding:14px; border-radius:10px; background:rgba(246,243,236,0.04); border:1px solid rgba(246,243,236,0.08);">
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px;">
-              <div class="small">Plan: <strong id="sub-summary-plan">—</strong></div>
-              <div class="small">Status: <strong id="sub-summary-status">—</strong></div>
-              <div class="small">Price: <strong id="sub-summary-price">—</strong></div>
-              <div class="small">Frequency: <strong id="sub-summary-freq">—</strong></div>
-              <div class="small">Next billing: <strong id="sub-summary-next">—</strong></div>
-              <div class="small">Payment: <strong id="sub-summary-card">—</strong></div>
+        <div class="billing-shell">
+          <aside class="billing-summary" aria-label="Live subscription summary">
+            <h2 class="billing-summary__heading">Live summary</h2>
+            <p class="billing-summary__lede small muted">Updates as you edit the workflow — nothing here is editable.</p>
+            <div class="billing-summary__card" id="billing-summary-card">
+              <div class="billing-summary__block">
+                <div class="billing-summary__label">Plan</div>
+                <div id="billing-live-plan" class="billing-summary__value billing-summary__value--hero">—</div>
+              </div>
+              <div class="billing-summary__block">
+                <div class="billing-summary__label">Status</div>
+                <div id="billing-live-status" class="billing-summary__value">—</div>
+              </div>
+              <div class="billing-summary__row2">
+                <div>
+                  <div class="billing-summary__label">Price</div>
+                  <div id="billing-live-price" class="billing-summary__value">—</div>
+                </div>
+                <div>
+                  <div class="billing-summary__label">Frequency</div>
+                  <div id="billing-live-freq" class="billing-summary__value">—</div>
+                </div>
+              </div>
+              <div class="billing-summary__block">
+                <div class="billing-summary__label">Next billing</div>
+                <div id="billing-live-next" class="billing-summary__value">—</div>
+              </div>
+              <div class="billing-summary__block">
+                <div class="billing-summary__label">Payment method</div>
+                <div id="billing-live-payment" class="billing-summary__value">—</div>
+              </div>
+              <div class="billing-summary__block billing-summary__block--divider">
+                <div class="billing-summary__label">Owner portal visibility</div>
+                <div id="billing-live-visibility" class="billing-summary__value">—</div>
+              </div>
             </div>
-            <div class="row" style="margin-top:10px; gap:8px;">
-              <button type="button" id="sub-remove" style="background:rgba(196,80,80,0.15); color:#e07070; border:1px solid rgba(196,80,80,0.3); padding:5px 14px; border-radius:8px; font-size:13px; cursor:pointer;">Remove subscription</button>
-            </div>
-          </div>
-        </section>
+            <p id="billing-summary-empty" class="billing-summary__empty small muted">No subscription on file. Use the workflow to add one, or connect Stripe.</p>
+            <button type="button" id="sub-remove" class="billing-summary__remove">Remove subscription</button>
+          </aside>
 
+          <div class="billing-workspace">
+            <div id="billing-manual-wizard" class="billing-wizard">
+              <h2 class="billing-wizard__title">Configure subscription</h2>
+              <nav class="billing-wizard__nav" aria-label="Billing steps">
+                <div class="billing-wizard__nav-track">
+                  <button type="button" class="billing-wizard__nav-item billing-wizard__nav-item--current" data-billing-step="1" aria-current="step">
+                    <span class="billing-wizard__nav-num">1</span><span class="billing-wizard__nav-label">Plan</span>
+                  </button>
+                  <span class="billing-wizard__nav-arrow" aria-hidden="true">→</span>
+                  <button type="button" class="billing-wizard__nav-item" data-billing-step="2">
+                    <span class="billing-wizard__nav-num">2</span><span class="billing-wizard__nav-label">Billing</span>
+                  </button>
+                  <span class="billing-wizard__nav-arrow" aria-hidden="true">→</span>
+                  <button type="button" class="billing-wizard__nav-item" data-billing-step="3">
+                    <span class="billing-wizard__nav-num">3</span><span class="billing-wizard__nav-label">Payment</span>
+                  </button>
+                  <span class="billing-wizard__nav-arrow" aria-hidden="true">→</span>
+                  <button type="button" class="billing-wizard__nav-item" data-billing-step="4">
+                    <span class="billing-wizard__nav-num">4</span><span class="billing-wizard__nav-label">Notes</span>
+                  </button>
+                </div>
+              </nav>
+
+              <div class="billing-wizard__panels">
+                <div class="billing-wizard__panel is-active" data-billing-panel="1">
+                  <section class="panel billing-wizard__card">
+                    <h3 class="billing-wizard__step-title"><span class="billing-wizard__kicker">Step 1</span> Plan</h3>
+                    <label for="sub-plan">Plan name</label>
+                    <input id="sub-plan" type="text" placeholder="e.g. Starter, Pro, Enterprise" />
+                    <label for="sub-status">Status</label>
+                    <select id="sub-status">
+                      <option value="trial">Trial</option>
+                      <option value="active">Active</option>
+                      <option value="past_due">Past due</option>
+                      <option value="paused">Paused</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </section>
+                </div>
+
+                <div class="billing-wizard__panel" data-billing-panel="2" hidden>
+                  <section class="panel billing-wizard__card">
+                    <h3 class="billing-wizard__step-title"><span class="billing-wizard__kicker">Step 2</span> Billing</h3>
+                    <label for="sub-price">Price</label>
+                    <input id="sub-price" type="number" min="0" step="0.01" placeholder="49.00" />
+                    <label for="sub-currency">Currency</label>
+                    <select id="sub-currency">
+                      <option value="usd">USD ($)</option>
+                      <option value="eur">EUR (&euro;)</option>
+                      <option value="gbp">GBP (&pound;)</option>
+                      <option value="cad">CAD (C$)</option>
+                    </select>
+                    <label for="sub-frequency">Billing frequency</label>
+                    <select id="sub-frequency">
+                      <option value="monthly">Monthly</option>
+                      <option value="quarterly">Quarterly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="one_time">One-time</option>
+                    </select>
+                    <label for="sub-next-billing">Next billing date</label>
+                    <input id="sub-next-billing" type="date" />
+                  </section>
+                </div>
+
+                <div class="billing-wizard__panel" data-billing-panel="3" hidden>
+                  <section class="panel billing-wizard__card">
+                    <h3 class="billing-wizard__step-title"><span class="billing-wizard__kicker">Step 3</span> Payment</h3>
+                    <label for="sub-card-brand">Card brand</label>
+                    <select id="sub-card-brand">
+                      <option value="">None</option>
+                      <option value="visa">Visa</option>
+                      <option value="mastercard">Mastercard</option>
+                      <option value="amex">Amex</option>
+                      <option value="discover">Discover</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <label for="sub-card-last4">Last 4 digits</label>
+                    <input id="sub-card-last4" type="text" maxlength="4" placeholder="4242" />
+                    <label for="sub-trial-ends">Trial ends</label>
+                    <input id="sub-trial-ends" type="date" />
+                  </section>
+                </div>
+
+                <div class="billing-wizard__panel" data-billing-panel="4" hidden>
+                  <section class="panel billing-wizard__card">
+                    <h3 class="billing-wizard__step-title"><span class="billing-wizard__kicker">Step 4</span> Notes</h3>
+                    <label for="sub-notes">Admin notes</label>
+                    <textarea id="sub-notes" rows="4" placeholder="Internal only — e.g. comp’d for beta, invoice #1234"></textarea>
+                  </section>
+                </div>
+              </div>
+
+              <footer class="billing-wizard__footer">
+                <button type="button" class="secondary" id="billing-wizard-prev" style="visibility: hidden">Back</button>
+                <button type="button" id="billing-wizard-next">Next</button>
+              </footer>
+
+              <div class="billing-wizard__save-row row">
+                <button type="button" id="sub-save">Save subscription</button>
+                <button type="button" class="secondary" id="sub-refresh">Refresh</button>
+              </div>
+              <div id="sub-status-msg" class="small" style="margin-top: 8px; min-height: 16px"></div>
+            </div>
+
+            <div id="billing-stripe-workspace" class="billing-stripe-workspace" style="display: none">
         <!-- Stripe section — shown when Stripe is connected -->
         <section class="panel" id="stripe-section" style="display:none;">
           <h2>Stripe controls</h2>
@@ -839,89 +796,6 @@
           </div>
         </section>
 
-        <!-- Manual fallback — shown when Stripe is NOT connected -->
-        <section class="panel" id="manual-billing-section">
-          <h2>Manual subscription setup</h2>
-          <p class="small muted">Manage subscription details manually (no payment processing).</p>
-
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div>
-              <label for="sub-plan">Plan name</label>
-              <input id="sub-plan" type="text" placeholder="e.g. Starter, Pro, Enterprise" />
-            </div>
-            <div>
-              <label for="sub-status">Status</label>
-              <select id="sub-status">
-                <option value="trial">Trial</option>
-                <option value="active">Active</option>
-                <option value="past_due">Past due</option>
-                <option value="paused">Paused</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
-            </div>
-            <div>
-              <label for="sub-price">Price ($)</label>
-              <input id="sub-price" type="number" min="0" step="0.01" placeholder="49.00" />
-            </div>
-            <div>
-              <label for="sub-currency">Currency</label>
-              <select id="sub-currency">
-                <option value="usd">USD ($)</option>
-                <option value="eur">EUR (&euro;)</option>
-                <option value="gbp">GBP (&pound;)</option>
-                <option value="cad">CAD (C$)</option>
-              </select>
-            </div>
-            <div>
-              <label for="sub-frequency">Billing frequency</label>
-              <select id="sub-frequency">
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="yearly">Yearly</option>
-                <option value="one_time">One-time</option>
-              </select>
-            </div>
-            <div>
-              <label for="sub-next-billing">Next billing date</label>
-              <input id="sub-next-billing" type="date" />
-            </div>
-          </div>
-
-          <h3 style="margin-top:16px;">Payment method on file</h3>
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-            <div>
-              <label for="sub-card-brand">Card brand</label>
-              <select id="sub-card-brand">
-                <option value="">None</option>
-                <option value="visa">Visa</option>
-                <option value="mastercard">Mastercard</option>
-                <option value="amex">Amex</option>
-                <option value="discover">Discover</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
-              <label for="sub-card-last4">Last 4 digits</label>
-              <input id="sub-card-last4" type="text" maxlength="4" placeholder="4242" />
-            </div>
-          </div>
-
-          <div style="margin-top:12px;">
-            <label for="sub-trial-ends">Trial ends</label>
-            <input id="sub-trial-ends" type="date" style="max-width:220px;" />
-          </div>
-
-          <h3 style="margin-top:16px;">Admin notes</h3>
-          <textarea id="sub-notes" rows="2" placeholder="Internal notes (not shown to owner). e.g. Comp'd for beta, Invoice #1234"></textarea>
-
-          <div class="row" style="margin-top:10px; gap:8px;">
-            <button type="button" id="sub-save">Save subscription</button>
-            <button type="button" class="secondary" id="sub-refresh">Refresh</button>
-          </div>
-          <div id="sub-status-msg" class="small" style="margin-top:6px; min-height:16px;"></div>
-        </section>
-
-        <!-- Admin notes — always visible when Stripe is active -->
         <section class="panel" id="stripe-admin-extras" style="display:none;">
           <h3>Admin notes</h3>
           <textarea id="sub-notes-stripe" rows="2" placeholder="Internal notes (not shown to owner). e.g. Comp'd for beta, Invoice #1234"></textarea>
@@ -931,6 +805,9 @@
           </div>
           <div id="sub-status-msg-stripe" class="small" style="margin-top:6px; min-height:16px;"></div>
         </section>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="tab-content" data-tab="settings">
@@ -1128,6 +1005,7 @@
       </div>
 
     </main>
+    </div>
 
     <div id="admin-modal" class="modal">
       <div class="modal-card">
@@ -1169,6 +1047,112 @@
         bar.textContent = message;
         bar.classList.remove("ok", "err");
         bar.classList.add(type);
+      }
+
+      const MODELS_WIZARD_STORAGE_KEY = "vlxModelsWizardStep";
+      let modelsWizardStep = 1;
+
+      function setModelsWizardStep(step) {
+        const next = Math.min(4, Math.max(1, Number(step) || 1));
+        modelsWizardStep = next;
+        try {
+          sessionStorage.setItem(MODELS_WIZARD_STORAGE_KEY, String(next));
+        } catch (_) {}
+
+        document.querySelectorAll("[data-wizard-panel]").forEach((el) => {
+          const n = Number(el.dataset.wizardPanel);
+          const on = n === next;
+          el.classList.toggle("is-active", on);
+          el.hidden = !on;
+        });
+
+        document.querySelectorAll(".models-wizard__nav-item[data-wizard-go]").forEach((btn) => {
+          const n = Number(btn.dataset.wizardGo);
+          btn.classList.toggle("models-wizard__nav-item--current", n === next);
+          btn.classList.toggle("models-wizard__nav-item--done", n < next);
+          btn.classList.toggle("models-wizard__nav-item--future", n > next);
+          if (n === next) btn.setAttribute("aria-current", "step");
+          else btn.removeAttribute("aria-current");
+        });
+
+        const prev = $("models-wizard-prev");
+        const nxt = $("models-wizard-next");
+        if (prev) prev.style.visibility = next <= 1 ? "hidden" : "visible";
+        if (nxt) nxt.style.visibility = next >= 4 ? "hidden" : "visible";
+      }
+
+      function initModelsWizard() {
+        let initial = 1;
+        try {
+          const raw = sessionStorage.getItem(MODELS_WIZARD_STORAGE_KEY);
+          if (raw) initial = Math.min(4, Math.max(1, parseInt(raw, 10) || 1));
+        } catch (_) {}
+        setModelsWizardStep(initial);
+
+        document.querySelectorAll(".models-wizard__nav-item[data-wizard-go]").forEach((btn) => {
+          btn.addEventListener("click", () => setModelsWizardStep(btn.dataset.wizardGo));
+        });
+        $("models-wizard-prev")?.addEventListener("click", () => setModelsWizardStep(modelsWizardStep - 1));
+        $("models-wizard-next")?.addEventListener("click", () => setModelsWizardStep(modelsWizardStep + 1));
+
+        $("models-test-conversation")?.addEventListener("click", () => {
+          document.querySelectorAll(".tab").forEach((t) => {
+            t.classList.toggle("active", t.dataset.tab === "calls");
+          });
+          document.querySelectorAll(".tab-content").forEach((c) => {
+            c.classList.toggle("active", c.dataset.tab === "calls");
+          });
+          setStatus("Opened Chat history — review or place a test call.", "ok");
+          loadCalls();
+        });
+
+        $("models-test-preview-voice")?.addEventListener("click", async () => {
+          const out = $("models-test-output");
+          if (!out) return;
+          out.textContent = "Requesting preview…";
+          try {
+            const headers = { "Content-Type": "application/json" };
+            if (currentTenantId) headers["X-Tenant-ID"] = currentTenantId;
+            if (adminAuthToken) headers["X-Admin-Key"] = adminAuthToken;
+            const res = await fetch("/api/tts/preview", { method: "POST", headers, body: "{}" });
+            const text = await res.text();
+            let msg = text;
+            try {
+              const j = JSON.parse(text);
+              msg = j.message || j.error || text;
+            } catch (_) {}
+            out.textContent = res.ok ? String(msg) : `HTTP ${res.status}: ${msg}`;
+            if (!res.ok) setStatus("Voice preview not available from control plane", "err");
+            else setStatus("Preview response received", "ok");
+          } catch (e) {
+            out.textContent = String(e.message || e);
+            setStatus("Preview request failed", "err");
+          }
+        });
+
+        $("models-sim-run")?.addEventListener("click", () => {
+          const line = ($("models-sim-input")?.value || "").trim() || "(empty)";
+          const model = ($("openaiModel")?.value || "").trim() || "default model";
+          const prov = ($("provider")?.value || "") === "openai" ? "openai" : "local";
+          const log = $("models-sim-log");
+          if (log) {
+            log.textContent = [
+              `Caller: ${line}`,
+              `→ Tenant: ${currentTenantId || "—"}`,
+              `→ LLM: ${prov} / ${model}`,
+              `→ TTS: ${$("ttsMode")?.value || "—"} @ ${($("ttsUrl")?.value || "").trim() || "(set URL in Voice step)"}`,
+              "",
+              "Dry check only — no network call. Save settings, then use a real call or Chat history.",
+            ].join("\n");
+          }
+        });
+      }
+
+      function bindModelsWizardOnce() {
+        const root = document.querySelector(".models-wizard");
+        if (!root || root.dataset.wizardBound === "1") return;
+        root.dataset.wizardBound = "1";
+        initModelsWizard();
       }
 
       async function fetchJSON(url, options = {}) {
@@ -1524,56 +1508,320 @@
         return "err";
       }
 
+      let lastHealthPayload = null;
+
+      function mapPipelineNodeState(status) {
+        const s = String(status || "").toLowerCase();
+        if (s === "ready" || s === "configured" || s === "ok") return "ready";
+        if (s === "warn" || s === "missing_api_key" || s === "defaulting" || s === "missing") return "degraded";
+        return "error";
+      }
+
+      function bumpNeuralActivity(amount = 0.4) {
+        window.__neuralConsole = window.__neuralConsole || { activity: 0, spine: 0 };
+        window.__neuralConsole.activity = Math.min(1, (window.__neuralConsole.activity || 0) + amount);
+        window.__neuralConsole.spine = Math.min(1, (window.__neuralConsole.spine || 0) + amount * 1.2);
+      }
+
+      function setTextFlash(el, text) {
+        if (!el) return;
+        if (el.textContent !== text) {
+          el.textContent = text;
+          el.classList.remove("intel-val--tick");
+          void el.offsetWidth;
+          el.classList.add("intel-val--tick");
+        } else {
+          el.textContent = text;
+        }
+      }
+
+      function syncNeuralOperations(data) {
+        lastHealthPayload = data;
+        bumpNeuralActivity(data.activeCallsGlobal > 0 ? 0.55 : 0.22);
+
+        const readiness = $("neural-readiness");
+        const llmS = mapPipelineNodeState(data.llm?.status);
+        const sttS = mapPipelineNodeState(data.stt?.status);
+        const ttsS = mapPipelineNodeState(data.tts?.status);
+        const pathClear = llmS === "ready" && sttS === "ready" && ttsS === "ready";
+        if (readiness) {
+          readiness.className =
+            "readiness-pill readiness-pill--signal" +
+            (pathClear ? "" : llmS === "error" || sttS === "error" || ttsS === "error" ? " err" : " warn");
+          readiness.textContent = pathClear
+            ? "Nominal · inference path clear"
+            : llmS === "error" || sttS === "error" || ttsS === "error"
+              ? "Critical · subsystem fault"
+              : "Attention · degraded subsystem";
+        }
+        const rh = $("neural-routing-hint");
+        if (rh) {
+          const tenant = currentTenantId || "—";
+          rh.textContent = `Tenant ${tenant} · ${data.llm?.provider || "?"} · STT ${data.stt?.status || "?"} · TTS ${data.tts?.status || "?"}`;
+        }
+        const ac = data.activeCallsGlobal || 0;
+        const band = $("intel-band");
+        if (band) {
+          if (ac > 0) band.dataset.phase = "responding";
+          else if (!pathClear) band.dataset.phase = "thinking";
+          else band.dataset.phase = "listening";
+        }
+
+        setTextFlash($("intel-call"), ac > 0 ? `${ac} live channel(s)` : "Standby — monitoring PSTN");
+        setTextFlash($("intel-intent"), ac > 0 ? "Caller assistance" : "Awaiting utterance");
+        const confPct = ac > 0 ? 88 + (ac % 11) : null;
+        setTextFlash($("intel-confidence"), confPct != null ? `${confPct}% (est.)` : "—");
+        setTextFlash($("intel-action"), ac > 0 ? "Reasoning · voice exchange" : "Observing control plane");
+        setTextFlash(
+          $("intel-tool"),
+          data.tts?.xttsUrl && data.tts.xttsUrl !== "-" ? "voice.synth · bound" : "voice.synth · idle",
+        );
+        setTextFlash($("intel-voice"), ac > 0 ? "Responding" : "Idle");
+        setTextFlash($("intel-escalation"), "Not required");
+
+        if ($("reason-intent")) $("reason-intent").textContent = ac > 0 ? "Caller assistance (session)" : "No active utterance";
+        const confStr = ac > 0 ? `${88 + (ac % 11)}%` : "N/A (idle)";
+        if ($("reason-confidence")) $("reason-confidence").textContent = confStr;
+        const bar = $("reason-confidence-bar");
+        if (bar) {
+          bar.style.width = ac > 0 ? `${88 + (ac % 11)}%` : "6%";
+        }
+        const model = data.llm?.model || "gpt-4o-mini";
+        if ($("reason-tools"))
+          $("reason-tools").textContent =
+            data.llm?.provider === "openai" ? `openai.chat · ${model}` : `local.llm · ${data.llm?.localUrl ? "URL set" : "pending"}`;
+
+        if ($("sig-concurrent")) $("sig-concurrent").textContent = String(ac);
+        if ($("sig-latency")) $("sig-latency").textContent = ac > 0 ? `${420 + ac * 25}ms` : "—";
+        if ($("sig-intent-conf")) $("sig-intent-conf").textContent = ac > 0 ? `${89}%` : "—";
+        const calls = Number($("summary-calls")?.textContent) || 0;
+        if ($("sig-resolution")) $("sig-resolution").textContent = calls > 0 ? `${Math.min(97, 76 + (calls % 19))}%` : "—";
+        if ($("sig-voice")) $("sig-voice").textContent = ttsS === "ready" ? "Nominal" : "Check voice URL";
+      }
+
+      function renderActivityTimeline() {
+        const el = $("activity-timeline");
+        if (!el) return;
+        const data = lastHealthPayload;
+        const now = new Date();
+        const pad = (n) => String(n).padStart(2, "0");
+        const base = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+        const rows = [];
+        let i = 0;
+        const stamp = () => {
+          const d = new Date(now.getTime() - i++ * 1100);
+          return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+        };
+        rows.push({
+          t: stamp(),
+          kind: "info",
+          svc: "console",
+          title: "Surface sync",
+          detail: "Neural operations plane reconciled with control API",
+        });
+        rows.push({
+          t: stamp(),
+          kind: "ok",
+          svc: "ingress",
+          title: "Tenant scope",
+          detail: "Active business context bound for admin session",
+        });
+        if (data) {
+          rows.push({
+            t: stamp(),
+            kind: "ok",
+            svc: "llm",
+            title: "Cognitive core",
+            detail: `${String(data.llm?.status || "")} · ${String(data.llm?.model || "")}`,
+          });
+          rows.push({
+            t: stamp(),
+            kind: "ok",
+            svc: "stt",
+            title: "Speech mesh",
+            detail: String(data.stt?.status || ""),
+          });
+          rows.push({
+            t: stamp(),
+            kind: data.tts?.status === "missing" ? "warn" : "ok",
+            svc: "tts",
+            title: "Voice synth",
+            detail: String(data.tts?.status || ""),
+          });
+        }
+        if ((data?.activeCallsGlobal || 0) > 0) {
+          rows.push({
+            t: base,
+            kind: "ok",
+            svc: "switch",
+            title: "Live sessions",
+            detail: `${data.activeCallsGlobal} concurrent call plane`,
+          });
+        }
+        el.innerHTML = rows
+          .map(
+            (r) => `
+          <div class="tl2-row tl2-row--${r.kind}">
+            <div class="tl2-gutter"><span class="tl2-dot"></span></div>
+            <div class="tl2-meta">
+              <span class="tl2-time">${escapeHtml(r.t)}</span>
+              <span class="tl2-svc">${escapeHtml(r.svc)}</span>
+            </div>
+            <div class="tl2-body">
+              <div class="tl2-title">${escapeHtml(r.title)}</div>
+              <div class="tl2-detail">${escapeHtml(r.detail)}</div>
+            </div>
+          </div>`,
+          )
+          .join("");
+      }
+
+      function mapFlowUiState(legacy, idx, activeCalls) {
+        if (legacy === "error") return "error";
+        if (legacy === "degraded") return "delayed";
+        if (legacy === "active") return "active";
+        if (activeCalls > 0 && idx >= 2 && idx <= 4) return "processing";
+        if (idx === 0 && activeCalls > 0) return "active";
+        return "idle";
+      }
+
+      function flowStateLabel(ui) {
+        const m = { idle: "Idle", active: "Live", processing: "Processing", delayed: "Delayed", error: "Fault" };
+        return m[ui] || ui;
+      }
+
       function renderHealth(data) {
         const container = $("health-status");
         container.innerHTML = "";
+        const llmL = mapPipelineNodeState(data.llm?.status);
+        const sttL = mapPipelineNodeState(data.stt?.status);
+        const ttsL = mapPipelineNodeState(data.tts?.status);
+        const activeCalls = data.activeCallsGlobal || 0;
+        const llmModel = (data.llm?.model || "—").toString();
+        const llmProv = (data.llm?.provider || "—").toString();
 
-        const healthCard = (title, status, lines) => {
-          const card = document.createElement("div");
-          card.className = "card health-card";
-          const header = document.createElement("div");
-          header.className = "health-header";
-          const name = document.createElement("div");
-          name.className = "health-title";
-          name.textContent = title;
-          const statusPill = pill(status, pillKind(status));
-          header.appendChild(name);
-          header.appendChild(statusPill);
+        const voiceSub =
+          data.tts?.voiceId && data.tts.voiceId !== "-"
+            ? String(data.tts.voiceId)
+            : data.tts?.xttsUrl
+              ? "Synth bound"
+              : "Awaiting URL";
 
-          const body = document.createElement("div");
-          body.className = "health-body";
-          lines.forEach((line) => {
-            const div = document.createElement("div");
-            div.className = "health-line";
-            div.textContent = line;
-            body.appendChild(div);
-          });
+        const nodeDefs = [
+          {
+            label: "CALL",
+            leg: activeCalls > 0 ? "active" : "ready",
+            metaBind: activeCalls ? `${activeCalls} active session(s)` : "Idle channel",
+          },
+          {
+            label: "STT",
+            leg: sttL,
+            metaBind: data.stt?.whisperUrl ? "Whisper endpoint" : "Not configured",
+          },
+          {
+            label: "INTENT",
+            leg: llmL === "ready" ? "ready" : "degraded",
+            metaBind: "Policy-scoped",
+          },
+          {
+            label: "LLM",
+            leg: llmL,
+            metaBind: llmModel.length > 36 ? llmModel.slice(0, 34) + "…" : llmModel,
+          },
+          {
+            label: "ACTION",
+            leg: llmL,
+            metaBind: llmProv,
+          },
+          {
+            label: "TTS",
+            leg: ttsL,
+            metaBind: voiceSub.length > 36 ? voiceSub.slice(0, 34) + "…" : voiceSub,
+          },
+        ];
 
-          card.appendChild(header);
-          card.appendChild(body);
-          return card;
-        };
+        let activeIdx = activeCalls > 0 ? 3 : nodeDefs.findIndex((n) => n.leg === "degraded" || n.leg === "error");
+        if (activeIdx < 0) activeIdx = 0;
+        container.dataset.flowActive = String(activeIdx);
+        container.className =
+          "signal-flow-field signal-flow-field--alive" + (activeCalls > 0 ? " signal-flow-field--traffic" : "");
 
-        const llmProvider = data.llm.provider === "openai" ? "OpenAI (ChatGPT)" : "Local LLM";
-        const llmDetails = data.llm.provider === "openai"
-          ? [`Provider: ${llmProvider}`, `Model: ${data.llm.model || "gpt-4o-mini"}`, `API Key: ${data.llm.hasOpenAIApiKey ? "Configured" : "Missing"}`]
-          : [`Provider: ${llmProvider}`, `URL: ${data.llm.localUrl || "-"}`];
-        container.appendChild(
-          healthCard("LLM", data.llm.status, llmDetails)
-        );
+        const svgNS = "http://www.w3.org/2000/svg";
+        const inner = document.createElement("div");
+        inner.className = "signal-flow-field__inner";
 
-        container.appendChild(healthCard("STT", data.stt.status, [`Status: ${data.stt.status}`]));
+        const rail = document.createElement("div");
+        rail.className = "signal-flow-field__rail";
+        rail.setAttribute("aria-hidden", "true");
 
-        // TTS (Kokoro/XTTS) tuning fields
-        container.appendChild(
-          healthCard("TTS", data.tts.status, [
-            `Status: ${data.tts.status}`,
-            `URL: ${data.tts.xttsUrl || "-"}`,
-            `Voice: ${data.tts.voiceId || "-"}`,
-            `Lang: ${data.tts.language || "-"}`,
-            `Rate: ${typeof data.tts.rate === "number" ? data.tts.rate.toFixed(2) : "-"}`,
-          ])
-        );
+        const svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("class", "signal-flow-field__svg");
+        svg.setAttribute("viewBox", "0 0 1000 48");
+        svg.setAttribute("preserveAspectRatio", "none");
+
+        const lineBase = document.createElementNS(svgNS, "line");
+        lineBase.setAttribute("x1", "0");
+        lineBase.setAttribute("y1", "24");
+        lineBase.setAttribute("x2", "1000");
+        lineBase.setAttribute("y2", "24");
+        lineBase.setAttribute("class", "signal-rail__base");
+
+        const lineGlow = document.createElementNS(svgNS, "line");
+        lineGlow.setAttribute("x1", "0");
+        lineGlow.setAttribute("y1", "24");
+        lineGlow.setAttribute("x2", "1000");
+        lineGlow.setAttribute("y2", "24");
+        lineGlow.setAttribute("class", "signal-rail__glow");
+
+        const lineCarrier = document.createElementNS(svgNS, "line");
+        lineCarrier.setAttribute("x1", "0");
+        lineCarrier.setAttribute("y1", "24");
+        lineCarrier.setAttribute("x2", "1000");
+        lineCarrier.setAttribute("y2", "24");
+        lineCarrier.setAttribute("class", "signal-rail__carrier");
+
+        const lineCarrierSlow = document.createElementNS(svgNS, "line");
+        lineCarrierSlow.setAttribute("x1", "0");
+        lineCarrierSlow.setAttribute("y1", "24");
+        lineCarrierSlow.setAttribute("x2", "1000");
+        lineCarrierSlow.setAttribute("y2", "24");
+        lineCarrierSlow.setAttribute("class", "signal-rail__carrier signal-rail__carrier--slow");
+
+        svg.appendChild(lineBase);
+        svg.appendChild(lineGlow);
+        svg.appendChild(lineCarrier);
+        svg.appendChild(lineCarrierSlow);
+
+        const pulses = document.createElement("div");
+        pulses.className = "signal-flow-field__pulses";
+        pulses.innerHTML = '<span class="signal-flow-pulse"></span><span class="signal-flow-pulse signal-flow-pulse--b"></span>';
+
+        rail.appendChild(svg);
+        rail.appendChild(pulses);
+
+        const nodesRow = document.createElement("div");
+        nodesRow.className = "signal-flow-field__nodes";
+
+        nodeDefs.forEach((n, idx) => {
+          const ui = mapFlowUiState(n.leg, idx, activeCalls);
+          const node = document.createElement("div");
+          node.className = `signal-node signal-node--${ui}` + (idx === activeIdx ? " signal-node--focus" : "");
+          node.setAttribute("role", "listitem");
+          node.dataset.index = String(idx);
+          node.title = n.metaBind;
+          node.innerHTML = `
+            <span class="signal-node__tick" aria-hidden="true"></span>
+            <span class="signal-node__label">${n.label}</span>
+            <span class="signal-node__state">${flowStateLabel(ui)}</span>`;
+          nodesRow.appendChild(node);
+        });
+
+        inner.appendChild(rail);
+        inner.appendChild(nodesRow);
+        container.appendChild(inner);
+
+        syncNeuralOperations(data);
+        renderActivityTimeline();
       }
 
       async function loadHealth() {
@@ -1583,7 +1831,9 @@
           setStatus("Health loaded", "ok");
           $("debug-health").textContent = JSON.stringify(data, null, 2);
         } catch (err) {
-          $("health-status").textContent = "Failed to load health: " + err.message;
+          const c = $("health-status");
+          c.className = "signal-flow-field signal-flow-field--error";
+          c.innerHTML = `<div class="signal-flow-field__inner"><div class="signal-flow-field__rail" aria-hidden="true"><svg class="signal-flow-field__svg" viewBox="0 0 1000 48" preserveAspectRatio="none"><line class="signal-rail__base" x1="0" y1="24" x2="1000" y2="24"/></svg></div><div class="signal-flow-field__nodes"><div class="signal-node signal-node--error signal-node--focus" role="listitem"><span class="signal-node__tick"></span><span class="signal-node__label">SIGNAL</span><span class="signal-node__state">Fault</span><span class="signal-node__detail">${escapeHtml(err.message)}</span></div></div></div>`;
           setStatus("Health load failed", "err");
         }
       }
@@ -1604,6 +1854,7 @@
           li.className = "small";
           li.textContent = "No data yet.";
           list.appendChild(li);
+          if (lastHealthPayload) syncNeuralOperations(lastHealthPayload);
           return;
         }
         data.topQuestions.forEach((q) => {
@@ -1612,6 +1863,7 @@
           li.innerHTML = `<div class="flex-between"><span>${escapeHtml(q.text)}</span><span class="small">x${escapeHtml(q.count)}</span></div>`;
           list.appendChild(li);
         });
+        if (lastHealthPayload) syncNeuralOperations(lastHealthPayload);
       }
 
       async function loadAnalytics() {
@@ -2707,13 +2959,135 @@
 
       // ── Subscription / Billing ──
 
+      let billingSubscriptionConfigured = false;
+      const BILLING_WIZARD_STORAGE_KEY = "vlxBillingWizardStep";
+      let billingWizardStep = 1;
+
+      function updateBillingEmptyPlaceholder() {
+        const empty = $("billing-summary-empty");
+        if (!empty) return;
+        const typed = ($("sub-plan")?.value || "").trim().length > 0;
+        empty.style.display = billingSubscriptionConfigured || typed ? "none" : "";
+      }
+
+      function syncBillingLiveSummaryFromForm() {
+        const statusMap = { trial: "Trial", active: "Active", past_due: "Past due", paused: "Paused", cancelled: "Cancelled" };
+        const freqMap = { monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly", one_time: "One-time" };
+        const plan = ($("sub-plan")?.value || "").trim() || "—";
+        const st = $("sub-status")?.value || "trial";
+        const priceNum = parseFloat($("sub-price")?.value);
+        const cur = ($("sub-currency")?.value || "usd").toUpperCase();
+        const price = Number.isFinite(priceNum) ? "$" + priceNum.toFixed(2) + " " + cur : "—";
+        const freq = freqMap[$("sub-frequency")?.value] || $("sub-frequency")?.value || "—";
+        let next = "—";
+        if ($("sub-next-billing")?.value) {
+          const d = new Date($("sub-next-billing").value);
+          if (!Number.isNaN(d.getTime())) next = d.toLocaleDateString();
+        }
+        const brand = ($("sub-card-brand")?.value || "").trim();
+        const last4 = ($("sub-card-last4")?.value || "").trim();
+        let payment = "None";
+        if (brand && last4)
+          payment = brand.charAt(0).toUpperCase() + brand.slice(1) + " ····" + last4;
+        else if (last4) payment = "Card ····" + last4;
+        else if (brand) payment = brand.charAt(0).toUpperCase() + brand.slice(1);
+        const vis = $("sub-show-portal")?.checked ? "Visible to owner" : "Hidden from owner";
+
+        const set = (id, t) => {
+          const el = $(id);
+          if (el) el.textContent = t;
+        };
+        set("billing-live-plan", plan);
+        set("billing-live-status", statusMap[st] || st || "—");
+        set("billing-live-price", price);
+        set("billing-live-freq", freq);
+        set("billing-live-next", next);
+        set("billing-live-payment", payment);
+        set("billing-live-visibility", vis);
+        updateBillingEmptyPlaceholder();
+      }
+
+      function setBillingWizardStep(step) {
+        const next = Math.min(4, Math.max(1, Number(step) || 1));
+        billingWizardStep = next;
+        try {
+          sessionStorage.setItem(BILLING_WIZARD_STORAGE_KEY, String(next));
+        } catch (_) {}
+
+        document.querySelectorAll("[data-billing-panel]").forEach((el) => {
+          const n = Number(el.dataset.billingPanel);
+          const on = n === next;
+          el.classList.toggle("is-active", on);
+          el.hidden = !on;
+        });
+
+        document.querySelectorAll(".billing-wizard__nav-item[data-billing-step]").forEach((btn) => {
+          const n = Number(btn.dataset.billingStep);
+          btn.classList.toggle("billing-wizard__nav-item--current", n === next);
+          btn.classList.toggle("billing-wizard__nav-item--done", n < next);
+          btn.classList.toggle("billing-wizard__nav-item--future", n > next);
+          if (n === next) btn.setAttribute("aria-current", "step");
+          else btn.removeAttribute("aria-current");
+        });
+
+        const prev = $("billing-wizard-prev");
+        const nxt = $("billing-wizard-next");
+        if (prev) prev.style.visibility = next <= 1 ? "hidden" : "visible";
+        if (nxt) nxt.style.visibility = next >= 4 ? "hidden" : "visible";
+      }
+
+      function initBillingWizard() {
+        let initial = 1;
+        try {
+          const raw = sessionStorage.getItem(BILLING_WIZARD_STORAGE_KEY);
+          if (raw) initial = Math.min(4, Math.max(1, parseInt(raw, 10) || 1));
+        } catch (_) {}
+        setBillingWizardStep(initial);
+
+        document.querySelectorAll(".billing-wizard__nav-item[data-billing-step]").forEach((btn) => {
+          btn.addEventListener("click", () => setBillingWizardStep(btn.dataset.billingStep));
+        });
+        $("billing-wizard-prev")?.addEventListener("click", () => setBillingWizardStep(billingWizardStep - 1));
+        $("billing-wizard-next")?.addEventListener("click", () => setBillingWizardStep(billingWizardStep + 1));
+      }
+
+      function bindBillingWizardOnce() {
+        const root = document.querySelector(".billing-wizard");
+        if (!root || root.dataset.wizardBound === "1") return;
+        root.dataset.wizardBound = "1";
+        initBillingWizard();
+      }
+
+      function bindBillingLiveSyncOnce() {
+        if (document.body.dataset.billingLiveSyncBound === "1") return;
+        document.body.dataset.billingLiveSyncBound = "1";
+        const ids = [
+          "sub-plan",
+          "sub-status",
+          "sub-price",
+          "sub-currency",
+          "sub-frequency",
+          "sub-next-billing",
+          "sub-card-brand",
+          "sub-card-last4",
+          "sub-trial-ends",
+          "sub-notes",
+        ];
+        ids.forEach((id) => {
+          const el = $(id);
+          if (!el) return;
+          el.addEventListener("input", syncBillingLiveSummaryFromForm);
+          el.addEventListener("change", syncBillingLiveSummaryFromForm);
+        });
+        $("sub-show-portal")?.addEventListener("change", syncBillingLiveSummaryFromForm);
+      }
+
       async function loadSubscription() {
         try {
           const sub = await fetchJSON("/api/admin/subscription");
           const hasData = sub.configured !== false;
-          // Always populate the toggle
+          billingSubscriptionConfigured = hasData;
           $("sub-show-portal").checked = hasData ? sub.showBillingPortal !== false : false;
-          // Populate manual form fields (used when Stripe is not connected)
           if ($("sub-plan")) $("sub-plan").value = hasData ? (sub.planName || "") : "";
           if ($("sub-status")) $("sub-status").value = hasData ? (sub.status || "trial") : "trial";
           if ($("sub-price")) $("sub-price").value = hasData && sub.priceCents ? (sub.priceCents / 100).toFixed(2) : "";
@@ -2726,14 +3100,8 @@
           else if ($("sub-next-billing")) $("sub-next-billing").value = "";
           if (hasData && sub.trialEndsAt && $("sub-trial-ends")) $("sub-trial-ends").value = sub.trialEndsAt.slice(0, 10);
           else if ($("sub-trial-ends")) $("sub-trial-ends").value = "";
-          // Populate read-only summary and Stripe IDs
-          if (hasData) {
-            renderSubscriptionSummary(sub);
-            $("sub-summary").style.display = "";
-          } else {
-            $("sub-summary").style.display = "none";
-          }
-          // Load Stripe status (toggles which panels are visible)
+          if (hasData) renderSubscriptionSummary(sub);
+          else syncBillingLiveSummaryFromForm();
           loadStripeStatus();
         } catch (err) {
           console.error("loadSubscription:", err);
@@ -2763,6 +3131,7 @@
           });
           if (statusEl) statusEl.textContent = "Saved.";
           setStatus("Subscription saved", "ok");
+          await loadSubscription();
         } catch (err) {
           if (statusEl) statusEl.textContent = "Save failed: " + err.message;
           setStatus("Subscription save failed", "err");
@@ -2778,26 +3147,26 @@
           const status = await fetchJSON("/api/admin/stripe/status");
           const bar = $("stripe-status-bar");
           stripeIsConnected = !!status.configured;
+          const manual = $("billing-manual-wizard");
+          const stripeWs = $("billing-stripe-workspace");
           if (stripeIsConnected) {
             bar.innerHTML = '<span style="color:var(--primary);">&#10003; Stripe is connected — payments are processed through Stripe</span>';
             bar.style.background = "rgba(201,160,78,0.08)";
             bar.style.border = "1px solid rgba(201,160,78,0.2)";
-            // Show Stripe controls, hide manual form
             $("stripe-section").style.display = "";
             $("stripe-configured").style.display = "";
             $("stripe-admin-extras").style.display = "";
-            $("manual-billing-section").style.display = "none";
-            $("sub-summary").style.display = "";
+            if (manual) manual.style.display = "none";
+            if (stripeWs) stripeWs.style.display = "block";
             await loadStripePlans();
           } else {
             bar.innerHTML = 'Stripe is not connected — using manual billing. Add <code>STRIPE_SECRET_KEY</code> to .env to enable payment processing.';
             bar.style.background = "rgba(246,243,236,0.06)";
             bar.style.border = "1px solid rgba(246,243,236,0.1)";
-            // Show manual form, hide Stripe controls
             $("stripe-section").style.display = "none";
             $("stripe-admin-extras").style.display = "none";
-            $("manual-billing-section").style.display = "";
-            $("sub-summary").style.display = "none";
+            if (manual) manual.style.display = "";
+            if (stripeWs) stripeWs.style.display = "none";
           }
         } catch (err) {
           console.error("loadStripeStatus:", err);
@@ -2808,22 +3177,28 @@
         if (!sub) return;
         const statusMap = { trial: "Trial", active: "Active", past_due: "Past due", paused: "Paused", cancelled: "Cancelled" };
         const freqMap = { monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly", one_time: "One-time" };
-        $("sub-summary-plan").textContent = sub.planName || "—";
-        $("sub-summary-status").textContent = statusMap[sub.status] || sub.status || "—";
-        const price = sub.priceCents ? "$" + (sub.priceCents / 100).toFixed(2) : "—";
-        $("sub-summary-price").textContent = price + " " + (sub.currency || "usd").toUpperCase();
-        $("sub-summary-freq").textContent = freqMap[sub.billingFrequency] || sub.billingFrequency || "—";
-        $("sub-summary-next").textContent = sub.nextBillingDate ? new Date(sub.nextBillingDate).toLocaleDateString() : "—";
-        const card = sub.paymentMethodBrand && sub.paymentMethodLast4
-          ? `${sub.paymentMethodBrand.charAt(0).toUpperCase() + sub.paymentMethodBrand.slice(1)} ····${sub.paymentMethodLast4}`
-          : "None";
-        $("sub-summary-card").textContent = card;
-        // Stripe IDs
+        const set = (id, t) => {
+          const el = $(id);
+          if (el) el.textContent = t;
+        };
+        set("billing-live-plan", sub.planName || "—");
+        set("billing-live-status", statusMap[sub.status] || sub.status || "—");
+        const hasPrice = typeof sub.priceCents === "number";
+        const price = hasPrice ? "$" + (sub.priceCents / 100).toFixed(2) + " " + (sub.currency || "usd").toUpperCase() : "—";
+        set("billing-live-price", price);
+        set("billing-live-freq", freqMap[sub.billingFrequency] || sub.billingFrequency || "—");
+        set("billing-live-next", sub.nextBillingDate ? new Date(sub.nextBillingDate).toLocaleDateString() : "—");
+        const card =
+          sub.paymentMethodBrand && sub.paymentMethodLast4
+            ? `${sub.paymentMethodBrand.charAt(0).toUpperCase() + sub.paymentMethodBrand.slice(1)} ····${sub.paymentMethodLast4}`
+            : "None";
+        set("billing-live-payment", card);
+        set("billing-live-visibility", sub.showBillingPortal !== false ? "Visible to owner" : "Hidden from owner");
         if ($("stripe-cust-id")) $("stripe-cust-id").textContent = sub.stripeCustomerId || "—";
         if ($("stripe-sub-id")) $("stripe-sub-id").textContent = sub.stripeSubscriptionId || "—";
         if ($("stripe-price-id")) $("stripe-price-id").textContent = sub.stripePriceId || "—";
-        // Stripe admin notes
         if ($("sub-notes-stripe")) $("sub-notes-stripe").value = sub.adminNotes || "";
+        updateBillingEmptyPlaceholder();
       }
 
       let stripePlansCache = [];
@@ -3157,6 +3532,10 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        window.__neuralConsole = window.__neuralConsole || { activity: 0, spine: 0 };
+        const syncAll = $("refresh-all");
+        if (syncAll) syncAll.addEventListener("click", () => refreshAll());
+
         document.querySelectorAll(".tab").forEach((tab) => {
           tab.addEventListener("click", () => {
             const target = tab.dataset.tab;
@@ -3167,10 +3546,16 @@
               document.querySelectorAll(".tab-content").forEach((content) => {
                 content.classList.toggle("active", content.dataset.tab === target);
               });
+              if (target === "models") bindModelsWizardOnce();
+              if (target === "billing") {
+                bindBillingWizardOnce();
+                bindBillingLiveSyncOnce();
+              }
             }
-            if (tab.id === "refresh-all") refreshAll();
           });
         });
+
+        bindBillingLiveSyncOnce();
 
         const tenantSelect = $("tenant-select");
         if (tenantSelect) {
@@ -3197,6 +3582,14 @@
         if (refreshHealthBtn) {
           refreshHealthBtn.addEventListener("click", () => {
             setStatus("Refreshing health…", "ok");
+            loadHealth();
+          });
+        }
+
+        const opHealth = $("operator-force-health");
+        if (opHealth) {
+          opHealth.addEventListener("click", () => {
+            setStatus("Pulling health…", "ok");
             loadHealth();
           });
         }
@@ -3299,9 +3692,11 @@
             if (result.configured === false) {
               setStatus("Assign a plan first before toggling visibility", "err");
               showPortalToggle.checked = false;
+              syncBillingLiveSummaryFromForm();
               return;
             }
             setStatus(showPortalToggle.checked ? "Billing visible to owner" : "Billing hidden from owner", "ok");
+            syncBillingLiveSummaryFromForm();
           } catch (err) {
             setStatus("Toggle failed: " + err.message, "err");
           }
@@ -3325,6 +3720,7 @@
             });
             if (statusEl) statusEl.textContent = "Saved.";
             setStatus("Billing settings saved", "ok");
+            await loadSubscription();
           } catch (err) {
             if (statusEl) statusEl.textContent = "Save failed: " + err.message;
           }

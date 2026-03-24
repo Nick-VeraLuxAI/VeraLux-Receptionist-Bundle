@@ -26,6 +26,13 @@ COPY control-plane/migrations control-plane/migrations/
 COPY control-plane/scripts control-plane/scripts/
 COPY control-plane/public control-plane/public/
 
+# Substitute __ADMIN_UI_BUILD_STAMP__ in admin.html (and CSS query param) for deploy parity checks.
+# Override at build: docker compose build --build-arg ADMIN_UI_BUILD_STAMP=20250323.1 control
+ARG ADMIN_UI_BUILD_STAMP=
+RUN if [ -n "$ADMIN_UI_BUILD_STAMP" ]; then STAMP="$ADMIN_UI_BUILD_STAMP"; else STAMP="$(date -u +%Y%m%d-%H%M%S)UTC"; fi && \
+  sed -i "s|__ADMIN_UI_BUILD_STAMP__|${STAMP}|g" control-plane/public/admin.html && \
+  grep -Fq "$STAMP" control-plane/public/admin.html
+
 WORKDIR /app/control-plane
 RUN npm run build
 

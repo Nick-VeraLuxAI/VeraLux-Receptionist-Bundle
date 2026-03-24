@@ -23,6 +23,9 @@ services:
     build:
       context: .
       dockerfile: control-plane/Dockerfile
+      args:
+        # Set when rebuilding so production HTML/CSS show a known stamp (e.g. git SHA or release id).
+        ADMIN_UI_BUILD_STAMP: ${ADMIN_UI_BUILD_STAMP:-}
     container_name: veralux-control
     restart: unless-stopped
     logging: *default-logging

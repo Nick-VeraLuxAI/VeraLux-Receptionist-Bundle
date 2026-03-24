@@ -96,6 +96,19 @@ process.on("uncaughtException", (err) => {
 });
 
 const app = express();
+
+/** Avoid stale admin HTML/CSS at browsers and reverse proxies (shell is not fingerprinted by filename). */
+function noStoreAdminUiShell(req: Request, res: Response, next: NextFunction) {
+  const p = req.path;
+  if (p === "/admin-neural.css" || p === "/admin.html") {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+  }
+  next();
+}
+app.use(noStoreAdminUiShell);
+
 app.use(
   express.json({
     limit: "10mb",
@@ -2468,6 +2481,9 @@ app.get("/api/telnyx/audio/:id.wav", (_req, res) =>
    ──────────────────────────────────────────────── */
 
 app.get("/admin", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
 });
 

@@ -2,6 +2,8 @@ tunnel: d8ef04e1-e810-42d9-a28a-5b6d7b4cac91
 credentials-file: /etc/cloudflared/credentials.json
 no-autoupdate: true
 
+# Order matters: first matching hostname wins. Anything not listed hits the final rule → HTTP 404.
+# If a new public hostname should reach the control plane, add it here (then redeploy / reload tunnel).
 ingress:
   - hostname: api.veraluxclients.com
     service: http://runtime:4001
@@ -10,5 +12,7 @@ ingress:
   - hostname: app.veraluxclients.com
     service: http://control:4000
   - hostname: portal.veraluxclients.com
+    service: http://control:4000
+  - hostname: receptionist.veraluxclients.com
     service: http://control:4000
   - service: http_status:404
