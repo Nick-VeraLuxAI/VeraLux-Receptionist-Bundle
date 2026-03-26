@@ -147,7 +147,7 @@ services:
       # URLs
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
-      # TTS Mode
+      # TTS Mode (coqui_xtts | kokoro_http | chatterbox_http)
       - TTS_MODE=${TTS_MODE:-coqui_xtts}
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001}
       - XTTS_URL=${XTTS_URL:-http://xtts:7002}
@@ -299,7 +299,7 @@ services:
     image: ${REGISTRY:-ghcr.io/nick-veraluxai}/whisper:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
-      dockerfile: Dockerfile.whisper
+      dockerfile: Dockerfile.whisper.gpu
     container_name: veralux-whisper
     restart: unless-stopped
     logging: *default-logging
@@ -310,19 +310,23 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
+      start_period: 300s
     deploy:
       resources:
         limits:
           cpus: "4.0"
-          memory: 4G
+          memory: 8G
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${WHISPER_GPU_IDS:-0}"]
               capabilities: [gpu]
     environment:
-      - MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      # whisper_server.py reads WHISPER_* (MODEL_SIZE was unused).
+      - WHISPER_MODEL=${WHISPER_MODEL:-large-v3}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
+      - NVIDIA_VISIBLE_DEVICES=${WHISPER_GPU_IDS:-0}
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
@@ -425,11 +429,12 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${CHATTERBOX_GPU_IDS:-0}"]
               capabilities: [gpu]
     environment:
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
       - CHATTERBOX_DEVICE=${CHATTERBOX_DEVICE:-cuda}
+      - NVIDIA_VISIBLE_DEVICES=${CHATTERBOX_GPU_IDS:-0}
       # Chatterbox downloads weights from Hugging Face; Turbo (and some repos) require auth.
       # Create a token at https://huggingface.co/settings/tokens and accept the model license on the model card.
       - HF_TOKEN=${HF_TOKEN:-}
@@ -473,7 +478,8 @@ services:
           cpus: "1.0"
           memory: 1G
     environment:
-      - MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      - WHISPER_MODEL=${WHISPER_MODEL:-${WHISPER_MODEL_SIZE:-small}}
+      - WHISPER_DEVICE=cpu
       - CUDA_VISIBLE_DEVICES=""
     ports:
       - "${WHISPER_PORT:-9000}:9000"
@@ -572,7 +578,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${VLLM_GPU_IDS:-1}"]
               capabilities: [gpu]
     environment:
       - NVIDIA_VISIBLE_DEVICES=${VLLM_GPU_IDS:-1}

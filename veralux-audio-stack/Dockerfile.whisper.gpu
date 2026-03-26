@@ -1,5 +1,5 @@
 # Faster-Whisper transcription server with GPU support (port 9000)
-FROM nvidia/cuda:12.1-runtime-ubuntu22.04
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
 
 WORKDIR /app
 
@@ -20,7 +20,7 @@ RUN useradd --create-home --shell /bin/bash appuser \
 
 # Install Python deps (includes CUDA-enabled faster-whisper)
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir fastapi uvicorn faster-whisper gunicorn slowapi
+    && pip install --no-cache-dir fastapi uvicorn faster-whisper gunicorn slowapi python-multipart
 
 COPY --chown=appuser:appuser whisper_server.py .
 
@@ -30,7 +30,6 @@ ENV HF_HOME=/home/appuser/.cache/huggingface
 ENV WHISPER_MODEL=small
 ENV WHISPER_DEVICE=cuda
 ENV WHISPER_COMPUTE_TYPE=float16
-ENV NVIDIA_VISIBLE_DEVICES=all
 ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
 EXPOSE 9000
