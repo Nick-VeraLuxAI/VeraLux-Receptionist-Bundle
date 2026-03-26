@@ -321,8 +321,28 @@ function isAllowedOrigin(origin?: string): boolean {
   return ADMIN_ALLOWED_ORIGINS.includes(origin);
 }
 
+/** Browser Origin matches this request's Host (and scheme via X-Forwarded-Proto or TLS). */
+function isSameOriginAsHost(req: Request, origin: string): boolean {
+  const host = req.get("host");
+  if (!host) return false;
+  let scheme = (req.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  if (!scheme) scheme = req.secure ? "https" : "http";
+  try {
+    const o = new URL(origin);
+    if (o.host !== host) return false;
+    const oScheme = o.protocol.replace(":", "").toLowerCase();
+    return oScheme === scheme;
+  } catch {
+    return false;
+  }
+}
+
 function adminCorsGuard(req: Request, res: Response, next: NextFunction) {
   const origin = typeof req.headers.origin === "string" ? req.headers.origin : undefined;
+
+  const originAllowedByList = isAllowedOrigin(origin);
+  const originSameHost = !!origin && isSameOriginAsHost(req, origin);
+  const originOk = originAllowedByList || originSameHost;
 
   // Log warning for requests without Origin in production
   if (IS_PROD && !origin && req.path.startsWith("/api/admin")) {
@@ -333,7 +353,7 @@ function adminCorsGuard(req: Request, res: Response, next: NextFunction) {
     });
   }
 
-  if (IS_PROD && !isAllowedOrigin(origin)) {
+  if (IS_PROD && !originOk) {
     logger.warn("CORS origin rejected", {
       requestId: getRequestId(req),
       origin: origin || "none",
@@ -342,7 +362,7 @@ function adminCorsGuard(req: Request, res: Response, next: NextFunction) {
     return res.status(403).json({ error: "origin_not_allowed" });
   }
 
-  if (origin && isAllowedOrigin(origin)) {
+  if (origin && originOk) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Credentials", "true");
