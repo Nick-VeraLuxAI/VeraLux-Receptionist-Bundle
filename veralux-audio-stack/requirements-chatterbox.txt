@@ -1,9 +1,10 @@
 # Chatterbox TTS HTTP server (GPU recommended). Install: pip install -r requirements-chatterbox.txt
 # Upstream: https://github.com/resemble-ai/chatterbox
+# chatterbox-tts pins numpy<1.26 and torch==2.6.0; do not add numpy>=1.26 here or pip will
+# resolve an older chatterbox that depends on pkuseg (no wheels, broken on py3.10).
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 slowapi>=0.1.9
 pydantic>=2.0
-numpy>=1.26.0
 soundfile>=0.12.0
-chatterbox-tts
+chatterbox-tts==0.1.6
