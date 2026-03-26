@@ -2,6 +2,7 @@
 #
 # Build locally:  docker compose build
 # Run:            docker compose up -d
+# Local LLM:      docker compose --profile llm up -d vllm-qwen brain  (set BRAIN_URL=http://brain:3001 on runtime)
 # Pull pre-built: docker compose pull && docker compose up -d
 #
 # When both `image` and `build` are set, `docker compose build` builds locally
@@ -166,6 +167,9 @@ services:
       - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-10}
       - TENANT_CALLS_PER_MIN_CAP_DEFAULT=${TENANT_CALLS_PER_MIN_CAP_DEFAULT:-60}
       - CAPACITY_TTL_SECONDS=${CAPACITY_TTL_SECONDS:-3600}
+      # Brain / LLM (optional — set BRAIN_URL when running profile `llm`, see .env.example)
+      - BRAIN_USE_LOCAL=${BRAIN_USE_LOCAL:-false}
+      - BRAIN_URL=${BRAIN_URL:-}
       # Control Plane integration (workflow automation)
       - CONTROL_PLANE_URL=http://control:4000
       - CONTROL_PLANE_API_KEY=${ADMIN_API_KEY}
@@ -547,6 +551,86 @@ services:
         aliases:
           - xtts
 
+  # ---------------------------------------------------------------------------
+  # Local LLM (optional profile: llm) — vLLM Qwen2.5-7B-Instruct-AWQ + brain gateway
+  # Start: docker compose --profile llm up -d vllm-qwen brain
+  # Point voice runtime at BRAIN_URL=http://brain:3001 (see .env.example).
+  # ---------------------------------------------------------------------------
+  vllm-qwen:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly-x86_64}
+    container_name: veralux-vllm-qwen
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - llm
+    ipc: host
+    shm_size: "4gb"
+    volumes:
+      - vllm-hf-cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${VLLM_GPU_IDS:-1}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    command:
+      - --model
+      - ${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-8192}
+    ports:
+      - "${VLLM_PORT:-8000}:8000"
+    networks:
+      - veralux-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\"",
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 25
+      start_period: 720s
+
+  brain:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/veralux-brain:${VERSION:-0.1.0}
+    build:
+      context: .
+      dockerfile: veralux-voice-runtime/brain-gpt4o/Dockerfile
+    container_name: veralux-brain
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - llm
+    depends_on:
+      vllm-qwen:
+        condition: service_healthy
+    environment:
+      - PORT=3001
+      - OPENAI_BASE_URL=http://vllm-qwen:8000/v1
+      - OPENAI_API_KEY=${VLLM_OPENAI_API_KEY:-EMPTY}
+      - OPENAI_MODEL=${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct-AWQ}
+    ports:
+      - "${BRAIN_PORT:-3001}:3001"
+    networks:
+      - veralux-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 # =============================================================================
 # Volumes & Networks
 # =============================================================================
@@ -558,6 +642,8 @@ volumes:
     name: veralux-redis-data
   audio-storage:
     name: veralux-audio-storage
+  vllm-hf-cache:
+    name: veralux-vllm-hf-cache
 
 networks:
   veralux-network:

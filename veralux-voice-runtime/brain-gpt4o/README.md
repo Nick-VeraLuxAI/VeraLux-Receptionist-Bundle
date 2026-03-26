@@ -62,3 +62,15 @@ OPENAI_MODEL=gpt-4o-mini
 ```
 
 (or any other chat model that supports tool/function calling).
+
+## Local vLLM (Qwen2.5 7B AWQ)
+
+Use an OpenAI-compatible server (e.g. [vLLM](https://github.com/vllm-project/vllm)) and point the client at it:
+
+```env
+OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+OPENAI_API_KEY=EMPTY
+OPENAI_MODEL=Qwen/Qwen2.5-7B-Instruct-AWQ
+```
+
+Repo root **docker-compose** includes optional services **`vllm-qwen`** and **`brain`** (profile **`llm`**) using that model. Start with `docker compose --profile llm up -d vllm-qwen brain`, then set **`BRAIN_URL=http://brain:3001`** for the voice runtime (see root `.env.example`).

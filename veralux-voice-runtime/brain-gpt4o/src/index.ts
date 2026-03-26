@@ -23,15 +23,23 @@ import type {
 } from './types.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
+const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL?.trim() || undefined;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim();
 const MODEL = process.env.OPENAI_MODEL?.trim() ?? 'gpt-4o';
 
-if (!OPENAI_API_KEY) {
-  console.error('OPENAI_API_KEY is required. Set it in .env or the environment.');
+/** vLLM / local OpenAI-compatible servers often ignore the key; use EMPTY if unset. */
+const apiKey = OPENAI_API_KEY || (OPENAI_BASE_URL ? 'EMPTY' : '');
+if (!apiKey) {
+  console.error(
+    'OPENAI_API_KEY is required for the OpenAI API. For vLLM, set OPENAI_BASE_URL (e.g. http://vllm-qwen:8000/v1) and optionally OPENAI_API_KEY=EMPTY.',
+  );
   process.exit(1);
 }
 
-const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+const openai = new OpenAI({
+  apiKey,
+  ...(OPENAI_BASE_URL ? { baseURL: OPENAI_BASE_URL } : {}),
+});
 
 const TRANSFER_TOOL_NAME = 'transfer_call';
 
@@ -315,5 +323,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`brain-gpt4o listening on port ${PORT} (model: ${MODEL})`);
+  console.log(
+    `brain-gpt4o listening on port ${PORT} (model: ${MODEL}${OPENAI_BASE_URL ? `, baseURL: ${OPENAI_BASE_URL}` : ''})`,
+  );
 });
