@@ -127,10 +127,29 @@ const ttsCoquiXttsSchema = z.object({
 
 export type RuntimeTtsCoquiXtts = z.infer<typeof ttsCoquiXttsSchema>;
 
+/** Resemble AI Chatterbox HTTP TTS (see veralux-audio-stack/chatterbox_server.py). */
+const ttsChatterboxSchema = z.object({
+  mode: z.literal("chatterbox_http"),
+  chatterboxUrl: z.string().min(1),
+  /** Must match the server’s CHATTERBOX_VARIANT (turbo | standard | multilingual). */
+  chatterboxVariant: z.enum(["turbo", "standard", "multilingual"]).optional(),
+  voice: z.string().min(1).optional(),
+  language: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+  clonedVoice: clonedVoiceSchema.optional(),
+  defaultVoiceMode: voiceModeSchema.optional(),
+  /** Legacy / parity with XTTS: reference WAV URL for zero-shot / Turbo. */
+  speakerWavUrl: z.string().min(1).optional(),
+});
+
+export type RuntimeTtsChatterbox = z.infer<typeof ttsChatterboxSchema>;
+
 /** Combined TTS schema (discriminated union of all modes). */
 const ttsSchema = z.discriminatedUnion("mode", [
   ttsKokoroSchema,
   ttsCoquiXttsSchema,
+  ttsChatterboxSchema,
 ]);
 
 export type RuntimeTtsConfig = z.infer<typeof ttsSchema>;

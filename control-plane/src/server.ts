@@ -1392,6 +1392,8 @@ type ExtendedTtsConfig = TTSConfig & {
   mode?: string;
   voice?: string;
   coquiSpeed?: number;
+  chatterboxUrl?: string;
+  chatterboxVariant?: string;
 };
 
 app.get("/api/tts/config", (req, res) => {
@@ -1420,7 +1422,13 @@ app.get("/api/tts/config", (req, res) => {
   if ((baseCfg as any).kokoroUrl) {
     extendedCfg.kokoroUrl = (baseCfg as any).kokoroUrl;
   }
-  
+  if ((baseCfg as any).chatterboxUrl) {
+    extendedCfg.chatterboxUrl = (baseCfg as any).chatterboxUrl;
+  }
+  if ((baseCfg as any).chatterboxVariant) {
+    extendedCfg.chatterboxVariant = (baseCfg as any).chatterboxVariant;
+  }
+
   res.json(extendedCfg);
 });
 
@@ -1432,6 +1440,8 @@ app.post("/api/tts/config", (req, res) => {
     xttsUrl,
     coquiXttsUrl,
     kokoroUrl,
+    chatterboxUrl,
+    chatterboxVariant,
     voiceId,
     language,
     rate,
@@ -1442,7 +1452,7 @@ app.post("/api/tts/config", (req, res) => {
   } = req.body as Partial<ExtendedTtsConfig>;
 
   // Determine the TTS URL based on mode
-  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl;
+  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl;
   let ttsUrlValue: string | undefined;
   if (typeof urlCandidate === "string" && urlCandidate.trim().length > 0) {
     const u = urlCandidate.trim();
@@ -1492,10 +1502,32 @@ app.post("/api/tts/config", (req, res) => {
     preset: presetValue,
   };
 
+  const validChatterboxVariant = (v: unknown): v is "turbo" | "standard" | "multilingual" =>
+    v === "turbo" || v === "standard" || v === "multilingual";
+
   // Store mode-specific fields
   if (ttsMode === "coqui_xtts") {
     configUpdate.ttsMode = "coqui_xtts";
     configUpdate.coquiXttsUrl = ttsUrlValue;
+    configUpdate.chatterboxUrl = undefined;
+    configUpdate.chatterboxVariant = undefined;
+    if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
+      configUpdate.defaultVoiceMode = defaultVoiceMode;
+    }
+    if (clonedVoice && clonedVoice.speakerWavUrl) {
+      configUpdate.clonedVoice = {
+        speakerWavUrl: clonedVoice.speakerWavUrl.trim(),
+        label: clonedVoice.label?.trim() || undefined,
+      };
+    }
+  } else if (ttsMode === "chatterbox_http") {
+    configUpdate.ttsMode = "chatterbox_http";
+    configUpdate.chatterboxUrl = ttsUrlValue;
+    configUpdate.chatterboxVariant = validChatterboxVariant(chatterboxVariant)
+      ? chatterboxVariant
+      : "turbo";
+    configUpdate.coquiXttsUrl = undefined;
+    configUpdate.kokoroUrl = undefined;
     if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
       configUpdate.defaultVoiceMode = defaultVoiceMode;
     }
@@ -1508,7 +1540,9 @@ app.post("/api/tts/config", (req, res) => {
   } else {
     configUpdate.ttsMode = "kokoro_http";
     configUpdate.kokoroUrl = ttsUrlValue;
-    // Clear voice cloning fields for non-XTTS mode
+    configUpdate.chatterboxUrl = undefined;
+    configUpdate.chatterboxVariant = undefined;
+    // Clear voice cloning fields for Kokoro
     configUpdate.defaultVoiceMode = undefined;
     configUpdate.clonedVoice = undefined;
   }
@@ -1526,6 +1560,8 @@ app.post("/api/tts/config", (req, res) => {
     clonedVoice: configUpdate.clonedVoice,
     coquiXttsUrl: configUpdate.coquiXttsUrl,
     kokoroUrl: configUpdate.kokoroUrl,
+    chatterboxUrl: configUpdate.chatterboxUrl,
+    chatterboxVariant: configUpdate.chatterboxVariant,
   };
   
   res.json(response);
@@ -1685,8 +1721,16 @@ app.get("/api/admin/health", (req, res) => {
       whisperUrl: stt.whisperUrl,
     },
     tts: {
-      status: tts.xttsUrl ? "configured" : "missing",
+      status:
+        tts.xttsUrl || tts.coquiXttsUrl || tts.kokoroUrl || tts.chatterboxUrl
+          ? "configured"
+          : "missing",
       xttsUrl: tts.xttsUrl,
+      coquiXttsUrl: tts.coquiXttsUrl,
+      kokoroUrl: tts.kokoroUrl,
+      chatterboxUrl: tts.chatterboxUrl,
+      chatterboxVariant: tts.chatterboxVariant,
+      ttsMode: tts.ttsMode,
       voiceId: tts.voiceId,
       language: tts.language,
       preset: tts.preset,

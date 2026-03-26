@@ -35,6 +35,21 @@ test("runtimeContract accepts a valid config", () => {
   assert.equal(parsed.contractVersion, "v1");
 });
 
+test("runtimeContract accepts chatterbox_http tts", () => {
+  const parsed = parseRuntimeTenantConfig(
+    baseConfig({
+      tts: {
+        mode: "chatterbox_http",
+        chatterboxUrl: "http://localhost:7005",
+        chatterboxVariant: "turbo",
+        language: "en",
+      },
+    }),
+  );
+  assert.equal(parsed.tts.mode, "chatterbox_http");
+  assert.equal(parsed.tts.chatterboxUrl, "http://localhost:7005");
+});
+
 test("runtimeContract rejects missing webhook secret", () => {
   const cfg = baseConfig({ webhookSecretRef: undefined });
   delete cfg.webhookSecretRef;

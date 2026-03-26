@@ -445,9 +445,82 @@
 
       <section class="owner-panel">
         <h2>Receptionist voice</h2>
-        <p class="help">Choose how your receptionist sounds. Use a preset voice or clone your own voice for a personal touch.</p>
-        
-        <label for="voice-selector">Active voice</label>
+        <p class="help">Choose how your receptionist sounds. Pick a TTS engine first — only controls that apply to that engine are shown. Use the active voice control for preset vs a saved custom voice.</p>
+
+        <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+          <h3 style="margin: 0 0 10px; font-size: 15px;">TTS engine &amp; tuning</h3>
+          <label for="owner-ttsMode">TTS provider</label>
+          <select id="owner-ttsMode" style="width: 100%; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+            <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
+            <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
+            <option value="kokoro_http">Kokoro HTTP</option>
+          </select>
+          <p id="owner-tts-provider-blurb" class="help" style="margin-top: 4px; margin-bottom: 12px;"></p>
+
+          <div id="owner-tts-panel-url" style="margin-top: 10px">
+            <label for="owner-ttsUrl" id="owner-tts-url-label">TTS server URL</label>
+            <input id="owner-ttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+          </div>
+
+          <div id="owner-tts-panel-chatterbox" style="display: none; margin-top: 14px">
+            <label for="owner-chatterboxVariant">Chatterbox model (must match server)</label>
+            <select id="owner-chatterboxVariant" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="turbo" selected>Turbo (English, low-latency)</option>
+              <option value="standard">Standard (English)</option>
+              <option value="multilingual">Multilingual</option>
+            </select>
+            <p class="help" style="margin-top: 8px;">
+              Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value. Turbo often needs a reference WAV below or
+              <code>CHATTERBOX_DEFAULT_AUDIO_PROMPT</code> on the server.
+            </p>
+          </div>
+
+          <div id="owner-tts-panel-voice-id" style="display: none; margin-top: 14px">
+            <label for="owner-ttsVoiceId" id="owner-tts-voice-id-label">Voice ID</label>
+            <input id="owner-ttsVoiceId" type="text" placeholder="e.g. en_sample" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-language" style="display: none; margin-top: 12px">
+            <label for="owner-ttsLanguage">Language</label>
+            <input id="owner-ttsLanguage" type="text" placeholder="e.g. en" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-tts-language-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
+            <label for="owner-ttsPreset">Voice character (rate preset)</label>
+            <select id="owner-ttsPreset" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="neutral">Neutral</option>
+              <option value="warm">Warm</option>
+              <option value="energetic">Energetic</option>
+              <option value="calm">Calm</option>
+            </select>
+            <p class="help" style="margin-top: 8px;">Combined with speed below where the runtime uses tenant TTS settings.</p>
+          </div>
+
+          <div id="owner-tts-panel-rate" style="display: none; margin-top: 14px">
+            <label for="owner-ttsRate">Speed <span id="owner-ttsRateValue" class="help" style="float: right">0.95</span></label>
+            <input id="owner-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
+            <p id="owner-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
+            <h4 id="owner-tts-cloning-heading" style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Reference / cloning</h4>
+            <label for="owner-defaultVoiceMode">Default voice mode</label>
+            <select id="owner-defaultVoiceMode" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="preset">Preset (built-in)</option>
+              <option value="cloned">Cloned (reference audio)</option>
+            </select>
+            <p class="help" style="margin-top: 10px;">Reference audio: 3–15s clear speech. Paste a WAV URL (often added in admin). This stays in sync with <strong>Active voice</strong> below when you pick a custom voice.</p>
+            <label for="owner-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio URL (WAV)</label>
+            <input id="owner-clonedVoiceUrl" type="url" placeholder="https://…" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <label for="owner-clonedVoiceLabel" style="margin-top: 10px; display: block">Voice label (optional)</label>
+            <input id="owner-clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-voice-cloning-warning" class="help" style="display: none; margin-top: 10px; color: var(--accent-warm);">Cloned mode is selected but no reference URL is set.</p>
+          </div>
+        </div>
+
+        <label for="voice-selector" style="margin-top: 20px; display: block">Active voice</label>
         <select id="voice-selector" style="width: 100%; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
           <option value="preset:default">Default Voice (Preset)</option>
         </select>
@@ -577,7 +650,7 @@
       
       // Voice configuration cache
       let voiceConfig = {
-        ttsMode: "kokoro_http",
+        ttsMode: "coqui_xtts",
         defaultVoiceMode: "preset",
         presetVoice: "default",
         clonedVoices: [], // Array of { id, label, speakerWavUrl }
@@ -955,22 +1028,292 @@
         }
       }
 
-      /* ── Voice Settings ─────────────────────────── */
+      /* ── Voice Settings (per-engine panels, aligned with admin) ─────────────────────────── */
+
+      const OWNER_KOKORO_VOICE_PATTERN = /^[ab][fm]_/;
+      const OWNER_KOKORO_LANG_VALUES = ["a", "b"];
+      const OWNER_XTTS_DEFAULT_VOICE = "en_sample";
+      const OWNER_XTTS_DEFAULT_LANG = "en";
+
+      function ownerUpdateTtsLabels() {
+        const rateEl = $("owner-ttsRate");
+        const rateVal = $("owner-ttsRateValue");
+        if (rateEl && rateVal) rateVal.textContent = Number(rateEl.value).toFixed(2);
+      }
+
+      function ownerApplyXttsDefaults() {
+        const voiceEl = $("owner-ttsVoiceId");
+        const langEl = $("owner-ttsLanguage");
+        if (voiceEl) {
+          const currentVoice = voiceEl.value.trim();
+          if (!currentVoice || OWNER_KOKORO_VOICE_PATTERN.test(currentVoice)) {
+            voiceEl.value = OWNER_XTTS_DEFAULT_VOICE;
+          }
+        }
+        if (langEl) {
+          const currentLang = langEl.value.trim();
+          if (!currentLang || OWNER_KOKORO_LANG_VALUES.includes(currentLang)) {
+            langEl.value = OWNER_XTTS_DEFAULT_LANG;
+          }
+        }
+      }
+
+      function ownerApplyKokoroDefaults() {
+        const voiceEl = $("owner-ttsVoiceId");
+        if (!voiceEl) return;
+        const v = voiceEl.value.trim();
+        if (!v || !OWNER_KOKORO_VOICE_PATTERN.test(v)) {
+          voiceEl.value = "af_bella";
+        }
+      }
+
+      function ownerApplyChatterboxLanguageDefault() {
+        const langEl = $("owner-ttsLanguage");
+        if (!langEl) return;
+        const currentLang = langEl.value.trim();
+        if (!currentLang || OWNER_KOKORO_LANG_VALUES.includes(currentLang)) {
+          langEl.value = OWNER_XTTS_DEFAULT_LANG;
+        }
+      }
+
+      function updateOwnerTtsProviderPanels() {
+        const modeEl = $("owner-ttsMode");
+        if (!modeEl) return;
+        const mode = modeEl.value;
+        voiceConfig.ttsMode = mode;
+        const showClone = mode === "coqui_xtts" || mode === "chatterbox_http";
+
+        const showBlock = (id, on) => {
+          const el = $(id);
+          if (el) el.style.display = on ? "block" : "none";
+        };
+
+        const blurb = $("owner-tts-provider-blurb");
+        if (blurb) {
+          const blurbs = {
+            kokoro_http:
+              "Kokoro: lightweight ONNX TTS. Set your HTTP server URL and a Kokoro voice ID (e.g. af_bella). No cloning on this path.",
+            coqui_xtts:
+              "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
+            chatterbox_http:
+              "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+          };
+          blurb.textContent = blurbs[mode] || "";
+        }
+
+        showBlock("owner-tts-panel-chatterbox", mode === "chatterbox_http");
+        showBlock("owner-tts-panel-cloning", showClone);
+        showBlock("owner-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts");
+        showBlock("owner-tts-panel-language", showClone);
+        showBlock("owner-tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("owner-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
+
+        const rateHint = $("owner-tts-rate-hint");
+        if (rateHint) {
+          rateHint.textContent =
+            mode === "kokoro_http"
+              ? "1.0 = normal. Sent to your Kokoro server as rate in the JSON body."
+              : "1.0 = normal. Applied on the Coqui XTTS path where the runtime uses tenant TTS rate.";
+        }
+
+        const cloneHead = $("owner-tts-cloning-heading");
+        if (cloneHead) {
+          cloneHead.textContent =
+            mode === "chatterbox_http" ? "Reference speaker (Chatterbox)" : "Voice cloning (Coqui XTTS)";
+        }
+
+        const urlLabel = $("owner-tts-url-label");
+        if (urlLabel) {
+          urlLabel.textContent =
+            mode === "kokoro_http"
+              ? "Kokoro server URL"
+              : mode === "chatterbox_http"
+                ? "Chatterbox server URL"
+                : "Coqui XTTS server URL";
+        }
+        const urlInput = $("owner-ttsUrl");
+        if (urlInput) {
+          urlInput.placeholder =
+            mode === "kokoro_http"
+              ? "http://127.0.0.1:7001/tts"
+              : mode === "chatterbox_http"
+                ? "http://127.0.0.1:7005"
+                : "http://127.0.0.1:7002/tts";
+        }
+
+        const vLabel = $("owner-tts-voice-id-label");
+        const vHint = $("owner-tts-voice-id-hint");
+        const vInput = $("owner-ttsVoiceId");
+        if (vLabel && vHint) {
+          if (mode === "kokoro_http") {
+            vLabel.textContent = "Kokoro voice ID";
+            if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
+            vHint.textContent =
+              "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+          } else {
+            vLabel.textContent = "Preset voice ID (XTTS)";
+            if (vInput) vInput.placeholder = "e.g. en_sample";
+            vHint.textContent =
+              "Used when default mode is Preset; not used when synthesizing from a reference WAV.";
+          }
+        }
+
+        const langHint = $("owner-tts-language-hint");
+        if (langHint) {
+          langHint.textContent =
+            mode === "chatterbox_http"
+              ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
+              : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+        }
+
+        if (mode === "coqui_xtts") {
+          ownerApplyXttsDefaults();
+        } else if (mode === "chatterbox_http") {
+          ownerApplyChatterboxLanguageDefault();
+        } else if (mode === "kokoro_http") {
+          ownerApplyKokoroDefaults();
+        }
+
+        const warningEl = $("owner-voice-cloning-warning");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+        if (warningEl && defaultVoiceModeEl && clonedVoiceUrlEl) {
+          const isClonedMode = defaultVoiceModeEl.value === "cloned";
+          const hasUrl = clonedVoiceUrlEl.value.trim().length > 0;
+          warningEl.style.display = isClonedMode && !hasUrl && showClone ? "block" : "none";
+        } else if (warningEl) {
+          warningEl.style.display = "none";
+        }
+      }
+
+      function ownerRenderTtsConfig(cfg) {
+        const modeEl = $("owner-ttsMode");
+        const urlEl = $("owner-ttsUrl");
+        const presetEl = $("owner-ttsPreset");
+        const voiceEl = $("owner-ttsVoiceId");
+        const langEl = $("owner-ttsLanguage");
+        const rateEl = $("owner-ttsRate");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+        const clonedVoiceLabelEl = $("owner-clonedVoiceLabel");
+
+        if (!presetEl || !rateEl) return;
+
+        const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        if (modeEl) modeEl.value = mode;
+
+        if (urlEl) {
+          urlEl.value =
+            cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
+        }
+        const cbVarEl = $("owner-chatterboxVariant");
+        if (cbVarEl && cfg.chatterboxVariant) {
+          cbVarEl.value = cfg.chatterboxVariant;
+        }
+        presetEl.value = cfg.preset || "neutral";
+
+        if (voiceEl) voiceEl.value = cfg.voice || cfg.voiceId || "";
+        if (langEl) langEl.value = cfg.language || "";
+
+        rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
+
+        if (defaultVoiceModeEl) {
+          defaultVoiceModeEl.value = cfg.defaultVoiceMode || "preset";
+        }
+        if (clonedVoiceUrlEl) {
+          clonedVoiceUrlEl.value = cfg.clonedVoice?.speakerWavUrl || "";
+        }
+        if (clonedVoiceLabelEl) {
+          clonedVoiceLabelEl.value = cfg.clonedVoice?.label || "";
+        }
+
+        ownerUpdateTtsLabels();
+        updateOwnerTtsProviderPanels();
+      }
+
+      function validateOwnerVoiceCloning() {
+        const modeEl = $("owner-ttsMode");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+
+        if (!modeEl || (modeEl.value !== "coqui_xtts" && modeEl.value !== "chatterbox_http")) return true;
+        if (!defaultVoiceModeEl || defaultVoiceModeEl.value !== "cloned") return true;
+        if (!clonedVoiceUrlEl || clonedVoiceUrlEl.value.trim().length === 0) {
+          const st = $("voice-settings-status");
+          if (st) st.textContent = "Error: Cloned voice mode requires a reference audio URL.";
+          return false;
+        }
+        return true;
+      }
+
+      function syncOwnerVoiceFromSelector() {
+        const sel = $("voice-selector");
+        if (!sel) return;
+        const val = sel.value || "preset:default";
+        const colon = val.indexOf(":");
+        const type = colon === -1 ? "preset" : val.slice(0, colon);
+        const id = colon === -1 ? val : val.slice(colon + 1);
+        const dm = $("owner-defaultVoiceMode");
+        if (!dm) return;
+        if (type === "cloned") {
+          dm.value = "cloned";
+          const voice = voiceConfig.clonedVoices.find((v) => v.id === id);
+          if (voice) {
+            const u = $("owner-clonedVoiceUrl");
+            const l = $("owner-clonedVoiceLabel");
+            if (u) u.value = voice.speakerWavUrl;
+            if (l) l.value = voice.label || "";
+          }
+        } else {
+          dm.value = "preset";
+          if (id) voiceConfig.presetVoice = id;
+          const vIn = $("owner-ttsVoiceId");
+          if (vIn && !(vIn.value || "").trim() && id) vIn.value = id;
+        }
+        voiceConfig.activeVoiceId = val;
+        updateOwnerTtsProviderPanels();
+      }
+
+      function syncOwnerSelectorFromCloningForm() {
+        const dm = $("owner-defaultVoiceMode");
+        const sel = $("voice-selector");
+        if (!dm || !sel) return;
+        if (dm.value === "preset") {
+          const vid =
+            ($("owner-ttsVoiceId") && $("owner-ttsVoiceId").value.trim()) || voiceConfig.presetVoice || "default";
+          voiceConfig.presetVoice = vid;
+          renderVoiceSelector();
+          const want = `preset:${vid}`;
+          if ([...sel.options].some((o) => o.value === want)) {
+            sel.value = want;
+            voiceConfig.activeVoiceId = sel.value;
+          }
+        } else {
+          const url = ($("owner-clonedVoiceUrl") && $("owner-clonedVoiceUrl").value.trim()) || "";
+          renderVoiceSelector();
+          const match = voiceConfig.clonedVoices.find((v) => v.speakerWavUrl === url);
+          if (match) {
+            const want = `cloned:${match.id}`;
+            if ([...sel.options].some((o) => o.value === want)) {
+              sel.value = want;
+              voiceConfig.activeVoiceId = sel.value;
+            }
+          }
+        }
+        updateOwnerTtsProviderPanels();
+      }
 
       async function loadVoiceConfig() {
         try {
           const cfg = await ownerFetch("/api/tts/config");
-          
-          // Parse the config into our local format
-          voiceConfig.ttsMode = cfg.ttsMode || cfg.mode || "kokoro_http";
+
+          voiceConfig.ttsMode = cfg.ttsMode || cfg.mode || "coqui_xtts";
           voiceConfig.presetVoice = cfg.voiceId || cfg.voice || "default";
           voiceConfig.defaultVoiceMode = cfg.defaultVoiceMode || "preset";
-          
-          // Handle cloned voice (single) from server
+
           if (cfg.clonedVoice && cfg.clonedVoice.speakerWavUrl) {
-            // Check if we already have this voice saved
             const existingIdx = voiceConfig.clonedVoices.findIndex(
-              v => v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
+              (v) => v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
             );
             if (existingIdx === -1) {
               voiceConfig.clonedVoices.push({
@@ -980,19 +1323,30 @@
               });
             }
           }
-          
-          // Determine active voice ID
+
           if (voiceConfig.defaultVoiceMode === "cloned" && voiceConfig.clonedVoices.length > 0) {
-            // Find the active cloned voice
             const activeCloned = voiceConfig.clonedVoices.find(
-              v => cfg.clonedVoice && v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
+              (v) => cfg.clonedVoice && v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
             );
-            voiceConfig.activeVoiceId = activeCloned ? `cloned:${activeCloned.id}` : "preset:default";
+            voiceConfig.activeVoiceId = activeCloned ? `cloned:${activeCloned.id}` : `preset:${voiceConfig.presetVoice}`;
           } else {
             voiceConfig.activeVoiceId = `preset:${voiceConfig.presetVoice}`;
           }
-          
+
+          ownerRenderTtsConfig(cfg);
+          const pvAfter = $("owner-ttsVoiceId");
+          if (pvAfter && pvAfter.value.trim()) {
+            voiceConfig.presetVoice = pvAfter.value.trim();
+          }
+          if (voiceConfig.defaultVoiceMode !== "cloned") {
+            voiceConfig.activeVoiceId = `preset:${voiceConfig.presetVoice}`;
+          }
+
           renderVoiceSelector();
+          const vsel = $("voice-selector");
+          if (vsel && [...vsel.options].some((o) => o.value === voiceConfig.activeVoiceId)) {
+            vsel.value = voiceConfig.activeVoiceId;
+          }
           renderClonedVoicesList();
         } catch (err) {
           console.error("Failed to load voice config:", err);
@@ -1025,8 +1379,12 @@
         
         // Update status
         const statusEl = $("voice-selector-status");
-        if (voiceConfig.ttsMode !== "coqui_xtts" && voiceConfig.clonedVoices.length > 0) {
-          statusEl.innerHTML = `<span style="color: var(--accent-warm);">Note: Voice cloning requires XTTS mode. Ask your admin to enable it.</span>`;
+        if (
+          voiceConfig.ttsMode !== "coqui_xtts" &&
+          voiceConfig.ttsMode !== "chatterbox_http" &&
+          voiceConfig.clonedVoices.length > 0
+        ) {
+          statusEl.innerHTML = `<span style="color: var(--accent-warm);">Note: Voice cloning requires XTTS or Chatterbox. Ask your admin to enable it.</span>`;
         } else {
           statusEl.textContent = "";
         }
@@ -1061,60 +1419,80 @@
 
       async function saveVoiceSettings() {
         const statusEl = $("voice-settings-status");
-        const selector = $("voice-selector");
-        
+        if (!validateOwnerVoiceCloning()) {
+          if (statusEl) statusEl.style.color = "var(--danger)";
+          return;
+        }
         try {
-          const selectedValue = selector?.value || "preset:default";
-          voiceConfig.activeVoiceId = selectedValue;
-          
-          const [type, id] = selectedValue.split(":");
-          const isCloned = type === "cloned";
-          
-          // Build the payload
-          const payload = {
-            ttsMode: voiceConfig.clonedVoices.length > 0 ? "coqui_xtts" : voiceConfig.ttsMode,
-            defaultVoiceMode: isCloned ? "cloned" : "preset",
-            voiceId: voiceConfig.presetVoice,
-          };
-          
-          // If cloned voice selected, find it and set the URL
-          if (isCloned) {
-            const voice = voiceConfig.clonedVoices.find(v => v.id === id);
-            if (voice) {
-              payload.clonedVoice = {
-                speakerWavUrl: voice.speakerWavUrl,
-                label: voice.label,
-              };
-            } else {
-              // Fallback to preset if voice not found
-              payload.defaultVoiceMode = "preset";
-            }
-          } else if (voiceConfig.clonedVoices.length > 0) {
-            // Keep the first cloned voice stored even if using preset
-            payload.clonedVoice = {
-              speakerWavUrl: voiceConfig.clonedVoices[0].speakerWavUrl,
-              label: voiceConfig.clonedVoices[0].label,
-            };
+          const modeEl = $("owner-ttsMode");
+          const urlEl = $("owner-ttsUrl");
+          const presetEl = $("owner-ttsPreset");
+          const voiceEl = $("owner-ttsVoiceId");
+          const langEl = $("owner-ttsLanguage");
+          const rateEl = $("owner-ttsRate");
+          const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+          const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+          const clonedVoiceLabelEl = $("owner-clonedVoiceLabel");
+
+          const ttsMode = modeEl ? modeEl.value : "coqui_xtts";
+          const url = urlEl ? urlEl.value.trim() : "";
+
+          if (voiceEl && voiceEl.value.trim()) {
+            voiceConfig.presetVoice = voiceEl.value.trim();
           }
-          
+
+          const payload = {
+            ttsMode,
+            preset: presetEl ? presetEl.value : "neutral",
+            voiceId: voiceEl ? voiceEl.value.trim() || undefined : undefined,
+            language: langEl ? langEl.value.trim() || undefined : undefined,
+            rate: rateEl ? parseFloat(rateEl.value) : 0.95,
+            defaultVoiceMode: defaultVoiceModeEl ? defaultVoiceModeEl.value : "preset",
+          };
+
+          const clonedUrl = clonedVoiceUrlEl ? clonedVoiceUrlEl.value.trim() : "";
+          const clonedLabel = clonedVoiceLabelEl ? clonedVoiceLabelEl.value.trim() : "";
+
+          if (ttsMode === "coqui_xtts") {
+            payload.coquiXttsUrl = url || undefined;
+            if (clonedUrl) {
+              payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            }
+          } else if (ttsMode === "chatterbox_http") {
+            payload.chatterboxUrl = url || undefined;
+            const cv = $("owner-chatterboxVariant");
+            if (cv && cv.value) payload.chatterboxVariant = cv.value;
+            if (clonedUrl) {
+              payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            }
+          } else {
+            payload.kokoroUrl = url || undefined;
+            payload.xttsUrl = url || undefined;
+          }
+
+          const sel = $("voice-selector");
+          if (sel) voiceConfig.activeVoiceId = sel.value;
+
           await ownerFetch("/api/tts/config", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          
-          statusEl.textContent = "Voice settings saved!";
-          statusEl.style.color = "var(--success)";
-          
-          // Clear after a moment
-          setTimeout(() => {
-            if (statusEl.textContent === "Voice settings saved!") {
-              statusEl.textContent = "";
-            }
-          }, 3000);
+
+          await loadVoiceConfig();
+
+          if (statusEl) {
+            statusEl.textContent = "Voice settings saved!";
+            statusEl.style.color = "var(--success)";
+            setTimeout(() => {
+              if (statusEl.textContent === "Voice settings saved!") statusEl.textContent = "";
+            }, 3000);
+          }
         } catch (err) {
-          statusEl.textContent = "Failed to save: " + err.message;
-          statusEl.style.color = "var(--danger)";
+          if (statusEl) {
+            statusEl.textContent = "Failed to save: " + err.message;
+            statusEl.style.color = "var(--danger)";
+          }
         }
       }
 
@@ -1523,6 +1901,31 @@
         
         // Voice settings event listeners
         $("save-voice-settings").addEventListener("click", () => requireAuth(() => saveVoiceSettings()));
+
+        const ownerTtsMode = $("owner-ttsMode");
+        if (ownerTtsMode) ownerTtsMode.addEventListener("change", updateOwnerTtsProviderPanels);
+        const ownerRate = $("owner-ttsRate");
+        if (ownerRate) {
+          ownerRate.addEventListener("input", ownerUpdateTtsLabels);
+          ownerUpdateTtsLabels();
+        }
+        const ownerDm = $("owner-defaultVoiceMode");
+        if (ownerDm) {
+          ownerDm.addEventListener("change", () => {
+            syncOwnerSelectorFromCloningForm();
+            updateOwnerTtsProviderPanels();
+          });
+        }
+        const ownerCv = $("owner-clonedVoiceUrl");
+        if (ownerCv) {
+          ownerCv.addEventListener("input", () => {
+            syncOwnerSelectorFromCloningForm();
+            updateOwnerTtsProviderPanels();
+          });
+        }
+        const vselInit = $("voice-selector");
+        if (vselInit) vselInit.addEventListener("change", syncOwnerVoiceFromSelector);
+        if ($("owner-ttsMode")) updateOwnerTtsProviderPanels();
 
         // Telnyx event listeners
         $("telnyx-get-number").addEventListener("click", () => searchAndShowNumbers());

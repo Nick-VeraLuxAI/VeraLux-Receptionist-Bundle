@@ -37,14 +37,14 @@ function parseArgs(argv: string[]): { did: string; tenantId: string } {
 }
 
 function buildConfig(tenantId: string, did: string): RuntimeTenantConfig {
-  const tts =
+  const tts: RuntimeTenantConfig['tts'] =
     env.TTS_MODE === 'coqui_xtts'
       ? {
-          mode: 'coqui_xtts' as const,
+          mode: 'coqui_xtts',
           coquiXttsUrl: env.COQUI_XTTS_URL!,
           voice: env.COQUI_VOICE_ID ?? 'en_sample',
           language: 'en',
-          format: 'wav' as const,
+          format: 'wav',
           sampleRate: env.TTS_SAMPLE_RATE,
           coquiTemperature: env.COQUI_TEMPERATURE,
           coquiLengthPenalty: env.COQUI_LENGTH_PENALTY,
@@ -54,13 +54,23 @@ function buildConfig(tenantId: string, did: string): RuntimeTenantConfig {
           coquiSpeed: env.COQUI_SPEED,
           coquiSplitSentences: env.COQUI_SPLIT_SENTENCES,
         }
-      : {
-          mode: 'kokoro_http' as const,
-          kokoroUrl: env.KOKORO_URL!,
-          voice: env.KOKORO_VOICE_ID ?? 'af_bella',
-          format: 'wav' as const,
-          sampleRate: env.TTS_SAMPLE_RATE,
-        };
+      : env.TTS_MODE === 'chatterbox_http'
+        ? {
+            mode: 'chatterbox_http',
+            chatterboxUrl: env.CHATTERBOX_URL!,
+            chatterboxVariant: env.CHATTERBOX_VARIANT,
+            voice: env.CHATTERBOX_VOICE_ID,
+            language: env.CHATTERBOX_LANGUAGE ?? 'en',
+            format: 'wav',
+            sampleRate: env.TTS_SAMPLE_RATE,
+          }
+        : {
+            mode: 'kokoro_http',
+            kokoroUrl: env.KOKORO_URL!,
+            voice: env.KOKORO_VOICE_ID ?? 'af_bella',
+            format: 'wav',
+            sampleRate: env.TTS_SAMPLE_RATE,
+          };
 
   return {
     contractVersion: 'v1',

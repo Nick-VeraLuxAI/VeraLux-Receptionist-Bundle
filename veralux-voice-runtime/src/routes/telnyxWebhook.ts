@@ -27,7 +27,7 @@ function logTtsBytesReady(
   id: string,
   audio: Buffer,
   contentType: string | undefined,
-  source: 'kokoro' | 'coqui_xtts' = 'kokoro',
+  source: 'kokoro' | 'coqui_xtts' | 'chatterbox' = 'kokoro',
 ): void {
   const header = describeWavHeader(audio);
   log.info(
@@ -259,13 +259,14 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
         'tts synthesized',
       );
 
-      logTtsBytesReady(
-        context,
-        options.reason,
-        ttsResult.audio,
-        ttsResult.contentType,
-        options.ttsConfig?.mode === 'coqui_xtts' ? 'coqui_xtts' : 'kokoro',
-      );
+      const ttsMode = options.ttsConfig?.mode;
+      const ttsLogSrc =
+        ttsMode === 'coqui_xtts'
+          ? 'coqui_xtts'
+          : ttsMode === 'chatterbox_http'
+            ? 'chatterbox'
+            : 'kokoro';
+      logTtsBytesReady(context, options.reason, ttsResult.audio, ttsResult.contentType, ttsLogSrc);
       const pipelineApplied = env.PLAYBACK_PROFILE === 'pstn';
       if (pipelineApplied) {
         const endPipeline = startStageTimer('tts_pipeline_ms', options.tenantId ?? 'unknown');

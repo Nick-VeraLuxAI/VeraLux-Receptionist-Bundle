@@ -1,3 +1,4 @@
+import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
 import { env } from '../env';
 import { log } from '../log';
 import { ConversationTurn } from '../calls/types';
@@ -53,8 +54,6 @@ export interface AssistantReplyResult {
   /** If set, the runtime will switch voice mode before playing the response. */
   voiceDirective?: AssistantVoiceDirective;
 }
-
-const ERROR_FALLBACK_TEXT = 'Sorry - I had a problem responding. Can you repeat that?';
 
 function parseTransferAction(
   raw: unknown,
@@ -293,7 +292,7 @@ export async function generateAssistantReply(
       },
       'brain reply failed',
     );
-    return { text: ERROR_FALLBACK_TEXT, source: 'fallback_error' };
+    return { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' };
   } finally {
     clearTimeout(timeout);
   }

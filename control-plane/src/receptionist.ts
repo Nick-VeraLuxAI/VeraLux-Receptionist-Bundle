@@ -1,19 +1,18 @@
+import { RECEPTIONIST_TEXT_LLM_ERROR_FALLBACK } from "@veralux/shared";
 import type {
   CallState,
   HistoryItem,
-  LLMActionResult,
   Lead,
   ReceptionistAction,
   CallOutcome,
-  Stage,
 } from "./runTypes";
-import { isStage, normalizeActions } from "./runTypes";
 import { callLLM } from "./localLLM";
 import type { LLMConfigStore } from "./config";
 import { tenants, DEFAULT_TENANT_ID } from "./tenants";
 import { buildIntakeGuidance, analyzeIntake } from "./workflows/intake";
 import { buildQuotingGuidance, analyzeQuoting } from "./workflows/quoting";
 import { buildSchedulingGuidance, analyzeScheduling } from "./workflows/scheduling";
+import { parseReceptionistLlmOutput, type ParsedReceptionistLlm } from "./receptionistLlmParse";
 
 export interface ReceptionistTurnInput {
   tenantId: string;
@@ -202,34 +201,6 @@ function buildPrompt(
   ].join("\n");
 }
 
-function safeParseLLMJson(rawText: string): Partial<LLMActionResult> {
-  // Extract first JSON object-looking segment
-  const match = rawText.match(/\{[\s\S]*\}/);
-  if (!match) return {};
-  try {
-    const parsed = JSON.parse(match[0]);
-    const result: Partial<LLMActionResult> = {};
-    if (typeof parsed.replyText === "string") {
-      result.replyText = parsed.replyText;
-    }
-    if (Array.isArray(parsed.actions)) {
-      result.actions = parsed.actions as ReceptionistAction[];
-    }
-    if (typeof parsed.stage === "string" && isStage(parsed.stage)) {
-      result.stage = parsed.stage as Stage;
-    }
-    if (parsed.leadUpdates && typeof parsed.leadUpdates === "object") {
-      result.leadUpdates = parsed.leadUpdates as Partial<Lead>;
-    }
-    if (typeof parsed.outcome === "string") {
-      result.outcome = parsed.outcome as CallOutcome;
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
 export async function runReceptionistTurn(
   input: ReceptionistTurnInput
 ): Promise<ReceptionistTurnResult> {
@@ -255,12 +226,21 @@ export async function runReceptionistTurn(
 
   const prompt = buildPrompt(state, callerMessage, cfg);
 
+  const cfgRow = cfg.get();
+  const envProvider = (process.env.LLM_PROVIDER || "").toLowerCase();
+  const resolvedProvider = String(cfgRow.provider || envProvider || "local").toLowerCase();
+  const responseJsonObject =
+    resolvedProvider === "openai" || resolvedProvider === "cloud";
+
   let llmRaw: string;
-  let parsed: Partial<LLMActionResult> = {};
+  let parsed: ParsedReceptionistLlm = {};
   try {
-    const { rawText } = await callLLM({ prompt }, { tenantId, config: cfg });
+    const { rawText } = await callLLM(
+      { prompt },
+      { tenantId, config: cfg, responseJsonObject }
+    );
     llmRaw = rawText;
-    parsed = safeParseLLMJson(rawText);
+    parsed = parseReceptionistLlmOutput(rawText);
   } catch (err) {
     console.error("runReceptionistTurn LLM error:", err);
     llmRaw = "";
@@ -269,9 +249,9 @@ export async function runReceptionistTurn(
   const replyText =
     parsed.replyText && parsed.replyText.trim().length > 0
       ? parsed.replyText
-      : "I'm sorry, I had a little trouble on my end. Could you please repeat that or tell me a bit more about what you need help with?";
+      : RECEPTIONIST_TEXT_LLM_ERROR_FALLBACK;
 
-  if (parsed.stage && isStage(parsed.stage)) {
+  if (parsed.stage) {
     state.stage = parsed.stage;
   }
 
@@ -281,15 +261,14 @@ export async function runReceptionistTurn(
 
   autoPromoteStage(state);
 
-  const normalizedActions = normalizeActions(parsed.actions);
-  let finalActions = normalizedActions;
+  let finalActions = parsed.actions ?? [];
   if (finalActions.length === 0) {
     finalActions = inferDefaultActions(state);
   }
 
   let outcome: CallOutcome = "unknown";
-  if (parsed.outcome && typeof parsed.outcome === "string") {
-    outcome = parsed.outcome as CallOutcome;
+  if (parsed.outcome) {
+    outcome = parsed.outcome;
   } else {
     const hasName = !!state.lead.name;
     const hasContact = !!state.lead.phone || !!state.lead.email;

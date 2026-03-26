@@ -82,6 +82,7 @@ services:
       - TTS_MODE=${TTS_MODE:-coqui_xtts}
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
+      - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
       - WHISPER_URL=${WHISPER_URL:-http://whisper:9000/transcribe}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -150,6 +151,8 @@ services:
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001}
       - XTTS_URL=${XTTS_URL:-http://xtts:7002}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
+      - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
+      - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
       # Media/Audio
       - MEDIA_STREAM_TOKEN=${MEDIA_STREAM_TOKEN}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -393,6 +396,42 @@ services:
       veralux-network:
         aliases:
           - xtts
+
+  chatterbox-gpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/chatterbox:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.chatterbox
+    container_name: veralux-chatterbox
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - gpu
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7005/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 180s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
+      - CHATTERBOX_DEVICE=cuda
+    ports:
+      - "${CHATTERBOX_PORT:-7005}:7005"
+    networks:
+      veralux-network:
+        aliases:
+          - chatterbox
 
   # =============================================================================
   # CPU Services (No GPU required - auto-selected by deploy.sh)

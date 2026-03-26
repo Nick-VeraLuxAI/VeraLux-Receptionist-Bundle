@@ -4,6 +4,7 @@ import { log } from '../log';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import { synthesizeSpeech as synthesizeKokoro } from './kokoroTTS';
 import { synthesizeSpeechCoquiXtts } from './coquiXtts';
+import { synthesizeSpeechChatterbox } from './chatterboxTTS';
 import type { TTSRequest, TTSResult } from './types';
 
 /** Build TTS config from .env when no tenant config is set. Kokoro and Coqui use separate voice defaults. */
@@ -21,6 +22,17 @@ function ttsConfigFromEnv(): RuntimeTenantConfig['tts'] {
       coquiTopP: env.COQUI_TOP_P,
       coquiSpeed: env.COQUI_SPEED,
       coquiSplitSentences: env.COQUI_SPLIT_SENTENCES,
+    };
+  }
+  if (env.TTS_MODE === 'chatterbox_http') {
+    return {
+      mode: 'chatterbox_http',
+      chatterboxUrl: env.CHATTERBOX_URL!,
+      chatterboxVariant: env.CHATTERBOX_VARIANT,
+      voice: env.CHATTERBOX_VOICE_ID,
+      language: env.CHATTERBOX_LANGUAGE ?? 'en',
+      format: 'wav',
+      sampleRate: env.TTS_SAMPLE_RATE,
     };
   }
   return {
@@ -43,7 +55,14 @@ export async function synthesizeSpeech(
   const config = ttsConfig ?? ttsConfigFromEnv();
 
   let result: TTSResult;
-  if (config.mode === 'coqui_xtts') {
+  if (config.mode === 'chatterbox_http') {
+    result = await synthesizeSpeechChatterbox({
+      text: request.text,
+      chatterboxUrl: request.chatterboxUrl ?? config.chatterboxUrl,
+      speakerWavUrl: request.speakerWavUrl,
+      language: request.language ?? config.language,
+    });
+  } else if (config.mode === 'coqui_xtts') {
     result = await synthesizeSpeechCoquiXtts({
       text: request.text,
       voice: request.voice ?? config.voice,

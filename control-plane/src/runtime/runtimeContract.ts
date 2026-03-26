@@ -16,6 +16,7 @@ export {
   type RuntimeClonedVoice,
   type RuntimeVoiceMode,
   type RuntimeTtsCoquiXtts,
+  type RuntimeTtsChatterbox,
   type RuntimeTtsConfig,
   type TransferProfile,
 } from "@veralux/shared";

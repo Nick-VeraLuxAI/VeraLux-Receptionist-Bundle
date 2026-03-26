@@ -83,7 +83,12 @@ export interface OpenAIConfig {
 
 export async function callOpenAILLM(
   input: LocalLLMInput,
-  opts?: Partial<OpenAIConfig> & { config?: LLMConfigStore; tenantId?: string }
+  opts?: Partial<OpenAIConfig> & {
+    config?: LLMConfigStore;
+    tenantId?: string;
+    /** When true, request JSON object output (OpenAI Chat Completions). Prompt must ask for JSON. */
+    responseJsonObject?: boolean;
+  }
 ): Promise<LocalLLMOutput> {
   const cfgStore = getConfigStore(opts);
   const runtimeCfg = cfgStore.get();
@@ -102,18 +107,23 @@ export async function callOpenAILLM(
     process.env.OPENAI_MODEL ||
     DEFAULT_OPENAI_MODEL;
 
+  const body: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content: input.prompt }],
+    temperature: 0.3,
+    max_tokens: 400,
+  };
+  if (opts?.responseJsonObject) {
+    body.response_format = { type: "json_object" };
+  }
+
   const res = await fetchWithTimeoutRetry(baseUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "user", content: input.prompt }],
-      temperature: 0.3,
-      max_tokens: 400,
-    }),
+    body: JSON.stringify(body),
     timeoutMs: 25_000,
     retries: 1,
   });
@@ -139,14 +149,22 @@ export async function callOpenAILLM(
 
 export async function callLLM(
   input: LocalLLMInput,
-  opts?: { tenantId?: string; config?: LLMConfigStore }
+  opts?: {
+    tenantId?: string;
+    config?: LLMConfigStore;
+    responseJsonObject?: boolean;
+  }
 ): Promise<LocalLLMOutput> {
   const cfgStore = getConfigStore(opts);
   const configProvider: LLMProvider | string = cfgStore.get().provider;
   const envProvider = (process.env.LLM_PROVIDER || "").toLowerCase();
   const provider = (configProvider || envProvider) as LLMProvider | string;
   if (provider === "openai" || provider === "cloud") {
-    return callOpenAILLM(input, { ...opts, config: cfgStore });
+    return callOpenAILLM(input, {
+      ...opts,
+      config: cfgStore,
+      responseJsonObject: opts?.responseJsonObject,
+    });
   }
   return callLocalLLM(input, { ...opts, config: cfgStore });
 }

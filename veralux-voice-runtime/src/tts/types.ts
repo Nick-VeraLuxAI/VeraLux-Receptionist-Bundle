@@ -7,6 +7,8 @@ export interface TTSRequest {
   kokoroUrl?: string;
   /** Coqui XTTS: base URL for the TTS API (e.g. http://host:7002/api/tts). */
   coquiXttsUrl?: string;
+  /** Chatterbox: base URL (e.g. http://host:7005 or http://host:7005/tts). */
+  chatterboxUrl?: string;
   /** Coqui XTTS: reference audio for voice cloning (URL or path). XTTS uses this, not preset voice IDs. */
   speakerWavUrl?: string;
   /** Coqui XTTS: language code (default "en"). */

@@ -1,6 +1,6 @@
 # veralux-audio-stack
 
-FastAPI-based services that expose Kokoro TTS, Coqui XTTS TTS, and Faster-Whisper transcription endpoints. Each stack runs in its own Python virtual environment to keep dependencies clean.
+FastAPI-based services that expose Kokoro TTS, Coqui XTTS TTS, [Chatterbox](https://github.com/resemble-ai/chatterbox) (Resemble AI), and Faster-Whisper transcription endpoints. Each stack runs in its own Python virtual environment to keep dependencies clean (except the CUDA Chatterbox image, which bundles PyTorch).
 
 ## Prerequisites
 - Python 3.10+ with `venv` available
@@ -29,6 +29,32 @@ uvicorn kokoro_server:app --host 0.0.0.0 --port 7001 --reload
   "rate": 1.1
 }
 ```
+
+## Chatterbox TTS (optional, GPU recommended)
+
+Uses the upstream `chatterbox-tts` package. See the [Chatterbox repository](https://github.com/resemble-ai/chatterbox) for model details (Turbo, Standard, Multilingual).
+
+```bash
+python3.11 -m venv chatterbox-env
+source chatterbox-env/bin/activate
+pip install --upgrade pip
+pip install -r requirements-chatterbox.txt
+```
+
+Run:
+
+```bash
+export CHATTERBOX_VARIANT=turbo   # or standard | multilingual
+export CHATTERBOX_DEVICE=cuda      # or cpu
+# Optional: default reference WAV on disk when the client does not send speaker_wav_url (Turbo)
+# export CHATTERBOX_DEFAULT_AUDIO_PROMPT=/path/to/ref.wav
+uvicorn chatterbox_server:app --host 0.0.0.0 --port 7005
+```
+
+- **GET /health** — variant, device, whether the model has been loaded.
+- **POST /tts** JSON: `text` (required), optional `speaker_wav_url` (HTTP(S) WAV for cloning / Turbo prompt), optional `language_id` (multilingual, e.g. `en`, `fr`).
+
+Docker: `docker compose --profile gpu up chatterbox-gpu` (see repo root `docker-compose.yml`).
 
 ## Coqui XTTS TTS environment
 

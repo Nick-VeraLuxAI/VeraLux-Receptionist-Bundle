@@ -12,6 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config(); // brain-gpt4o/.env
 dotenv.config({ path: path.resolve(__dirname, '../../.env') }); // root .env (overrides / supplies OPENAI_API_KEY)
 
+import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
 import express, { Request, Response } from 'express';
 import OpenAI from 'openai';
 import type {
@@ -142,7 +143,7 @@ async function handleReply(req: Request, res: Response): Promise<void> {
       messages,
       tools,
       tool_choice: tools ? 'auto' : undefined,
-      max_tokens: 256,
+      max_tokens: 512,
     });
 
     const choice = completion.choices?.[0];
@@ -196,7 +197,7 @@ async function handleReply(req: Request, res: Response): Promise<void> {
   } catch (err) {
     console.error('OpenAI reply error:', err);
     res.status(500).json({
-      text: "I'm sorry, I had a problem responding. Please try again.",
+      text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK,
       error: err instanceof Error ? err.message : 'Unknown error',
     });
   }
@@ -231,7 +232,7 @@ async function handleReplyStream(req: Request, res: Response): Promise<void> {
       messages,
       tools,
       tool_choice: tools ? 'auto' : undefined,
-      max_tokens: 256,
+      max_tokens: 512,
       stream: true,
     });
 
@@ -296,7 +297,7 @@ async function handleReplyStream(req: Request, res: Response): Promise<void> {
   } catch (err) {
     console.error('OpenAI stream error:', err);
     res.write(
-      `event: done\ndata: ${JSON.stringify({ text: "I'm sorry, I had a problem. Please try again." })}\n\n`,
+      `event: done\ndata: ${JSON.stringify({ text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK })}\n\n`,
     );
   } finally {
     res.end();

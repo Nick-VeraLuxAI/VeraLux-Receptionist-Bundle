@@ -62,7 +62,7 @@ export const promptConfigSchema = z.object({
 
 export const voicePresetSchema = z.enum(["neutral", "warm", "energetic", "calm"]);
 
-export const ttsModeSchema = z.enum(["kokoro_http", "coqui_xtts"]);
+export const ttsModeSchema = z.enum(["kokoro_http", "coqui_xtts", "chatterbox_http"]);
 
 export const voiceModeSchema = z.enum(["preset", "cloned"]);
 
@@ -79,6 +79,8 @@ export const ttsConfigSchema = z.object({
   rate: z.number().min(0.5).max(2.0).optional(),
   coquiXttsUrl: urlSchema.optional(),
   kokoroUrl: urlSchema.optional(),
+  chatterboxUrl: urlSchema.optional(),
+  chatterboxVariant: z.enum(["turbo", "standard", "multilingual"]).optional(),
   xttsUrl: urlSchema.optional(),
   defaultVoiceMode: voiceModeSchema.optional(),
   clonedVoice: clonedVoiceSchema.optional(),

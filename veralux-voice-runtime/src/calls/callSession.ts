@@ -20,6 +20,7 @@ import { attachAudioMeta, getAudioMeta, markAudioSpan, probeWav } from '../diagn
 import type { TTSResult } from '../tts/types';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import { getEffectiveSpeakerWavUrl, type VoiceMode } from '../tenants/tenantConfig';
+import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
 import { generateAssistantReply, generateAssistantReplyStream, type AssistantReplyResult } from '../ai/brainClient';
 import {
   CallSessionConfig,
@@ -294,8 +295,11 @@ export class CallSession {
       telnyx_track: env.TELNYX_STREAM_TRACK,
     };
 
-    // Initialize voice mode from tenant config (XTTS only)
-    if (this.ttsConfig?.mode === 'coqui_xtts') {
+    // Initialize voice mode from tenant config (XTTS / Chatterbox cloning)
+    if (
+      this.ttsConfig?.mode === 'coqui_xtts' ||
+      this.ttsConfig?.mode === 'chatterbox_http'
+    ) {
       this.currentVoiceMode = this.ttsConfig.defaultVoiceMode ?? 'preset';
       log.info(
         {
@@ -871,7 +875,7 @@ export class CallSession {
 
   /**
    * Get the current voice mode ('preset' or 'cloned').
-   * Only meaningful for XTTS TTS mode.
+   * Meaningful for XTTS and Chatterbox HTTP (reference-audio) modes.
    */
   public getVoiceMode(): VoiceMode {
     return this.currentVoiceMode;
@@ -906,10 +910,13 @@ export class CallSession {
 
   /**
    * Check if voice cloning is available for this session.
-   * Returns true if XTTS mode and a cloned voice is configured.
+   * Returns true if XTTS or Chatterbox mode and a reference speaker URL is configured.
    */
   public isVoiceCloningAvailable(): boolean {
-    if (this.ttsConfig?.mode !== 'coqui_xtts') {
+    if (
+      this.ttsConfig?.mode !== 'coqui_xtts' &&
+      this.ttsConfig?.mode !== 'chatterbox_http'
+    ) {
       return false;
     }
     return !!(
@@ -943,7 +950,8 @@ export class CallSession {
   } {
     const available = this.isVoiceCloningAvailable();
     const clonedVoiceLabel =
-      this.ttsConfig?.mode === 'coqui_xtts'
+      this.ttsConfig?.mode === 'coqui_xtts' ||
+      this.ttsConfig?.mode === 'chatterbox_http'
         ? this.ttsConfig.clonedVoice?.label
         : undefined;
 
@@ -1256,10 +1264,21 @@ export class CallSession {
     attachAudioMeta(audio, baseMeta);
     probeWav('tts.out.raw', audio, baseMeta);
 
-    this.logWavInfo(this.ttsConfig?.mode === 'coqui_xtts' ? 'coqui_xtts' : 'kokoro', id, audio);
+    const ttsMode = this.ttsConfig?.mode;
+    const wavSrc =
+      ttsMode === 'coqui_xtts'
+        ? 'coqui_xtts'
+        : ttsMode === 'chatterbox_http'
+          ? 'chatterbox'
+          : 'kokoro';
+    this.logWavInfo(wavSrc, id, audio);
   }
 
-  private logWavInfo(source: 'kokoro' | 'coqui_xtts' | 'pipeline_output', id: string, audio: Buffer): void {
+  private logWavInfo(
+    source: 'kokoro' | 'coqui_xtts' | 'chatterbox' | 'pipeline_output',
+    id: string,
+    audio: Buffer,
+  ): void {
     try {
       const info = parseWavInfo(audio);
       log.info(
@@ -1822,7 +1841,7 @@ export class CallSession {
           }
         }
       } catch (error) {
-        response = 'Acknowledged.';
+        response = ASSISTANT_VOICE_LLM_ERROR_FALLBACK;
         replySource = 'fallback_error';
         log.error(
           { err: error, assistant_reply_source: replySource, ...this.logContext },

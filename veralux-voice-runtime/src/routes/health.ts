@@ -56,12 +56,28 @@ healthRouter.get('/ready', async (_req, res) => {
   });
 });
 
+function ttsHealthUrl(): string | undefined {
+  if (env.TTS_MODE === 'kokoro_http' && env.KOKORO_URL) {
+    return env.KOKORO_URL.replace('/v1/kokoro', '/health');
+  }
+  if (env.TTS_MODE === 'coqui_xtts' && env.COQUI_XTTS_URL) {
+    const u = env.COQUI_XTTS_URL.replace(/\/tts\/?$/, '');
+    return `${u}/health`;
+  }
+  if (env.TTS_MODE === 'chatterbox_http' && env.CHATTERBOX_URL) {
+    const u = env.CHATTERBOX_URL.replace(/\/tts\/?$/, '');
+    return `${u}/health`;
+  }
+  return undefined;
+}
+
 // Full health check with all dependencies
 healthRouter.get('/', async (_req, res) => {
+  const ttsHealth = ttsHealthUrl();
   const [redis, whisper, tts] = await Promise.all([
     checkRedis(),
     env.WHISPER_URL ? checkUrl(env.WHISPER_URL.replace('/transcribe', '/health').replace('/v1/audio/transcriptions', '/health')) : Promise.resolve(undefined),
-    env.KOKORO_URL ? checkUrl(env.KOKORO_URL.replace('/v1/kokoro', '/health')) : Promise.resolve(undefined),
+    ttsHealth ? checkUrl(ttsHealth) : Promise.resolve(undefined),
   ]);
 
   const checks: HealthStatus['checks'] = { redis };

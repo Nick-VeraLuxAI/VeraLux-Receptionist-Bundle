@@ -210,11 +210,25 @@ const EnvSchema = z.object({
   AMRWB_DEBUG_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
   /* ───────────────────────── TTS ───────────────────────── */
-  /** TTS backend: kokoro_http (default) or coqui_xtts. Used when no tenant tts config is set. */
-  TTS_MODE: z.preprocess(emptyToUndefined, z.enum(['kokoro_http', 'coqui_xtts']).default('kokoro_http')),
+  /** TTS backend when no tenant tts config is set. */
+  TTS_MODE: z.preprocess(
+    emptyToUndefined,
+    z.enum(['kokoro_http', 'coqui_xtts', 'chatterbox_http']).default('kokoro_http'),
+  ),
   KOKORO_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Coqui XTTS API base URL (e.g. http://host:7002/tts). Required when TTS_MODE=coqui_xtts. */
   COQUI_XTTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Chatterbox HTTP TTS (Resemble). Required when TTS_MODE=chatterbox_http. */
+  CHATTERBOX_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
+  CHATTERBOX_VARIANT: z.preprocess(
+    emptyToUndefined,
+    z.enum(['turbo', 'standard', 'multilingual']).default('turbo'),
+  ),
+  /** Optional label stored in tenant-style config; Chatterbox uses speaker WAV for voice, not this id. */
+  CHATTERBOX_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Default language_id for Chatterbox-Multilingual (e.g. en, fr). */
+  CHATTERBOX_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Coqui XTTS voice_id (e.g. "en_sample"). Default "en_sample" when unset; not Kokoro preset names. */
   COQUI_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** When true, omit voice_id/speaker in Coqui requests (for single-speaker XTTS models). Default false. */
@@ -274,6 +288,13 @@ const EnvSchema = z.object({
   }
   if (data.TTS_MODE === 'coqui_xtts' && (!data.COQUI_XTTS_URL || data.COQUI_XTTS_URL.trim() === '')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'COQUI_XTTS_URL is required when TTS_MODE=coqui_xtts', path: ['COQUI_XTTS_URL'] });
+  }
+  if (data.TTS_MODE === 'chatterbox_http' && (!data.CHATTERBOX_URL || data.CHATTERBOX_URL.trim() === '')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'CHATTERBOX_URL is required when TTS_MODE=chatterbox_http',
+      path: ['CHATTERBOX_URL'],
+    });
   }
 });
 

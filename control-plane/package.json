@@ -14,7 +14,7 @@
     "report:runtime": "npm run build && node scripts/print_runtime_contract.js",
     "check:contract": "node -r ts-node/register scripts/check_contract_compat.ts",
     "seed:stage1": "node scripts/seed_stage1_test.js",
-    "test": "npm run build && node --test tests/auth.test.js tests/validation.test.js tests/runtimeContract.test.js tests/runtimePublisher.test.js",
+    "test": "npm run build && node --test tests/auth.test.js tests/validation.test.js tests/runtimeContract.test.js tests/runtimePublisher.test.js tests/receptionist.test.js",
     "test:runtime": "npm run build && node --test tests/runtimeContract.test.js tests/runtimePublisher.test.js",
     "test:stage1": "bash scripts/stage1_smoke_test.sh",
     "test:stage2": "bash scripts/stage2_smoke_test.sh"

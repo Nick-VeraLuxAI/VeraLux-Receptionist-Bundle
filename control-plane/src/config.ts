@@ -37,7 +37,8 @@ const DEFAULT_TTS_VOICE =
 // ───────────────────────────────────────────────
 
 export type VoicePreset = "neutral" | "warm" | "energetic" | "calm";
-export type TtsMode = "kokoro_http" | "coqui_xtts";
+export type TtsMode = "kokoro_http" | "coqui_xtts" | "chatterbox_http";
+export type ChatterboxVariant = "turbo" | "standard" | "multilingual";
 export type VoiceMode = "preset" | "cloned";
 
 export interface ClonedVoiceConfig {
@@ -53,9 +54,13 @@ export interface TTSConfig {
   preset?: VoicePreset;
   
   // Extended fields for XTTS voice cloning
-  ttsMode?: TtsMode;                      // kokoro_http or coqui_xtts
+  ttsMode?: TtsMode;                      // kokoro_http | coqui_xtts | chatterbox_http
   coquiXttsUrl?: string;                  // URL for XTTS server
   kokoroUrl?: string;                     // URL for Kokoro server
+  /** Chatterbox TTS HTTP base (e.g. http://host:7005 — /tts is appended by runtime). */
+  chatterboxUrl?: string;
+  /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
+  chatterboxVariant?: ChatterboxVariant;
   clonedVoice?: ClonedVoiceConfig;        // Cloned voice profile
   defaultVoiceMode?: VoiceMode;           // Default voice mode at call start
 }
@@ -315,6 +320,8 @@ export class LLMConfigStore {
       ttsMode: base.ttsMode || "coqui_xtts",
       coquiXttsUrl: base.coquiXttsUrl,
       kokoroUrl: base.kokoroUrl,
+      chatterboxUrl: base.chatterboxUrl,
+      chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",
     };
@@ -361,6 +368,13 @@ export class LLMConfigStore {
           : next.kokoroUrl === undefined
           ? current.kokoroUrl
           : undefined,
+      chatterboxUrl:
+        typeof next.chatterboxUrl === "string" && next.chatterboxUrl.trim().length
+          ? next.chatterboxUrl.trim()
+          : next.chatterboxUrl === undefined
+          ? current.chatterboxUrl
+          : undefined,
+      chatterboxVariant: next.chatterboxVariant ?? current.chatterboxVariant,
       defaultVoiceMode: next.defaultVoiceMode ?? current.defaultVoiceMode,
       clonedVoice: next.clonedVoice !== undefined
         ? next.clonedVoice

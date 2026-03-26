@@ -20,6 +20,7 @@ export {
   type RuntimeTenantConfig,
   type RuntimeTtsConfig,
   type RuntimeTtsCoquiXtts,
+  type RuntimeTtsChatterbox,
   type RuntimeClonedVoice,
   type RuntimeVoiceMode,
   type RuntimeForwardingProfile,
@@ -51,7 +52,10 @@ export function getEffectiveSpeakerWavUrl(
   ttsConfig: RuntimeTenantConfig['tts'] | undefined,
   voiceMode: VoiceMode,
 ): string | undefined {
-  if (!ttsConfig || ttsConfig.mode !== 'coqui_xtts') {
+  if (!ttsConfig) {
+    return undefined;
+  }
+  if (ttsConfig.mode !== 'coqui_xtts' && ttsConfig.mode !== 'chatterbox_http') {
     return undefined;
   }
 

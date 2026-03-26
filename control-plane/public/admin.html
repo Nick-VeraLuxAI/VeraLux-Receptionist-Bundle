@@ -360,20 +360,67 @@
             <div class="models-wizard__panel" data-wizard-panel="3" role="tabpanel" hidden>
               <section class="panel models-wizard__card">
                 <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 3</span> Voice</h2>
-                <p class="small muted">TTS provider, cloning, voice id, and speed.</p>
+                <p class="small muted">Pick a provider — only settings that apply to that engine are shown.</p>
                 <form id="tts-form">
                   <label for="ttsMode">TTS provider</label>
                   <select id="ttsMode" name="ttsMode">
                     <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
+                    <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
                     <option value="kokoro_http">Kokoro HTTP</option>
                   </select>
-                  <p class="small muted" style="margin-top: -4px">XTTS: cloning + hot-swap. Kokoro: lightweight HTTP TTS.</p>
+                  <p id="tts-provider-blurb" class="small muted" style="margin-top: 6px"></p>
 
-                  <label for="ttsUrl">TTS server URL</label>
-                  <input id="ttsUrl" name="xttsUrl" type="url" placeholder="http://127.0.0.1:8020/tts" style="width: 100%; max-width: 480px" />
+                  <div id="tts-panel-url" style="margin-top: 12px">
+                    <label for="ttsUrl" id="tts-url-label">TTS server URL</label>
+                    <input id="ttsUrl" name="xttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; max-width: 480px" />
+                  </div>
 
-                  <div id="voice-cloning-section" style="display: block; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
-                    <h3 style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Voice cloning (XTTS)</h3>
+                  <div id="tts-panel-chatterbox" style="display: none; margin-top: 14px">
+                    <label for="chatterboxVariant">Chatterbox model (must match server)</label>
+                    <select id="chatterboxVariant" name="chatterboxVariant">
+                      <option value="turbo" selected>Turbo (English, low-latency)</option>
+                      <option value="standard">Standard (English)</option>
+                      <option value="multilingual">Multilingual</option>
+                    </select>
+                    <p class="small muted" style="margin-top: 6px">
+                      Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value. Turbo usually needs a reference WAV (below) or
+                      <code>CHATTERBOX_DEFAULT_AUDIO_PROMPT</code> on the server.
+                    </p>
+                  </div>
+
+                  <div id="tts-panel-voice-id" style="display: none; margin-top: 14px">
+                    <label for="ttsVoiceId" id="tts-voice-id-label">Voice ID</label>
+                    <input id="ttsVoiceId" name="voiceId" type="text" placeholder="e.g. en_sample" />
+                    <p id="tts-voice-id-hint" class="small muted" style="margin-top: 4px"></p>
+                  </div>
+
+                  <div id="tts-panel-language" style="display: none; margin-top: 12px">
+                    <label for="ttsLanguage">Language</label>
+                    <input id="ttsLanguage" name="language" type="text" placeholder="e.g. en" />
+                    <p id="tts-language-hint" class="small muted" style="margin-top: 4px"></p>
+                  </div>
+
+                  <div id="tts-panel-xtts-preset" style="display: none; margin-top: 14px">
+                    <label for="ttsPreset">Voice character (rate preset)</label>
+                    <select id="ttsPreset" name="preset">
+                      <option value="neutral">Neutral</option>
+                      <option value="warm">Warm</option>
+                      <option value="energetic">Energetic</option>
+                      <option value="calm">Calm</option>
+                    </select>
+                    <p class="small muted" style="margin-top: 4px">
+                      Adjusts speaking rate in the control plane; combined with speed below where the runtime uses tenant TTS settings.
+                    </p>
+                  </div>
+
+                  <div id="tts-panel-rate" style="display: none; margin-top: 14px">
+                    <label for="ttsRate">Speed <span id="ttsRateValue" class="small" style="float: right">0.95</span></label>
+                    <input id="ttsRate" name="rate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" />
+                    <p id="tts-rate-hint" class="small muted" style="margin-top: -6px"></p>
+                  </div>
+
+                  <div id="tts-panel-cloning" style="display: none; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
+                    <h3 id="tts-cloning-heading" style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Reference / cloning</h3>
 
                     <label for="defaultVoiceMode">Default voice mode</label>
                     <select id="defaultVoiceMode" name="defaultVoiceMode">
@@ -413,26 +460,7 @@
                     </div>
                   </div>
 
-                  <label for="ttsVoiceId" style="margin-top: 12px">Voice ID</label>
-                  <input id="ttsVoiceId" name="voiceId" type="text" placeholder="e.g. en_sample" />
-
-                  <label for="ttsLanguage">Language</label>
-                  <input id="ttsLanguage" name="language" type="text" placeholder="e.g. en" />
-                  <p class="small muted" style="margin-top: -6px">ISO 639-1 (en, es, fr, …).</p>
-
-                  <label for="ttsPreset">Voice character</label>
-                  <select id="ttsPreset" name="preset">
-                    <option value="neutral">Neutral</option>
-                    <option value="warm">Warm</option>
-                    <option value="energetic">Energetic</option>
-                    <option value="calm">Calm</option>
-                  </select>
-
-                  <label for="ttsRate">Speed <span id="ttsRateValue" class="small" style="float: right">0.95</span></label>
-                  <input id="ttsRate" name="rate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" />
-                  <p class="small muted" style="margin-top: -6px">1.0 = normal speaking rate.</p>
-
-                  <div class="row models-wizard__actions">
+                  <div class="row models-wizard__actions" style="margin-top: 16px">
                     <button type="submit">Save voice settings</button>
                   </div>
                   <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Preview uses the voice runtime.</div>
@@ -457,8 +485,9 @@
                 <button type="button" class="secondary" id="models-sim-run" style="margin-top: 8px">Run flow check</button>
                 <pre id="models-sim-log" class="debug-block" style="margin-top: 10px; white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto"></pre>
 
-                <h3 class="micro-label" style="margin: 20px 0 8px">Live call voice (XTTS)</h3>
-                <p class="small muted">Hot-swap during an active call.</p>
+                <div id="tts-live-call-section" style="display: none">
+                <h3 id="tts-live-call-heading" class="micro-label" style="margin: 20px 0 8px">Live call voice</h3>
+                <p class="small muted">Hot-swap preset vs reference during an active call (XTTS or Chatterbox).</p>
                 <div id="active-call-voice-panel" class="models-wizard__subpanel">
                   <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 10px 0">
                     <input id="call-control-id" type="text" placeholder="Call control ID" style="min-width: 220px" />
@@ -489,6 +518,7 @@
                     <button type="button" id="set-call-voice">Set voice mode</button>
                   </div>
                   <div id="call-voice-status" class="small" style="margin-top: 6px; min-height: 16px"></div>
+                </div>
                 </div>
               </section>
             </div>
@@ -1572,9 +1602,14 @@
         const confPct = ac > 0 ? 88 + (ac % 11) : null;
         setTextFlash($("intel-confidence"), confPct != null ? `${confPct}% (est.)` : "—");
         setTextFlash($("intel-action"), ac > 0 ? "Reasoning · voice exchange" : "Observing control plane");
+        const ttsBoundRibbon =
+          (data.tts?.xttsUrl && data.tts.xttsUrl !== "-") ||
+          (data.tts?.coquiXttsUrl && data.tts.coquiXttsUrl !== "-") ||
+          (data.tts?.kokoroUrl && data.tts.kokoroUrl !== "-") ||
+          (data.tts?.chatterboxUrl && data.tts.chatterboxUrl !== "-");
         setTextFlash(
           $("intel-tool"),
-          data.tts?.xttsUrl && data.tts.xttsUrl !== "-" ? "voice.synth · bound" : "voice.synth · idle",
+          ttsBoundRibbon ? "voice.synth · bound" : "voice.synth · idle",
         );
         setTextFlash($("intel-voice"), ac > 0 ? "Responding" : "Idle");
         setTextFlash($("intel-escalation"), "Not required");
@@ -1700,10 +1735,15 @@
         const llmModel = (data.llm?.model || "—").toString();
         const llmProv = (data.llm?.provider || "—").toString();
 
+        const ttsBoundHealth =
+          (data.tts?.xttsUrl && data.tts.xttsUrl !== "-") ||
+          (data.tts?.coquiXttsUrl && data.tts.coquiXttsUrl !== "-") ||
+          (data.tts?.kokoroUrl && data.tts.kokoroUrl !== "-") ||
+          (data.tts?.chatterboxUrl && data.tts.chatterboxUrl !== "-");
         const voiceSub =
           data.tts?.voiceId && data.tts.voiceId !== "-"
             ? String(data.tts.voiceId)
-            : data.tts?.xttsUrl
+            : ttsBoundHealth
               ? "Synth bound"
               : "Awaiting URL";
 
@@ -1921,7 +1961,7 @@
       }
 
       // ───────────────────────────────────────────────
-      // TTS CONFIG & PREVIEW (Kokoro / XTTS)
+      // TTS CONFIG & PREVIEW (Kokoro / XTTS / Chatterbox)
       // ───────────────────────────────────────────────
 
       let currentTtsMode = "coqui_xtts";
@@ -1943,24 +1983,21 @@
         currentTtsMode = cfg.mode || cfg.ttsMode || "coqui_xtts";
         if (modeEl) modeEl.value = currentTtsMode;
 
-        // Set URL based on mode
         if (urlEl) {
-          urlEl.value = cfg.coquiXttsUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
+          urlEl.value =
+            cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
+        }
+        const cbVarEl = $("chatterboxVariant");
+        if (cbVarEl && cfg.chatterboxVariant) {
+          cbVarEl.value = cfg.chatterboxVariant;
         }
         presetEl.value = cfg.preset || "neutral";
-        
-        // Set voice and language from config first
+
         if (voiceEl) voiceEl.value = cfg.voice || cfg.voiceId || "";
         if (langEl) langEl.value = cfg.language || "";
-        
-        // If XTTS mode, apply XTTS-appropriate defaults for Kokoro-style values
-        if (currentTtsMode === "coqui_xtts") {
-          applyXttsDefaults();
-        }
 
         rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
 
-        // Voice cloning fields (XTTS only)
         if (defaultVoiceModeEl) {
           defaultVoiceModeEl.value = cfg.defaultVoiceMode || "preset";
         }
@@ -1972,7 +2009,7 @@
         }
 
         updateTtsLabels();
-        updateVoiceCloningVisibility();
+        updateTtsProviderPanels();
         $("tts-status").textContent = "TTS config loaded.";
       }
 
@@ -1991,51 +2028,152 @@
       function applyXttsDefaults() {
         const voiceEl = $("ttsVoiceId");
         const langEl = $("ttsLanguage");
-        
+
         if (voiceEl) {
           const currentVoice = voiceEl.value.trim();
-          // If voice looks like Kokoro format or is empty, apply XTTS default
           if (!currentVoice || KOKORO_VOICE_PATTERN.test(currentVoice)) {
             voiceEl.value = XTTS_DEFAULT_VOICE;
           }
         }
-        
+
         if (langEl) {
           const currentLang = langEl.value.trim();
-          // If language is Kokoro-style (a/b) or empty, apply XTTS default
           if (!currentLang || KOKORO_LANG_VALUES.includes(currentLang)) {
             langEl.value = XTTS_DEFAULT_LANG;
           }
         }
       }
 
-      function updateVoiceCloningVisibility() {
+      function applyKokoroDefaults() {
+        const voiceEl = $("ttsVoiceId");
+        if (!voiceEl) return;
+        const v = voiceEl.value.trim();
+        if (!v || !KOKORO_VOICE_PATTERN.test(v)) {
+          voiceEl.value = "af_bella";
+        }
+      }
+
+      function applyChatterboxLanguageDefault() {
+        const langEl = $("ttsLanguage");
+        if (!langEl) return;
+        const currentLang = langEl.value.trim();
+        if (!currentLang || KOKORO_LANG_VALUES.includes(currentLang)) {
+          langEl.value = XTTS_DEFAULT_LANG;
+        }
+      }
+
+      /** Show only TTS controls that apply to the selected provider. */
+      function updateTtsProviderPanels() {
         const modeEl = $("ttsMode");
-        const voiceCloningSection = $("voice-cloning-section");
-        const activeCallPanel = $("active-call-voice-panel");
+        if (!modeEl) return;
+        const mode = modeEl.value;
+        currentTtsMode = mode;
+        const showClone = mode === "coqui_xtts" || mode === "chatterbox_http";
+
+        const showBlock = (id, on) => {
+          const el = $(id);
+          if (el) el.style.display = on ? "block" : "none";
+        };
+
+        const blurb = $("tts-provider-blurb");
+        if (blurb) {
+          const blurbs = {
+            kokoro_http:
+              "Kokoro: lightweight ONNX TTS. Set your HTTP server URL and a Kokoro voice ID (e.g. af_bella). No cloning on this path.",
+            coqui_xtts:
+              "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
+            chatterbox_http:
+              "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+          };
+          blurb.textContent = blurbs[mode] || "";
+        }
+
+        showBlock("tts-panel-chatterbox", mode === "chatterbox_http");
+        showBlock("tts-panel-cloning", showClone);
+        showBlock("tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts");
+        showBlock("tts-panel-language", showClone);
+        showBlock("tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
+
+        const rateHint = $("tts-rate-hint");
+        if (rateHint) {
+          rateHint.textContent =
+            mode === "kokoro_http"
+              ? "1.0 = normal. Sent to your Kokoro server as rate in the JSON body."
+              : "1.0 = normal. Applied on the Coqui XTTS path where the runtime uses tenant TTS rate.";
+        }
+
+        const cloneHead = $("tts-cloning-heading");
+        if (cloneHead) {
+          cloneHead.textContent =
+            mode === "chatterbox_http" ? "Reference speaker (Chatterbox)" : "Voice cloning (Coqui XTTS)";
+        }
+
+        const urlLabel = $("tts-url-label");
+        if (urlLabel) {
+          urlLabel.textContent =
+            mode === "kokoro_http"
+              ? "Kokoro server URL"
+              : mode === "chatterbox_http"
+                ? "Chatterbox server URL"
+                : "Coqui XTTS server URL";
+        }
+        const urlInput = $("ttsUrl");
+        if (urlInput) {
+          urlInput.placeholder =
+            mode === "kokoro_http"
+              ? "http://127.0.0.1:7001/tts"
+              : mode === "chatterbox_http"
+                ? "http://127.0.0.1:7005"
+                : "http://127.0.0.1:7002/tts";
+        }
+
+        const vLabel = $("tts-voice-id-label");
+        const vHint = $("tts-voice-id-hint");
+        const vInput = $("ttsVoiceId");
+        if (vLabel && vHint) {
+          if (mode === "kokoro_http") {
+            vLabel.textContent = "Kokoro voice ID";
+            if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
+            vHint.textContent =
+              "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+          } else {
+            vLabel.textContent = "Preset voice ID (XTTS)";
+            if (vInput) vInput.placeholder = "e.g. en_sample";
+            vHint.textContent =
+              "Used when default mode is Preset; not used when synthesizing from a reference WAV.";
+          }
+        }
+
+        const langHint = $("tts-language-hint");
+        if (langHint) {
+          langHint.textContent =
+            mode === "chatterbox_http"
+              ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
+              : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+        }
+
+        const liveSection = $("tts-live-call-section");
+        if (liveSection) liveSection.style.display = showClone ? "block" : "none";
+
+        if (mode === "coqui_xtts") {
+          applyXttsDefaults();
+        } else if (mode === "chatterbox_http") {
+          applyChatterboxLanguageDefault();
+        } else if (mode === "kokoro_http") {
+          applyKokoroDefaults();
+        }
+
         const warningEl = $("voice-cloning-warning");
         const defaultVoiceModeEl = $("defaultVoiceMode");
         const clonedVoiceUrlEl = $("clonedVoiceUrl");
-
-        if (!modeEl || !voiceCloningSection) return;
-
-        const isXtts = modeEl.value === "coqui_xtts";
-        voiceCloningSection.style.display = isXtts ? "block" : "none";
-        if (activeCallPanel) activeCallPanel.style.display = isXtts ? "block" : "none";
-
-        // When XTTS mode is selected, auto-apply XTTS-appropriate defaults
-        if (isXtts) {
-          applyXttsDefaults();
-        }
-
-        // Show warning if cloned mode selected but no URL
         if (warningEl && defaultVoiceModeEl && clonedVoiceUrlEl) {
           const isClonedMode = defaultVoiceModeEl.value === "cloned";
           const hasUrl = clonedVoiceUrlEl.value.trim().length > 0;
-          warningEl.style.display = (isClonedMode && !hasUrl) ? "block" : "none";
+          warningEl.style.display = isClonedMode && !hasUrl && showClone ? "block" : "none";
+        } else if (warningEl) {
+          warningEl.style.display = "none";
         }
-
-        currentTtsMode = modeEl.value;
       }
 
       function validateVoiceCloningConfig() {
@@ -2043,7 +2181,7 @@
         const defaultVoiceModeEl = $("defaultVoiceMode");
         const clonedVoiceUrlEl = $("clonedVoiceUrl");
 
-        if (!modeEl || modeEl.value !== "coqui_xtts") return true;
+        if (!modeEl || (modeEl.value !== "coqui_xtts" && modeEl.value !== "chatterbox_http")) return true;
         if (!defaultVoiceModeEl || defaultVoiceModeEl.value !== "cloned") return true;
         if (!clonedVoiceUrlEl || clonedVoiceUrlEl.value.trim().length === 0) {
           $("tts-status").textContent = "Error: Cloned voice mode requires a reference audio URL.";
@@ -2244,7 +2382,7 @@
           
           if (clonedVoiceUrlEl && result.url) {
             clonedVoiceUrlEl.value = result.url;
-            updateVoiceCloningVisibility();
+            updateTtsProviderPanels();
           }
 
           if (uploadStatus) {
@@ -2336,7 +2474,21 @@
         // Set URL based on mode
         if (ttsMode === "coqui_xtts") {
           payload.coquiXttsUrl = url || undefined;
-          // Include voice cloning config
+          if (defaultVoiceModeEl) {
+            payload.defaultVoiceMode = defaultVoiceModeEl.value;
+          }
+          const clonedUrl = clonedVoiceUrlEl ? clonedVoiceUrlEl.value.trim() : "";
+          const clonedLabel = clonedVoiceLabelEl ? clonedVoiceLabelEl.value.trim() : "";
+          if (clonedUrl) {
+            payload.clonedVoice = {
+              speakerWavUrl: clonedUrl,
+              label: clonedLabel || undefined,
+            };
+          }
+        } else if (ttsMode === "chatterbox_http") {
+          payload.chatterboxUrl = url || undefined;
+          const cv = $("chatterboxVariant");
+          if (cv && cv.value) payload.chatterboxVariant = cv.value;
           if (defaultVoiceModeEl) {
             payload.defaultVoiceMode = defaultVoiceModeEl.value;
           }
@@ -3787,18 +3939,19 @@
         // TTS mode change handler
         const ttsModeEl = $("ttsMode");
         if (ttsModeEl) {
-          ttsModeEl.addEventListener("change", updateVoiceCloningVisibility);
+          ttsModeEl.addEventListener("change", updateTtsProviderPanels);
         }
 
         // Voice cloning validation triggers
         const defaultVoiceModeEl = $("defaultVoiceMode");
         if (defaultVoiceModeEl) {
-          defaultVoiceModeEl.addEventListener("change", updateVoiceCloningVisibility);
+          defaultVoiceModeEl.addEventListener("change", updateTtsProviderPanels);
         }
         const clonedVoiceUrlEl = $("clonedVoiceUrl");
         if (clonedVoiceUrlEl) {
-          clonedVoiceUrlEl.addEventListener("input", updateVoiceCloningVisibility);
+          clonedVoiceUrlEl.addEventListener("input", updateTtsProviderPanels);
         }
+        if ($("ttsMode")) updateTtsProviderPanels();
 
         // Audio recording controls
         const recordBtn = $("record-btn");

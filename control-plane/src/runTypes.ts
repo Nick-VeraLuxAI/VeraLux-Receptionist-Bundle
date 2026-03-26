@@ -42,8 +42,21 @@ export type CallOutcome =
   | "internal-test"
   | "unknown";
 
+export const CALLOUTCOMES: CallOutcome[] = [
+  "new-lead",
+  "existing-customer",
+  "info-only",
+  "spam-or-mistake",
+  "internal-test",
+  "unknown",
+];
+
 export function isStage(value: unknown): value is Stage {
   return typeof value === "string" && STAGES.includes(value as Stage);
+}
+
+export function isCallOutcome(value: unknown): value is CallOutcome {
+  return typeof value === "string" && (CALLOUTCOMES as string[]).includes(value);
 }
 
 export function normalizeActions(actions: unknown): ReceptionistAction[] {

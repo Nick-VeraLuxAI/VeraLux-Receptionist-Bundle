@@ -671,6 +671,87 @@
             </details>
 
             <details class="portal-acc">
+              <summary class="portal-acc__summary">Voice synthesis (TTS) <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">Pick a provider — only settings that apply to that engine are shown. Matches the admin voice step.</p>
+                <div class="owner-panel-inner">
+                  <label for="portal-ttsMode">TTS provider</label>
+                  <select id="portal-ttsMode" style="width: 100%; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+                    <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
+                    <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
+                    <option value="kokoro_http">Kokoro HTTP</option>
+                  </select>
+                  <p id="portal-tts-provider-blurb" class="help" style="margin-bottom: 12px;"></p>
+
+                  <div id="portal-tts-panel-url" style="margin-top: 8px">
+                    <label for="portal-ttsUrl" id="portal-tts-url-label">TTS server URL</label>
+                    <input id="portal-ttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                  </div>
+
+                  <div id="portal-tts-panel-chatterbox" style="display: none; margin-top: 14px">
+                    <label for="portal-chatterboxVariant">Chatterbox model (must match server)</label>
+                    <select id="portal-chatterboxVariant" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
+                      <option value="turbo" selected>Turbo (English, low-latency)</option>
+                      <option value="standard">Standard (English)</option>
+                      <option value="multilingual">Multilingual</option>
+                    </select>
+                    <p class="help" style="margin-top: 8px;">
+                      Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value.
+                    </p>
+                  </div>
+
+                  <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
+                    <label for="portal-ttsVoiceId" id="portal-tts-voice-id-label">Voice ID</label>
+                    <input id="portal-ttsVoiceId" type="text" placeholder="e.g. en_sample" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <p id="portal-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div id="portal-tts-panel-language" style="display: none; margin-top: 12px">
+                    <label for="portal-ttsLanguage">Language</label>
+                    <input id="portal-ttsLanguage" type="text" placeholder="e.g. en" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <p id="portal-tts-language-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div id="portal-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
+                    <label for="portal-ttsPreset">Voice character (rate preset)</label>
+                    <select id="portal-ttsPreset" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
+                      <option value="neutral">Neutral</option>
+                      <option value="warm">Warm</option>
+                      <option value="energetic">Energetic</option>
+                      <option value="calm">Calm</option>
+                    </select>
+                    <p class="help" style="margin-top: 8px;">Combined with speed below where the runtime uses tenant TTS settings.</p>
+                  </div>
+
+                  <div id="portal-tts-panel-rate" style="display: none; margin-top: 14px">
+                    <label for="portal-ttsRate">Speed <span id="portal-ttsRateValue" class="help" style="float: right">0.95</span></label>
+                    <input id="portal-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
+                    <p id="portal-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div id="portal-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 12px; border-radius: 10px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
+                    <h4 id="portal-tts-cloning-heading" style="margin: 0 0 8px; font-size: 13px; color: var(--primary)">Reference / cloning</h4>
+                    <label for="portal-defaultVoiceMode">Default voice mode</label>
+                    <select id="portal-defaultVoiceMode" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
+                      <option value="preset">Preset (built-in)</option>
+                      <option value="cloned">Cloned (reference audio)</option>
+                    </select>
+                    <label for="portal-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio URL (WAV)</label>
+                    <input id="portal-clonedVoiceUrl" type="url" placeholder="https://…" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <label for="portal-clonedVoiceLabel" style="margin-top: 10px; display: block">Voice label (optional)</label>
+                    <input id="portal-clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <p id="portal-voice-cloning-warning" class="help" style="display: none; margin-top: 8px; color: var(--accent-warm);">Cloned mode is selected but no reference URL is set.</p>
+                  </div>
+
+                  <div class="row" style="margin-top: 14px;">
+                    <button type="button" id="save-portal-tts">Save voice / TTS</button>
+                  </div>
+                  <div id="portal-tts-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
               <summary class="portal-acc__summary">Transfer contacts <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
                 <p class="portal-acc__intro">People your receptionist can warm-transfer or connect callers to.</p>
@@ -1038,6 +1119,7 @@
           loadForwarding(),
           loadPrompts(),
           loadPricing(),
+          loadPortalTts(),
           loadAnalytics(),
           loadBilling(),
           loadPortalLeads(),
@@ -1305,6 +1387,258 @@
         }
       }
 
+      // ── TTS (per-engine panels, same rules as admin) ──
+      const PORTAL_KOKORO_VOICE_PATTERN = /^[ab][fm]_/;
+      const PORTAL_KOKORO_LANG_VALUES = ["a", "b"];
+      const PORTAL_XTTS_DEFAULT_VOICE = "en_sample";
+      const PORTAL_XTTS_DEFAULT_LANG = "en";
+
+      function portalUpdateTtsLabels() {
+        const rateEl = $("portal-ttsRate");
+        const rateVal = $("portal-ttsRateValue");
+        if (rateEl && rateVal) rateVal.textContent = Number(rateEl.value).toFixed(2);
+      }
+
+      function portalApplyXttsDefaults() {
+        const voiceEl = $("portal-ttsVoiceId");
+        const langEl = $("portal-ttsLanguage");
+        if (voiceEl) {
+          const cv = voiceEl.value.trim();
+          if (!cv || PORTAL_KOKORO_VOICE_PATTERN.test(cv)) voiceEl.value = PORTAL_XTTS_DEFAULT_VOICE;
+        }
+        if (langEl) {
+          const cl = langEl.value.trim();
+          if (!cl || PORTAL_KOKORO_LANG_VALUES.includes(cl)) langEl.value = PORTAL_XTTS_DEFAULT_LANG;
+        }
+      }
+
+      function portalApplyKokoroDefaults() {
+        const voiceEl = $("portal-ttsVoiceId");
+        if (!voiceEl) return;
+        const v = voiceEl.value.trim();
+        if (!v || !PORTAL_KOKORO_VOICE_PATTERN.test(v)) voiceEl.value = "af_bella";
+      }
+
+      function portalApplyChatterboxLanguageDefault() {
+        const langEl = $("portal-ttsLanguage");
+        if (!langEl) return;
+        const cl = langEl.value.trim();
+        if (!cl || PORTAL_KOKORO_LANG_VALUES.includes(cl)) langEl.value = PORTAL_XTTS_DEFAULT_LANG;
+      }
+
+      function updatePortalTtsProviderPanels() {
+        const modeEl = $("portal-ttsMode");
+        if (!modeEl) return;
+        const mode = modeEl.value;
+        const showClone = mode === "coqui_xtts" || mode === "chatterbox_http";
+        const showBlock = (id, on) => {
+          const el = $(id);
+          if (el) el.style.display = on ? "block" : "none";
+        };
+
+        const blurb = $("portal-tts-provider-blurb");
+        if (blurb) {
+          const blurbs = {
+            kokoro_http:
+              "Kokoro: lightweight ONNX TTS. Set your HTTP server URL and a Kokoro voice ID (e.g. af_bella). No cloning on this path.",
+            coqui_xtts:
+              "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
+            chatterbox_http:
+              "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+          };
+          blurb.textContent = blurbs[mode] || "";
+        }
+
+        showBlock("portal-tts-panel-chatterbox", mode === "chatterbox_http");
+        showBlock("portal-tts-panel-cloning", showClone);
+        showBlock("portal-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts");
+        showBlock("portal-tts-panel-language", showClone);
+        showBlock("portal-tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("portal-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
+
+        const rateHint = $("portal-tts-rate-hint");
+        if (rateHint) {
+          rateHint.textContent =
+            mode === "kokoro_http"
+              ? "1.0 = normal. Sent to your Kokoro server as rate in the JSON body."
+              : "1.0 = normal. Applied on the Coqui XTTS path where the runtime uses tenant TTS rate.";
+        }
+
+        const cloneHead = $("portal-tts-cloning-heading");
+        if (cloneHead) {
+          cloneHead.textContent =
+            mode === "chatterbox_http" ? "Reference speaker (Chatterbox)" : "Voice cloning (Coqui XTTS)";
+        }
+
+        const urlLabel = $("portal-tts-url-label");
+        if (urlLabel) {
+          urlLabel.textContent =
+            mode === "kokoro_http"
+              ? "Kokoro server URL"
+              : mode === "chatterbox_http"
+                ? "Chatterbox server URL"
+                : "Coqui XTTS server URL";
+        }
+        const urlInput = $("portal-ttsUrl");
+        if (urlInput) {
+          urlInput.placeholder =
+            mode === "kokoro_http"
+              ? "http://127.0.0.1:7001/tts"
+              : mode === "chatterbox_http"
+                ? "http://127.0.0.1:7005"
+                : "http://127.0.0.1:7002/tts";
+        }
+
+        const vLabel = $("portal-tts-voice-id-label");
+        const vHint = $("portal-tts-voice-id-hint");
+        const vInput = $("portal-ttsVoiceId");
+        if (vLabel && vHint) {
+          if (mode === "kokoro_http") {
+            vLabel.textContent = "Kokoro voice ID";
+            if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
+            vHint.textContent =
+              "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+          } else {
+            vLabel.textContent = "Preset voice ID (XTTS)";
+            if (vInput) vInput.placeholder = "e.g. en_sample";
+            vHint.textContent =
+              "Used when default mode is Preset; not used when synthesizing from a reference WAV.";
+          }
+        }
+
+        const langHint = $("portal-tts-language-hint");
+        if (langHint) {
+          langHint.textContent =
+            mode === "chatterbox_http"
+              ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
+              : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+        }
+
+        if (mode === "coqui_xtts") portalApplyXttsDefaults();
+        else if (mode === "chatterbox_http") portalApplyChatterboxLanguageDefault();
+        else if (mode === "kokoro_http") portalApplyKokoroDefaults();
+
+        const warningEl = $("portal-voice-cloning-warning");
+        const dm = $("portal-defaultVoiceMode");
+        const cu = $("portal-clonedVoiceUrl");
+        if (warningEl && dm && cu) {
+          const isCloned = dm.value === "cloned";
+          const hasUrl = cu.value.trim().length > 0;
+          warningEl.style.display = isCloned && !hasUrl && showClone ? "block" : "none";
+        } else if (warningEl) warningEl.style.display = "none";
+      }
+
+      function portalRenderTtsConfig(cfg) {
+        const modeEl = $("portal-ttsMode");
+        const urlEl = $("portal-ttsUrl");
+        const presetEl = $("portal-ttsPreset");
+        const voiceEl = $("portal-ttsVoiceId");
+        const langEl = $("portal-ttsLanguage");
+        const rateEl = $("portal-ttsRate");
+        const dm = $("portal-defaultVoiceMode");
+        const cu = $("portal-clonedVoiceUrl");
+        const cl = $("portal-clonedVoiceLabel");
+        if (!presetEl || !rateEl) return;
+
+        const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        if (modeEl) modeEl.value = mode;
+        if (urlEl) {
+          urlEl.value = cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
+        }
+        const cb = $("portal-chatterboxVariant");
+        if (cb && cfg.chatterboxVariant) cb.value = cfg.chatterboxVariant;
+        presetEl.value = cfg.preset || "neutral";
+        if (voiceEl) voiceEl.value = cfg.voice || cfg.voiceId || "";
+        if (langEl) langEl.value = cfg.language || "";
+        rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
+        if (dm) dm.value = cfg.defaultVoiceMode || "preset";
+        if (cu) cu.value = cfg.clonedVoice?.speakerWavUrl || "";
+        if (cl) cl.value = cfg.clonedVoice?.label || "";
+        portalUpdateTtsLabels();
+        updatePortalTtsProviderPanels();
+      }
+
+      function validatePortalVoiceCloning() {
+        const modeEl = $("portal-ttsMode");
+        const dm = $("portal-defaultVoiceMode");
+        const cu = $("portal-clonedVoiceUrl");
+        if (!modeEl || (modeEl.value !== "coqui_xtts" && modeEl.value !== "chatterbox_http")) return true;
+        if (!dm || dm.value !== "cloned") return true;
+        if (!cu || cu.value.trim().length === 0) {
+          const st = $("portal-tts-status");
+          if (st) st.textContent = "Cloned mode requires a reference audio URL.";
+          return false;
+        }
+        return true;
+      }
+
+      async function loadPortalTts() {
+        try {
+          const cfg = await apiFetch("/api/tts/config");
+          portalRenderTtsConfig(cfg);
+        } catch (err) {
+          console.error("loadPortalTts:", err);
+          const st = $("portal-tts-status");
+          if (st) st.textContent = "Could not load TTS settings.";
+        }
+      }
+
+      async function savePortalTts() {
+        const st = $("portal-tts-status");
+        if (!validatePortalVoiceCloning()) return;
+        try {
+          const modeEl = $("portal-ttsMode");
+          const urlEl = $("portal-ttsUrl");
+          const presetEl = $("portal-ttsPreset");
+          const voiceEl = $("portal-ttsVoiceId");
+          const langEl = $("portal-ttsLanguage");
+          const rateEl = $("portal-ttsRate");
+          const dm = $("portal-defaultVoiceMode");
+          const cu = $("portal-clonedVoiceUrl");
+          const cl = $("portal-clonedVoiceLabel");
+
+          const ttsMode = modeEl ? modeEl.value : "coqui_xtts";
+          const url = urlEl ? urlEl.value.trim() : "";
+          const clonedUrl = cu ? cu.value.trim() : "";
+          const clonedLabel = cl ? cl.value.trim() : "";
+
+          const payload = {
+            ttsMode,
+            preset: presetEl ? presetEl.value : "neutral",
+            voiceId: voiceEl ? voiceEl.value.trim() || undefined : undefined,
+            language: langEl ? langEl.value.trim() || undefined : undefined,
+            rate: rateEl ? parseFloat(rateEl.value) : 0.95,
+            defaultVoiceMode: dm ? dm.value : "preset",
+          };
+
+          if (ttsMode === "coqui_xtts") {
+            payload.coquiXttsUrl = url || undefined;
+            if (clonedUrl) payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+          } else if (ttsMode === "chatterbox_http") {
+            payload.chatterboxUrl = url || undefined;
+            const cv = $("portal-chatterboxVariant");
+            if (cv && cv.value) payload.chatterboxVariant = cv.value;
+            if (clonedUrl) payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+          } else {
+            payload.kokoroUrl = url || undefined;
+            payload.xttsUrl = url || undefined;
+          }
+
+          const cfg = await apiFetch("/api/tts/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          portalRenderTtsConfig(cfg);
+          if (st) {
+            st.textContent = "Saved.";
+            setTimeout(() => { if (st.textContent === "Saved.") st.textContent = ""; }, 3000);
+          }
+        } catch (err) {
+          if (st) st.textContent = "Save failed: " + err.message;
+        }
+      }
+
       // ── Analytics ──
       async function loadAnalytics() {
         try {
@@ -1422,6 +1756,19 @@
         $("fp-add").addEventListener("click", addForwarding);
         $("save-prompts").addEventListener("click", savePrompts);
         $("refresh-prompts").addEventListener("click", loadPrompts);
+        $("save-portal-tts").addEventListener("click", savePortalTts);
+        const pTtsMode = $("portal-ttsMode");
+        if (pTtsMode) pTtsMode.addEventListener("change", updatePortalTtsProviderPanels);
+        const pRate = $("portal-ttsRate");
+        if (pRate) {
+          pRate.addEventListener("input", portalUpdateTtsLabels);
+          portalUpdateTtsLabels();
+        }
+        const pDm = $("portal-defaultVoiceMode");
+        if (pDm) pDm.addEventListener("change", updatePortalTtsProviderPanels);
+        const pCv = $("portal-clonedVoiceUrl");
+        if (pCv) pCv.addEventListener("input", updatePortalTtsProviderPanels);
+        if ($("portal-ttsMode")) updatePortalTtsProviderPanels();
         $("price-add").addEventListener("click", addPricing);
         $("price-save").addEventListener("click", savePricing);
         $("bill-update-payment").addEventListener("click", updatePaymentMethod);
