@@ -1682,7 +1682,7 @@ app.post("/api/tts/preview", async (req, res) => {
 });
 
 /** Fast 202 + poll — avoids Cloudflare/proxy timeouts on long single responses. */
-app.post("/api/tts/preview/async", (req, res) => {
+app.post("/api/tts/preview/async", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
@@ -1690,7 +1690,7 @@ app.post("/api/tts/preview/async", (req, res) => {
     const raw = req.body as { text?: unknown };
     const text = resolvePreviewText(raw?.text);
     const cfg = tenant.config.getTtsConfig();
-    const id = createPreviewJob(tenant.id, cfg, text);
+    const id = await createPreviewJob(tenant.id, cfg, text);
     res.status(202).json({ id });
   } catch (err: unknown) {
     const m = err instanceof Error ? err.message : String(err);
@@ -1704,7 +1704,8 @@ app.post("/api/tts/preview/async", (req, res) => {
   }
 });
 
-app.get("/api/tts/preview/async/:id", (req, res) => {
+/** Poll responses use HTTP 200 + JSON even for failures so CDNs (e.g. Cloudflare) do not replace JSON with HTML error pages. */
+app.get("/api/tts/preview/async/:id", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
@@ -1713,25 +1714,34 @@ app.get("/api/tts/preview/async/:id", (req, res) => {
     return res.status(400).json({ error: "invalid_id" });
   }
 
-  const result = pollPreviewJob(id, tenant.id);
+  const result = await pollPreviewJob(id, tenant.id);
   switch (result.kind) {
     case "not_found":
-      return res.status(404).json({ error: "not_found" });
+      return res.status(200).json({
+        status: "failed",
+        error: "not_found",
+        message:
+          "Preview job not found (expired or created on another server). With multiple control-plane replicas, REDIS_URL must be set so jobs are shared in Redis.",
+      });
     case "forbidden":
-      return res.status(403).json({ error: "forbidden" });
+      return res.status(200).json({
+        status: "failed",
+        error: "forbidden",
+        message: "Not allowed to read this preview job.",
+      });
     case "pending":
       return res.status(200).json({ status: "pending" });
-    case "error":
-      if (result.code === "tts_url_missing") {
-        return res.status(400).json({
-          error: "tts_url_missing",
-          message: "Set the TTS server URL in Step 3 Voice for this business.",
-        });
-      }
-      return res.status(502).json({
+    case "error": {
+      const msg =
+        result.code === "tts_url_missing"
+          ? "Set the TTS server URL in Step 3 Voice for this business."
+          : result.message;
+      return res.status(200).json({
+        status: "failed",
         error: result.code,
-        message: result.message,
+        message: msg,
       });
+    }
     case "done": {
       // JSON + base64 avoids binary audio/wav through some proxies (e.g. Cloudflare quirks).
       const accept = String(req.headers.accept || "").toLowerCase();
