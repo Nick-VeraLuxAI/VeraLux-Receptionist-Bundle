@@ -4,6 +4,9 @@ no-autoupdate: true
 
 # Order matters: first matching hostname wins. Anything not listed hits the final rule → HTTP 404.
 # If a new public hostname should reach the control plane, add it here (then redeploy / reload tunnel).
+#
+# Long TTS admin preview uses POST /api/tts/preview/async + short polls so Cloudflare is less likely
+# to 502 than a single multi-minute response. No extra tunnel settings required for that flow.
 ingress:
   - hostname: api.veraluxclients.com
     service: http://runtime:4001

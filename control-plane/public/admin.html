@@ -1174,6 +1174,24 @@
           setStatus("Preview voice — enter a line and click Play preview.", "ok");
         });
 
+        function ttsPreviewErrorMessage(status, errText) {
+          const t = (errText || "").trim();
+          if (/<!DOCTYPE|<html[\s>]/i.test(t)) {
+            if (status === 502 || status === 504 || status === 520 || status === 524) {
+              return "Proxy or edge timed out (502/504/524) before TTS finished. This build uses short polling; redeploy the control plane if you still see this.";
+            }
+            return "Server returned an HTML error page (usually a proxy). Check deployment and that TTS is reachable from the control-plane host.";
+          }
+          try {
+            const j = JSON.parse(t);
+            if (typeof j.message === "string") return j.message;
+            if (typeof j.error === "string") return j.error;
+          } catch (_) {
+            /* use raw */
+          }
+          return t.length > 500 ? `${t.slice(0, 500)}…` : t;
+        }
+
         let modelsVoicePreviewObjectUrl = null;
         $("models-voice-preview-play")?.addEventListener("click", async () => {
           const statusEl = $("models-voice-preview-status");
@@ -1181,7 +1199,7 @@
           const textEl = $("models-voice-preview-text");
           if (!audioEl || !statusEl) return;
           const phrase = (textEl?.value || "").trim();
-          statusEl.textContent = "Synthesizing…";
+          statusEl.textContent = "Starting preview…";
           statusEl.style.color = "var(--muted)";
           try {
             if (modelsVoicePreviewObjectUrl) {
@@ -1191,41 +1209,86 @@
             audioEl.style.display = "none";
             audioEl.removeAttribute("src");
 
-            const headers = { "Content-Type": "application/json" };
-            if (currentTenantId) headers["X-Tenant-ID"] = currentTenantId;
-            if (adminAuthToken) headers["X-Admin-Key"] = adminAuthToken;
+            const postHeaders = { "Content-Type": "application/json" };
+            if (currentTenantId) postHeaders["X-Tenant-ID"] = currentTenantId;
+            if (adminAuthToken) postHeaders["X-Admin-Key"] = adminAuthToken;
 
-            const res = await fetch("/api/tts/preview", {
+            const pollHeaders = {};
+            if (currentTenantId) pollHeaders["X-Tenant-ID"] = currentTenantId;
+            if (adminAuthToken) pollHeaders["X-Admin-Key"] = adminAuthToken;
+
+            const startRes = await fetch("/api/tts/preview/async", {
               method: "POST",
-              headers,
+              headers: postHeaders,
               body: JSON.stringify({ text: phrase || undefined }),
             });
 
-            if (!res.ok) {
-              const errText = await res.text();
-              let msg = errText;
-              try {
-                const j = JSON.parse(errText);
-                msg = j.message || j.error || errText;
-              } catch (_) {
-                const looksHtml = /<!DOCTYPE|<html[\s>]/i.test(errText);
-                if (looksHtml && (res.status === 502 || res.status === 504)) {
-                  msg =
-                    "Proxy timed out (502/504) before TTS finished. Try a shorter line, verify the TTS URL is reachable from the control-plane host, or increase edge/origin read timeouts.";
-                } else if (looksHtml) {
-                  msg =
-                    "Server returned an HTML error page instead of JSON — often a proxy or gateway issue. Check deployment and TTS connectivity.";
-                }
-              }
-              statusEl.textContent =
-                msg.length > 400 ? `Failed: ${msg.slice(0, 400)}…` : `Failed: ${msg}`;
+            if (!startRes.ok) {
+              const errText = await startRes.text();
+              const msg = ttsPreviewErrorMessage(startRes.status, errText);
+              statusEl.textContent = msg.length > 400 ? `Failed: ${msg.slice(0, 400)}…` : `Failed: ${msg}`;
               statusEl.style.color = "var(--danger)";
               setStatus("Voice preview failed", "err");
               return;
             }
 
-            const blob = await res.blob();
-            modelsVoicePreviewObjectUrl = URL.createObjectURL(blob);
+            let jobId;
+            try {
+              const sj = await startRes.json();
+              jobId = sj.id;
+            } catch (_) {
+              statusEl.textContent = "Failed: Could not read preview job response.";
+              statusEl.style.color = "var(--danger)";
+              setStatus("Voice preview failed", "err");
+              return;
+            }
+            if (!jobId || typeof jobId !== "string") {
+              statusEl.textContent = "Failed: Missing preview job id.";
+              statusEl.style.color = "var(--danger)";
+              setStatus("Voice preview failed", "err");
+              return;
+            }
+
+            statusEl.textContent = "Synthesizing…";
+            const deadline = Date.now() + 180000;
+            let audioBlob = null;
+            while (Date.now() < deadline) {
+              const pr = await fetch(`/api/tts/preview/async/${encodeURIComponent(jobId)}`, {
+                headers: pollHeaders,
+              });
+              const ct = (pr.headers.get("Content-Type") || "").toLowerCase();
+              if (!pr.ok) {
+                const errText = await pr.text();
+                const msg = ttsPreviewErrorMessage(pr.status, errText);
+                statusEl.textContent = msg.length > 400 ? `Failed: ${msg.slice(0, 400)}…` : `Failed: ${msg}`;
+                statusEl.style.color = "var(--danger)";
+                setStatus("Voice preview failed", "err");
+                return;
+              }
+              if (ct.includes("application/json")) {
+                const j = await pr.json();
+                if (j.status === "pending") {
+                  await new Promise((r) => setTimeout(r, 700));
+                  continue;
+                }
+                const msg = j.message || j.error || "Preview failed";
+                statusEl.textContent = `Failed: ${msg}`;
+                statusEl.style.color = "var(--danger)";
+                setStatus("Voice preview failed", "err");
+                return;
+              }
+              audioBlob = await pr.blob();
+              break;
+            }
+
+            if (!audioBlob) {
+              statusEl.textContent = "Failed: Timed out waiting for audio (over 3 minutes).";
+              statusEl.style.color = "var(--danger)";
+              setStatus("Voice preview failed", "err");
+              return;
+            }
+
+            modelsVoicePreviewObjectUrl = URL.createObjectURL(audioBlob);
             audioEl.src = modelsVoicePreviewObjectUrl;
             audioEl.style.display = "block";
             statusEl.textContent = "Ready — press play if sound does not start automatically.";

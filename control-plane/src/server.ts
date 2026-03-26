@@ -40,6 +40,7 @@ import {
   type PromptConfig,
 } from "./config";
 import { resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
+import { createPreviewJob, pollPreviewJob } from "./ttsPreviewJobs";
 import { tenants, DEFAULT_TENANT_ID, type TenantContext } from "./tenants";
 import {
   authenticateAdminKey,
@@ -1632,6 +1633,64 @@ app.post("/api/tts/preview", async (req, res) => {
       error: "tts_preview_failed",
       message: msg,
     });
+  }
+});
+
+/** Fast 202 + poll — avoids Cloudflare/proxy timeouts on long single responses. */
+app.post("/api/tts/preview/async", (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+
+  try {
+    const raw = req.body as { text?: unknown };
+    const text = resolvePreviewText(raw?.text);
+    const cfg = tenant.config.getTtsConfig();
+    const id = createPreviewJob(tenant.id, cfg, text);
+    res.status(202).json({ id });
+  } catch (err: unknown) {
+    const m = err instanceof Error ? err.message : String(err);
+    if (m === "tts_preview_jobs_busy") {
+      return res.status(503).json({
+        error: "tts_preview_jobs_busy",
+        message: "Too many preview jobs in flight; wait a moment and try again.",
+      });
+    }
+    throw err;
+  }
+});
+
+app.get("/api/tts/preview/async/:id", (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+
+  const { id } = req.params;
+  if (!id || !isUuid(id)) {
+    return res.status(400).json({ error: "invalid_id" });
+  }
+
+  const result = pollPreviewJob(id, tenant.id);
+  switch (result.kind) {
+    case "not_found":
+      return res.status(404).json({ error: "not_found" });
+    case "forbidden":
+      return res.status(403).json({ error: "forbidden" });
+    case "pending":
+      return res.status(200).json({ status: "pending" });
+    case "error":
+      if (result.code === "tts_url_missing") {
+        return res.status(400).json({
+          error: "tts_url_missing",
+          message: "Set the TTS server URL in Step 3 Voice for this business.",
+        });
+      }
+      return res.status(502).json({
+        error: result.code,
+        message: result.message,
+      });
+    case "done":
+      res.setHeader("Content-Type", "audio/wav");
+      res.setHeader("Cache-Control", "no-store");
+      return res.send(result.body);
   }
 });
 
