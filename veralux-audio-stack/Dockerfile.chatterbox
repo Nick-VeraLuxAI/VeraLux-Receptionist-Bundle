@@ -10,13 +10,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-chatterbox.txt chatterbox_server.py ./
+COPY requirements-chatterbox.txt chatterbox_server.py download_chatterbox_default_prompt.py ./
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements-chatterbox.txt
 
+# Turbo requires a reference WAV unless the client sends speaker_wav_url; ship a default.
+RUN python download_chatterbox_default_prompt.py || (echo "default prompt download failed" >&2; exit 1)
+
 ENV CHATTERBOX_DEVICE=cuda
 ENV CHATTERBOX_VARIANT=turbo
+ENV CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav
 EXPOSE 7005
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=3 \

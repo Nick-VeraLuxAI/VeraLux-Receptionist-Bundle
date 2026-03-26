@@ -51,6 +51,8 @@ export CHATTERBOX_DEVICE=cuda      # or cpu
 uvicorn chatterbox_server:app --host 0.0.0.0 --port 7005
 ```
 
+The **Dockerfile** (`Dockerfile.chatterbox`) downloads a default English prompt WAV at build time and sets `CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav` so Turbo works without a tenant reference until you override it.
+
 - **GET /health** — variant, device, whether the model has been loaded.
 - **POST /tts** JSON: `text` (required), optional `speaker_wav_url` (HTTP(S) WAV for cloning / Turbo prompt), optional `language_id` (multilingual, e.g. `en`, `fr`).
 
