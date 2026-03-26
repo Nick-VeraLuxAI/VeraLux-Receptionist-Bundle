@@ -1207,8 +1207,18 @@
               try {
                 const j = JSON.parse(errText);
                 msg = j.message || j.error || errText;
-              } catch (_) {}
-              statusEl.textContent = `Failed: ${msg}`;
+              } catch (_) {
+                const looksHtml = /<!DOCTYPE|<html[\s>]/i.test(errText);
+                if (looksHtml && (res.status === 502 || res.status === 504)) {
+                  msg =
+                    "Proxy timed out (502/504) before TTS finished. Try a shorter line, verify the TTS URL is reachable from the control-plane host, or increase edge/origin read timeouts.";
+                } else if (looksHtml) {
+                  msg =
+                    "Server returned an HTML error page instead of JSON — often a proxy or gateway issue. Check deployment and TTS connectivity.";
+                }
+              }
+              statusEl.textContent =
+                msg.length > 400 ? `Failed: ${msg.slice(0, 400)}…` : `Failed: ${msg}`;
               statusEl.style.color = "var(--danger)";
               setStatus("Voice preview failed", "err");
               return;

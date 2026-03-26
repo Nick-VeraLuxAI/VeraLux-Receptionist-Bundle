@@ -1592,15 +1592,34 @@ app.post("/api/tts/preview", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
+  let responseStarted = false;
   try {
     const raw = req.body as { text?: unknown };
     const text = resolvePreviewText(raw?.text);
     const cfg = tenant.config.getTtsConfig();
-    const { body: audio, contentType } = await synthesizeTtsPreview(cfg, text);
-    res.setHeader("Content-Type", contentType);
+
+    // Send headers before waiting on TTS so reverse proxies (e.g. Cloudflare) see an
+    // immediate response and are less likely to return 502 while synthesis runs.
+    res.status(200);
+    res.setHeader("Content-Type", "audio/wav");
     res.setHeader("Cache-Control", "no-store");
-    res.send(audio);
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof res.flushHeaders === "function") {
+      res.flushHeaders();
+    }
+    responseStarted = true;
+
+    const { body: audio } = await synthesizeTtsPreview(cfg, text);
+    res.end(audio);
   } catch (err: unknown) {
+    if (responseStarted) {
+      logger.error("POST /api/tts/preview failed after headers sent", {
+        err,
+        tenantId: tenant.id,
+      });
+      res.destroy();
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "tts_url_missing" || msg.includes("tts_url_missing")) {
       return res.status(400).json({

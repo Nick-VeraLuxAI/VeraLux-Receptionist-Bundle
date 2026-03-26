@@ -1,7 +1,14 @@
 import type { TTSConfig } from "./config";
 
 const MAX_PREVIEW_CHARS = 500;
-const FETCH_TIMEOUT_MS = 90_000;
+
+function previewFetchTimeoutMs(): number {
+  const raw = process.env.TTS_PREVIEW_FETCH_TIMEOUT_MS;
+  if (raw === undefined || raw === "") return 90_000;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 5_000) return 90_000;
+  return Math.min(n, 300_000);
+}
 
 const DEFAULT_PHRASE =
   "Hello, this is a quick voice preview from your VeraLux receptionist settings.";
@@ -70,7 +77,7 @@ export async function synthesizeTtsPreview(
         language: cfg.language,
         rate: cfg.rate,
       }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
     });
     return ensureAudioResponse(res);
   }
@@ -89,7 +96,7 @@ export async function synthesizeTtsPreview(
         speaker_wav_url: speaker,
         language_id: (cfg.language || "en").trim() || "en",
       }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
     });
     return ensureAudioResponse(res);
   }
@@ -112,7 +119,7 @@ export async function synthesizeTtsPreview(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    signal: AbortSignal.timeout(previewFetchTimeoutMs()),
   });
   return ensureAudioResponse(res);
 }
