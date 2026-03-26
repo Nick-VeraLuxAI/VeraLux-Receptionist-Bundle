@@ -975,6 +975,34 @@ const ADMIN_RATE_USE_REDIS = parseBooleanish(
   false
 );
 
+const ttsApiRateLimiter = rateLimit({
+  windowMs: ADMIN_RATE_WINDOW_MS,
+  max: ADMIN_RATE_MAX,
+  keyFn: (req) => getAdminToken(req) || req.ip || "anon",
+  useRedis: ADMIN_RATE_USE_REDIS,
+});
+
+/**
+ * Voice preview async flow polls ~once per second for minutes; the default admin
+ * cap (100 / 5 min) would 429 mid-synthesis and break preview behind Cloudflare.
+ */
+function ttsApiRateLimitUnlessPreviewPoll(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const rel = req.path || "";
+  const full = req.originalUrl || "";
+  if (
+    rel.startsWith("/preview/async") ||
+    full.includes("/api/tts/preview/async")
+  ) {
+    next();
+    return;
+  }
+  ttsApiRateLimiter(req, res, next);
+}
+
 // ✅ Admin mounts now include CORS guard first
 app.use(
   "/api/admin",
@@ -991,12 +1019,7 @@ app.use(
 app.use(
   "/api/tts",
   adminCorsGuard,
-  rateLimit({
-    windowMs: ADMIN_RATE_WINDOW_MS,
-    max: ADMIN_RATE_MAX,
-    keyFn: (req) => getAdminToken(req) || req.ip || "anon",
-    useRedis: ADMIN_RATE_USE_REDIS,
-  }),
+  ttsApiRateLimitUnlessPreviewPoll,
   adminGuard("admin")
 );
 

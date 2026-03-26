@@ -1184,6 +1184,12 @@
           }
           try {
             const j = JSON.parse(t);
+            if (j.error === "rate_limited" || status === 429) {
+              return (
+                j.message ||
+                "Too many admin API requests (rate limited). Preview polling is exempt in current builds — redeploy control plane, or wait and try again."
+              );
+            }
             if (typeof j.message === "string") return j.message;
             if (typeof j.error === "string") return j.error;
           } catch (_) {
@@ -1268,7 +1274,7 @@
               if (ct.includes("application/json")) {
                 const j = await pr.json();
                 if (j.status === "pending") {
-                  await new Promise((r) => setTimeout(r, 700));
+                  await new Promise((r) => setTimeout(r, 1500));
                   continue;
                 }
                 const msg = j.message || j.error || "Preview failed";
