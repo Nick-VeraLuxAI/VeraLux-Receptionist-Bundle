@@ -35,10 +35,12 @@ async function ensureAudioResponse(res: Response): Promise<{ body: Buffer; conte
   const parseJsonErr = (): string => {
     try {
       const j = JSON.parse(snippet) as { error?: string; detail?: unknown; message?: string };
-      const d = j.detail;
-      if (typeof d === "string") return d;
+      const err = typeof j.error === "string" ? j.error : "";
+      const det = typeof j.detail === "string" && j.detail.trim() ? j.detail.trim() : "";
+      if (err && det) return `${err}: ${det}`;
+      if (det) return det;
       if (typeof j.message === "string") return j.message;
-      if (typeof j.error === "string") return j.error;
+      if (err) return err;
     } catch {
       /* ignore */
     }

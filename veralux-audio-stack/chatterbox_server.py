@@ -51,6 +51,14 @@ MAX_CONCURRENT = int(os.getenv("CHATTERBOX_MAX_CONCURRENT", "1"))
 MODEL: Any = None
 
 
+def _safe_exc_detail(exc: BaseException, max_len: int = 400) -> str:
+    """Single-line hint for operators (admin preview); full trace stays in logs."""
+    s = str(exc).strip().replace("\n", " ").replace("\r", " ")
+    if len(s) > max_len:
+        return s[: max_len - 1] + "…"
+    return s
+
+
 def _load_model() -> Any:
     global MODEL
     if MODEL is not None:
@@ -154,12 +162,16 @@ class TtsBody(BaseModel):
 @app.get("/health")
 def health() -> dict[str, Any]:
     ok = MODEL is not None
-    return {
+    out: dict[str, Any] = {
         "status": "ok" if ok else "loading_or_failed",
         "variant": VARIANT,
         "device": DEVICE,
         "model_loaded": ok,
     }
+    if VARIANT == "turbo" and DEFAULT_PROMPT_PATH:
+        out["default_prompt_path"] = DEFAULT_PROMPT_PATH
+        out["default_prompt_file_ok"] = os.path.isfile(DEFAULT_PROMPT_PATH)
+    return out
 
 
 @app.post("/tts")
@@ -188,9 +200,12 @@ async def tts(request: Request, body: TtsBody) -> Response:
         return Response(content=wav_bytes, media_type="audio/wav")
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
-    except Exception:
+    except Exception as e:
         logger.exception("chatterbox synthesis failed")
-        return JSONResponse({"error": "synthesis_failed"}, status_code=500)
+        return JSONResponse(
+            {"error": "synthesis_failed", "detail": _safe_exc_detail(e)},
+            status_code=500,
+        )
     finally:
         if cleanup and os.path.isfile(cleanup):
             try:
