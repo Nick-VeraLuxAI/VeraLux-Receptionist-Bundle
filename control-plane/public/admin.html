@@ -1177,24 +1177,25 @@
 
         function ttsPreviewErrorMessage(status, errText) {
           const t = (errText || "").trim();
-          if (/<!DOCTYPE|<html[\s>]/i.test(t)) {
-            if (status === 502 || status === 504 || status === 520 || status === 524) {
-              return "Proxy or edge timed out (502/504/524) before TTS finished. This build uses short polling; redeploy the control plane if you still see this.";
-            }
-            return "Server returned an HTML error page (usually a proxy). Check deployment and that TTS is reachable from the control-plane host.";
-          }
+          // Prefer JSON from our API (502 tts_preview_failed includes the real fetch/TTS error).
           try {
             const j = JSON.parse(t);
+            if (typeof j.message === "string" && j.message.trim()) return j.message;
+            if (typeof j.error === "string" && j.error.trim()) return j.error;
             if (j.error === "rate_limited" || status === 429) {
               return (
                 j.message ||
                 "Too many admin API requests (rate limited). Preview polling is exempt in current builds — redeploy control plane, or wait and try again."
               );
             }
-            if (typeof j.message === "string") return j.message;
-            if (typeof j.error === "string") return j.error;
           } catch (_) {
-            /* use raw */
+            /* not JSON */
+          }
+          if (/<!DOCTYPE|<html[\s>]/i.test(t)) {
+            if (status === 502 || status === 504 || status === 520 || status === 524) {
+              return "Proxy or edge timed out (502/504/524) before TTS finished. This build uses short polling; redeploy the control plane if you still see this.";
+            }
+            return "Server returned an HTML error page (usually a proxy). Check deployment and that TTS is reachable from the control-plane host.";
           }
           return t.length > 500 ? `${t.slice(0, 500)}…` : t;
         }

@@ -92,6 +92,10 @@ function getEnvTtsUrl(): string | undefined {
   return sanitizeUrl(process.env.XTTS_URL || process.env.KOKORO_URL);
 }
 
+function getEnvChatterboxUrl(): string | undefined {
+  return sanitizeUrl(process.env.CHATTERBOX_URL);
+}
+
 // TTS tuning defaults from env (optional); prefer XTTS_* then KOKORO_*
 const DEFAULT_TTS_RATE = clamp(
   parseNumberEnv("XTTS_RATE", parseNumberEnv("KOKORO_RATE", 0.95)),
@@ -320,7 +324,8 @@ export class LLMConfigStore {
       ttsMode: base.ttsMode || "coqui_xtts",
       coquiXttsUrl: base.coquiXttsUrl,
       kokoroUrl: base.kokoroUrl,
-      chatterboxUrl: base.chatterboxUrl,
+      // Persisted URL wins; else CHATTERBOX_URL (compose) so preview matches voice-runtime.
+      chatterboxUrl: sanitizeUrl(base.chatterboxUrl) || getEnvChatterboxUrl(),
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",
