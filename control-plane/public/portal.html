@@ -1528,6 +1528,41 @@
         } else if (warningEl) warningEl.style.display = "none";
       }
 
+      const portalTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "" };
+      let portalTtsUrlBoundMode = "coqui_xtts";
+
+      function portalRefreshTtsUrlCacheFromCfg(cfg) {
+        const m = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        portalTtsUrlByMode.coqui_xtts = (cfg.coquiXttsUrl || "").trim();
+        if (!portalTtsUrlByMode.coqui_xtts && m === "coqui_xtts") {
+          portalTtsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
+        }
+        portalTtsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
+        if (!portalTtsUrlByMode.kokoro_http && m === "kokoro_http") {
+          portalTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
+        }
+        portalTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+      }
+
+      function portalApplyTtsUrlForMode(mode) {
+        const urlEl = $("portal-ttsUrl");
+        if (!urlEl) return;
+        urlEl.value = portalTtsUrlByMode[mode] || "";
+      }
+
+      function onPortalTtsProviderModeChange() {
+        const modeEl = $("portal-ttsMode");
+        const urlEl = $("portal-ttsUrl");
+        if (urlEl && portalTtsUrlBoundMode && Object.prototype.hasOwnProperty.call(portalTtsUrlByMode, portalTtsUrlBoundMode)) {
+          portalTtsUrlByMode[portalTtsUrlBoundMode] = urlEl.value.trim();
+        }
+        if (modeEl) {
+          portalTtsUrlBoundMode = modeEl.value;
+          portalApplyTtsUrlForMode(modeEl.value);
+        }
+        updatePortalTtsProviderPanels();
+      }
+
       function portalRenderTtsConfig(cfg) {
         const modeEl = $("portal-ttsMode");
         const urlEl = $("portal-ttsUrl");
@@ -1540,11 +1575,11 @@
         const cl = $("portal-clonedVoiceLabel");
         if (!presetEl || !rateEl) return;
 
+        portalRefreshTtsUrlCacheFromCfg(cfg);
         const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
         if (modeEl) modeEl.value = mode;
-        if (urlEl) {
-          urlEl.value = cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
-        }
+        portalTtsUrlBoundMode = mode;
+        if (urlEl) portalApplyTtsUrlForMode(mode);
         const cb = $("portal-chatterboxVariant");
         if (cb && cfg.chatterboxVariant) cb.value = cfg.chatterboxVariant;
         presetEl.value = cfg.preset || "neutral";
@@ -1758,7 +1793,7 @@
         $("refresh-prompts").addEventListener("click", loadPrompts);
         $("save-portal-tts").addEventListener("click", savePortalTts);
         const pTtsMode = $("portal-ttsMode");
-        if (pTtsMode) pTtsMode.addEventListener("change", updatePortalTtsProviderPanels);
+        if (pTtsMode) pTtsMode.addEventListener("change", onPortalTtsProviderModeChange);
         const pRate = $("portal-ttsRate");
         if (pRate) {
           pRate.addEventListener("input", portalUpdateTtsLabels);

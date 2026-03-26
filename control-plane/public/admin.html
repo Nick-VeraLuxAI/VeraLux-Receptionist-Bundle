@@ -2126,6 +2126,43 @@
 
       let currentTtsMode = "coqui_xtts";
 
+      /** Per-provider URLs — avoids showing env default xttsUrl (often Kokoro) when Chatterbox is selected. */
+      const ttsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "" };
+      /** Mode last bound to the URL field; used to stash edits when switching provider. */
+      let ttsUrlBoundMode = "coqui_xtts";
+
+      function refreshTtsUrlCacheFromCfg(cfg) {
+        const m = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        ttsUrlByMode.coqui_xtts = (cfg.coquiXttsUrl || "").trim();
+        if (!ttsUrlByMode.coqui_xtts && m === "coqui_xtts") {
+          ttsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
+        }
+        ttsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
+        if (!ttsUrlByMode.kokoro_http && m === "kokoro_http") {
+          ttsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
+        }
+        ttsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+      }
+
+      function applyTtsUrlInputForMode(mode) {
+        const urlEl = $("ttsUrl");
+        if (!urlEl) return;
+        urlEl.value = ttsUrlByMode[mode] || "";
+      }
+
+      function onTtsProviderModeChange() {
+        const modeEl = $("ttsMode");
+        const urlEl = $("ttsUrl");
+        if (urlEl && ttsUrlBoundMode && Object.prototype.hasOwnProperty.call(ttsUrlByMode, ttsUrlBoundMode)) {
+          ttsUrlByMode[ttsUrlBoundMode] = urlEl.value.trim();
+        }
+        if (modeEl) {
+          ttsUrlBoundMode = modeEl.value;
+          applyTtsUrlInputForMode(modeEl.value);
+        }
+        updateTtsProviderPanels();
+      }
+
       function renderTtsConfig(cfg) {
         const modeEl = $("ttsMode");
         const urlEl = $("ttsUrl");
@@ -2139,14 +2176,12 @@
 
         if (!presetEl || !rateEl) return;
 
+        refreshTtsUrlCacheFromCfg(cfg);
         // Determine TTS mode from config
         currentTtsMode = cfg.mode || cfg.ttsMode || "coqui_xtts";
         if (modeEl) modeEl.value = currentTtsMode;
-
-        if (urlEl) {
-          urlEl.value =
-            cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
-        }
+        ttsUrlBoundMode = currentTtsMode;
+        if (urlEl) applyTtsUrlInputForMode(currentTtsMode);
         const cbVarEl = $("chatterboxVariant");
         if (cbVarEl && cfg.chatterboxVariant) {
           cbVarEl.value = cfg.chatterboxVariant;
@@ -4093,7 +4128,7 @@
         // TTS mode change handler
         const ttsModeEl = $("ttsMode");
         if (ttsModeEl) {
-          ttsModeEl.addEventListener("change", updateTtsProviderPanels);
+          ttsModeEl.addEventListener("change", onTtsProviderModeChange);
         }
 
         // Voice cloning validation triggers

@@ -1186,6 +1186,41 @@
         }
       }
 
+      const ownerTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "" };
+      let ownerTtsUrlBoundMode = "coqui_xtts";
+
+      function ownerRefreshTtsUrlCacheFromCfg(cfg) {
+        const m = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        ownerTtsUrlByMode.coqui_xtts = (cfg.coquiXttsUrl || "").trim();
+        if (!ownerTtsUrlByMode.coqui_xtts && m === "coqui_xtts") {
+          ownerTtsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
+        }
+        ownerTtsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
+        if (!ownerTtsUrlByMode.kokoro_http && m === "kokoro_http") {
+          ownerTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
+        }
+        ownerTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+      }
+
+      function ownerApplyTtsUrlForMode(mode) {
+        const urlEl = $("owner-ttsUrl");
+        if (!urlEl) return;
+        urlEl.value = ownerTtsUrlByMode[mode] || "";
+      }
+
+      function onOwnerTtsProviderModeChange() {
+        const modeEl = $("owner-ttsMode");
+        const urlEl = $("owner-ttsUrl");
+        if (urlEl && ownerTtsUrlBoundMode && Object.prototype.hasOwnProperty.call(ownerTtsUrlByMode, ownerTtsUrlBoundMode)) {
+          ownerTtsUrlByMode[ownerTtsUrlBoundMode] = urlEl.value.trim();
+        }
+        if (modeEl) {
+          ownerTtsUrlBoundMode = modeEl.value;
+          ownerApplyTtsUrlForMode(modeEl.value);
+        }
+        updateOwnerTtsProviderPanels();
+      }
+
       function ownerRenderTtsConfig(cfg) {
         const modeEl = $("owner-ttsMode");
         const urlEl = $("owner-ttsUrl");
@@ -1199,13 +1234,11 @@
 
         if (!presetEl || !rateEl) return;
 
+        ownerRefreshTtsUrlCacheFromCfg(cfg);
         const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
         if (modeEl) modeEl.value = mode;
-
-        if (urlEl) {
-          urlEl.value =
-            cfg.coquiXttsUrl || cfg.chatterboxUrl || cfg.kokoroUrl || cfg.xttsUrl || "";
-        }
+        ownerTtsUrlBoundMode = mode;
+        if (urlEl) ownerApplyTtsUrlForMode(mode);
         const cbVarEl = $("owner-chatterboxVariant");
         if (cbVarEl && cfg.chatterboxVariant) {
           cbVarEl.value = cfg.chatterboxVariant;
@@ -1903,7 +1936,7 @@
         $("save-voice-settings").addEventListener("click", () => requireAuth(() => saveVoiceSettings()));
 
         const ownerTtsMode = $("owner-ttsMode");
-        if (ownerTtsMode) ownerTtsMode.addEventListener("change", updateOwnerTtsProviderPanels);
+        if (ownerTtsMode) ownerTtsMode.addEventListener("change", onOwnerTtsProviderModeChange);
         const ownerRate = $("owner-ttsRate");
         if (ownerRate) {
           ownerRate.addEventListener("input", ownerUpdateTtsLabels);
