@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Turbo needs a reference WAV unless the client sends speaker_wav_url; fetch before heavy pip deps.
+# Turbo needs a reference WAV >5s unless the client sends speaker_wav_url; tile sample in the script.
+RUN pip install --no-cache-dir soundfile numpy
 COPY download_chatterbox_default_prompt.py ./
 RUN python3 download_chatterbox_default_prompt.py || (echo "default prompt download failed" >&2; exit 1)
 

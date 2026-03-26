@@ -51,7 +51,9 @@ export CHATTERBOX_DEVICE=cuda      # or cpu
 uvicorn chatterbox_server:app --host 0.0.0.0 --port 7005
 ```
 
-The **Dockerfile** (`Dockerfile.chatterbox`) downloads a default English prompt WAV at build time and sets `CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav` so Turbo works without a tenant reference until you override it.
+The **Dockerfile** (`Dockerfile.chatterbox`) downloads a default English prompt WAV at build time, **tiles it to over 5 seconds** (Turbo requires a reference longer than 5s), and sets `CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav` so Turbo works without a tenant reference until you override it.
+
+**GPU note:** PyTorch wheels in the image target CUDA architectures up through **sm_90**. Very new GPUs (e.g. **Blackwell / RTX 50 series**, **sm_120**) may need `CHATTERBOX_DEVICE=cpu` in `.env` until a matching PyTorch image exists.
 
 **Hugging Face token:** Upstream `chatterbox-tts` pulls model weights from Hugging Face; gated models require a token. Set `HF_TOKEN` (read access) in your environment or `.env` when using `docker compose` — the `chatterbox-gpu` service passes it through. Accept the model license on the model’s Hugging Face page if prompted.
 

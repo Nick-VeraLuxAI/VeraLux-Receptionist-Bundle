@@ -425,7 +425,7 @@ services:
               capabilities: [gpu]
     environment:
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
-      - CHATTERBOX_DEVICE=cuda
+      - CHATTERBOX_DEVICE=${CHATTERBOX_DEVICE:-cuda}
       # Chatterbox downloads weights from Hugging Face; Turbo (and some repos) require auth.
       # Create a token at https://huggingface.co/settings/tokens and accept the model license on the model card.
       - HF_TOKEN=${HF_TOKEN:-}
