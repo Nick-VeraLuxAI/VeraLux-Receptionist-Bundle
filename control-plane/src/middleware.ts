@@ -113,26 +113,44 @@ export function asyncHandler(
 
 const DEFAULT_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS || "30000", 10);
 
+export interface RequestTimeoutOptions {
+  /** If true, do not apply this timeout (e.g. long-lived or proxy-sensitive routes). */
+  skip?: (req: Request) => boolean;
+}
+
 /**
  * Adds a timeout to requests. If the request takes longer than the timeout,
  * a 503 Service Unavailable response is sent.
  */
-export function requestTimeout(timeoutMs: number = DEFAULT_TIMEOUT_MS): RequestHandler {
+export function requestTimeout(
+  timeoutMs?: number,
+  options?: RequestTimeoutOptions
+): RequestHandler {
+  const ms =
+    typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs
+      : DEFAULT_TIMEOUT_MS;
+
   return (req: Request, res: Response, next: NextFunction) => {
+    if (options?.skip?.(req)) {
+      next();
+      return;
+    }
+
     const timeout = setTimeout(() => {
       if (!res.headersSent) {
         logger.warn("Request timeout", {
           requestId: getRequestId(req),
           path: req.path,
           method: req.method,
-          timeoutMs,
+          timeoutMs: ms,
         });
         res.status(503).json({
           error: "request_timeout",
           message: "Request took too long to process",
         });
       }
-    }, timeoutMs);
+    }, ms);
 
     // Clear timeout when response finishes
     res.on("finish", () => clearTimeout(timeout));

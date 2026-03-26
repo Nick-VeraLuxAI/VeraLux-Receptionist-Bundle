@@ -126,7 +126,11 @@ app.use(express.static("public"));
 // Production Middleware (request ID, timeout, logging)
 // ────────────────────────────────────────────────
 app.use(requestIdMiddleware);
-app.use(requestTimeout());
+app.use(
+  requestTimeout(undefined, {
+    skip: (req) => req.originalUrl.includes("/api/tts/preview/async"),
+  })
+);
 app.use(requestLogger);
 
 // ────────────────────────────────────────────────
@@ -1710,10 +1714,24 @@ app.get("/api/tts/preview/async/:id", (req, res) => {
         error: result.code,
         message: result.message,
       });
-    case "done":
+    case "done": {
+      // JSON + base64 avoids binary audio/wav through some proxies (e.g. Cloudflare quirks).
+      const accept = String(req.headers.accept || "").toLowerCase();
+      const wantJson = accept.split(",").some((part) => {
+        const p = (part.trim().split(";")[0] || "").trim();
+        return p === "application/json";
+      });
+      if (wantJson) {
+        return res.status(200).json({
+          status: "done",
+          encoding: "base64",
+          audioWavBase64: result.body.toString("base64"),
+        });
+      }
       res.setHeader("Content-Type", "audio/wav");
       res.setHeader("Cache-Control", "no-store");
       return res.send(result.body);
+    }
   }
 });
 

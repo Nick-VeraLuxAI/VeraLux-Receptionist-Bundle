@@ -1219,7 +1219,7 @@
             if (currentTenantId) postHeaders["X-Tenant-ID"] = currentTenantId;
             if (adminAuthToken) postHeaders["X-Admin-Key"] = adminAuthToken;
 
-            const pollHeaders = {};
+            const pollHeaders = { Accept: "application/json" };
             if (currentTenantId) pollHeaders["X-Tenant-ID"] = currentTenantId;
             if (adminAuthToken) pollHeaders["X-Admin-Key"] = adminAuthToken;
 
@@ -1276,6 +1276,14 @@
                 if (j.status === "pending") {
                   await new Promise((r) => setTimeout(r, 1500));
                   continue;
+                }
+                if (j.status === "done" && typeof j.audioWavBase64 === "string") {
+                  const b64 = j.audioWavBase64;
+                  const bin = atob(b64);
+                  const bytes = new Uint8Array(bin.length);
+                  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                  audioBlob = new Blob([bytes], { type: "audio/wav" });
+                  break;
                 }
                 const msg = j.message || j.error || "Preview failed";
                 statusEl.textContent = `Failed: ${msg}`;
