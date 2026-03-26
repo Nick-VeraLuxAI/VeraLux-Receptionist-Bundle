@@ -95,6 +95,13 @@ const callEmptyTranscriptPct = new client.Histogram({
   registers: [register],
 });
 
+const ttsCacheLookupsTotal = new client.Counter({
+  name: `${METRICS_PREFIX}tts_cache_lookups_total`,
+  help: 'TTS cache lookups by outcome (lru_hit, redis_hit, miss)',
+  labelNames: ['outcome'] as const,
+  registers: [register],
+});
+
 // ---------- helpers ----------
 
 function nowNs(): bigint {
@@ -197,6 +204,14 @@ export function incInboundAudioFramesDropped(reason: string, count = 1): void {
 }
 
 /** Tier 5: record per-call metrics at teardown */
+export function incTtsCacheLookup(outcome: 'lru_hit' | 'redis_hit' | 'miss'): void {
+  try {
+    ttsCacheLookupsTotal.inc({ outcome });
+  } catch {
+    // swallow
+  }
+}
+
 export function recordCallMetrics(opts: {
   tenantId?: string;
   reason?: string;

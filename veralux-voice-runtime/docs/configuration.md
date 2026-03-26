@@ -33,6 +33,21 @@ Configuration is read from environment variables via `dotenv` and validated at s
 - `STT_PRE_ROLL_MS` (default `1200`): Pre-roll buffer length (ms) prepended to each utterance.
 - `STT_AEC_ENABLED` (default `false`): Enable SpeexDSP acoustic echo cancellation. Requires libspeexdsp: `brew install speexdsp` (macOS) or `apt install libspeexdsp-dev` (Linux). Uses the far-end reference from Tier 3 to suppress assistant playback in mic capture. When enabled, pre-roll is taken from ChunkedSTT's internal buffer (not the coordinator ring) to avoid mixing raw + AEC-processed audio, which can cause transcript duplication ("starts over").
 
+### TTS response cache (LRU + Redis)
+
+Reduces repeated TTS work when the same phrase is synthesized with the same backend parameters (voice, URLs, cloning WAV URL, Coqui tuning, etc.). Keys are `sha256` hex digests; Redis values are opaque binary blobs (see `scripts/print_redis_contract.ts`).
+
+- `TTS_CACHE_ENABLED` (default `true`): Master switch.
+- `TTS_CACHE_LRU_ENABLED` (default `true`): Per-process LRU of hot entries.
+- `TTS_CACHE_LRU_MAX_ENTRIES` (default `256`): LRU entry count cap.
+- `TTS_CACHE_LRU_MAX_BYTES` (default `33554432`): Approximate total audio bytes retained in the LRU.
+- `TTS_CACHE_REDIS_ENABLED` (default `true`): Store hits in Redis so multiple runtime instances share cache.
+- `TTS_CACHE_REDIS_TTL_SECONDS` (default `86400`): Redis TTL per entry.
+- `TTS_CACHE_MAX_ENTRY_BYTES` (default `4194304`): Do not cache clips larger than this (LRU and Redis).
+- `TTS_CACHE_PREFIX` (default `ttscache`): Redis key prefix `${prefix}:${sha256}`.
+
+Prometheus: `veralux_voice_runtime_tts_cache_lookups_total{outcome="lru_hit|redis_hit|miss"}`.
+
 ### Tier 5: Production hardening
 
 - `STT_NOISE_FLOOR_ENABLED` (default `true`): Estimate ambient noise floor from pre-speech frames and adapt RMS/peak thresholds dynamically.

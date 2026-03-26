@@ -245,6 +245,21 @@ const EnvSchema = z.object({
   GREETING_TEXT: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   KOKORO_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   TTS_SAMPLE_RATE: z.preprocess(ttsSampleRateFallback, z.coerce.number().int().positive().default(8000)),
+
+  /** When true, LRU + optional Redis cache TTS audio by synthesis parameters (reduces TTS compute). */
+  TTS_CACHE_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  /** In-process LRU for hot phrases (per runtime instance). */
+  TTS_CACHE_LRU_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  TTS_CACHE_LRU_MAX_ENTRIES: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(256)),
+  TTS_CACHE_LRU_MAX_BYTES: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(33554432)),
+  /** Share cached WAV across runtime instances via Redis. */
+  TTS_CACHE_REDIS_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  TTS_CACHE_REDIS_TTL_SECONDS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(86400)),
+  /** Skip Redis/LRU store for clips larger than this (bytes). */
+  TTS_CACHE_MAX_ENTRY_BYTES: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(4194304)),
+  /** Redis key prefix for TTS payload keys: `${prefix}:${sha256}`. */
+  TTS_CACHE_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('ttscache')),
+
   PLAYBACK_PROFILE: z.preprocess(emptyToUndefined, z.enum(['pstn', 'hd']).default('pstn')),
   PLAYBACK_PSTN_SAMPLE_RATE: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(8000)),
   PLAYBACK_ENABLE_HIGHPASS: z.preprocess(stringToBoolean, z.boolean().default(true)),

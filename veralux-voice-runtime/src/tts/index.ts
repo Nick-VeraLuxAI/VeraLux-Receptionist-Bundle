@@ -2,6 +2,13 @@ import { parseWavInfo } from '../audio/wavInfo';
 import { env } from '../env';
 import { log } from '../log';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
+import {
+  buildTtsCacheDescriptor,
+  getCachedTts,
+  getTtsCacheRedisClient,
+  setCachedTts,
+  ttsCacheKeyHash,
+} from './cache';
 import { synthesizeSpeech as synthesizeKokoro } from './kokoroTTS';
 import { synthesizeSpeechCoquiXtts } from './coquiXtts';
 import { synthesizeSpeechChatterbox } from './chatterboxTTS';
@@ -54,6 +61,18 @@ export async function synthesizeSpeech(
 ): Promise<TTSResult> {
   const config = ttsConfig ?? ttsConfigFromEnv();
 
+  const trimmedText = (request.text ?? '').trim();
+  const cacheEligible = env.TTS_CACHE_ENABLED && trimmedText.length > 0;
+  const cacheRedis = cacheEligible ? getTtsCacheRedisClient() : null;
+  const cacheHash = cacheEligible ? ttsCacheKeyHash(buildTtsCacheDescriptor(request, config)) : '';
+
+  if (cacheEligible) {
+    const cached = await getCachedTts(cacheHash, cacheRedis);
+    if (cached) {
+      return cached;
+    }
+  }
+
   let result: TTSResult;
   if (config.mode === 'chatterbox_http') {
     result = await synthesizeSpeechChatterbox({
@@ -101,6 +120,11 @@ export async function synthesizeSpeech(
       // ignore parse errors; log is best-effort
     }
   }
+
+  if (cacheEligible) {
+    await setCachedTts(cacheHash, result, cacheRedis);
+  }
+
   return result;
 }
 
