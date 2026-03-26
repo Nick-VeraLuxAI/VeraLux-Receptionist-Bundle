@@ -463,7 +463,7 @@
                   <div class="row models-wizard__actions" style="margin-top: 16px">
                     <button type="submit">Save voice settings</button>
                   </div>
-                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Preview uses the voice runtime.</div>
+                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Use Step 4 → Preview voice to hear TTS.</div>
                 </form>
               </section>
             </div>
@@ -474,16 +474,30 @@
                 <h2 class="models-wizard__step-title"><span class="models-wizard__step-kicker">Step 4</span> Test</h2>
                 <p class="small muted">Sanity-check the stack without scrolling the whole console.</p>
 
-                <div class="row models-wizard__actions" style="margin-bottom: 12px">
+                <div class="row models-wizard__actions" style="margin-bottom: 12px; flex-wrap: wrap; gap: 8px">
                   <button type="button" id="models-test-conversation">Test conversation</button>
                   <button type="button" class="secondary" id="models-test-preview-voice">Preview voice</button>
                 </div>
-                <div id="models-test-output" class="debug-block" style="min-height: 48px; margin-bottom: 16px; font-size: 13px; line-height: 1.45"></div>
 
-                <label for="models-sim-input">Simulation — caller line</label>
-                <textarea id="models-sim-input" rows="2" placeholder='e.g. "I need to reschedule my appointment"'></textarea>
-                <button type="button" class="secondary" id="models-sim-run" style="margin-top: 8px">Run flow check</button>
-                <pre id="models-sim-log" class="debug-block" style="margin-top: 10px; white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto"></pre>
+                <div id="models-panel-conversation">
+                  <label for="models-sim-input">Simulation — caller line</label>
+                  <textarea id="models-sim-input" rows="2" placeholder='e.g. "I need to reschedule my appointment"'></textarea>
+                  <button type="button" class="secondary" id="models-sim-run" style="margin-top: 8px">Run flow check</button>
+                  <pre id="models-sim-log" class="debug-block" style="margin-top: 10px; white-space: pre-wrap; font-size: 12px; max-height: 200px; overflow: auto"></pre>
+                </div>
+
+                <div id="models-panel-voice" style="display: none; margin-top: 4px">
+                  <p class="small muted" style="margin-bottom: 10px">
+                    Plays audio using the <strong>saved</strong> TTS settings from Step 3 (provider, URL, voice / reference). Ensure your TTS service is reachable from this control plane host.
+                  </p>
+                  <label for="models-voice-preview-text">Line to speak</label>
+                  <textarea id="models-voice-preview-text" rows="2" placeholder="Hello, thanks for calling. How can I help you today?"></textarea>
+                  <div class="row" style="gap: 8px; flex-wrap: wrap; margin-top: 10px; align-items: center">
+                    <button type="button" id="models-voice-preview-play">Play preview</button>
+                    <span id="models-voice-preview-status" class="small" style="min-height: 18px; color: var(--muted)"></span>
+                  </div>
+                  <audio id="models-voice-preview-audio" controls style="display: none; width: 100%; max-width: 480px; margin-top: 12px"></audio>
+                </div>
 
                 <div id="tts-live-call-section" style="display: none">
                 <h3 id="tts-live-call-heading" class="micro-label" style="margin: 20px 0 8px">Live call voice</h3>
@@ -1125,7 +1139,26 @@
         $("models-wizard-prev")?.addEventListener("click", () => setModelsWizardStep(modelsWizardStep - 1));
         $("models-wizard-next")?.addEventListener("click", () => setModelsWizardStep(modelsWizardStep + 1));
 
+        function setModelsTestStep4Panel(mode) {
+          const convPanel = $("models-panel-conversation");
+          const voicePanel = $("models-panel-voice");
+          const btnConv = $("models-test-conversation");
+          const btnVoice = $("models-test-preview-voice");
+          if (mode === "voice") {
+            if (convPanel) convPanel.style.display = "none";
+            if (voicePanel) voicePanel.style.display = "block";
+            btnConv?.classList.add("secondary");
+            btnVoice?.classList.remove("secondary");
+          } else {
+            if (convPanel) convPanel.style.display = "block";
+            if (voicePanel) voicePanel.style.display = "none";
+            btnConv?.classList.remove("secondary");
+            btnVoice?.classList.add("secondary");
+          }
+        }
+
         $("models-test-conversation")?.addEventListener("click", () => {
+          setModelsTestStep4Panel("conversation");
           document.querySelectorAll(".tab").forEach((t) => {
             t.classList.toggle("active", t.dataset.tab === "calls");
           });
@@ -1136,27 +1169,67 @@
           loadCalls();
         });
 
-        $("models-test-preview-voice")?.addEventListener("click", async () => {
-          const out = $("models-test-output");
-          if (!out) return;
-          out.textContent = "Requesting preview…";
+        $("models-test-preview-voice")?.addEventListener("click", () => {
+          setModelsTestStep4Panel("voice");
+          setStatus("Preview voice — enter a line and click Play preview.", "ok");
+        });
+
+        let modelsVoicePreviewObjectUrl = null;
+        $("models-voice-preview-play")?.addEventListener("click", async () => {
+          const statusEl = $("models-voice-preview-status");
+          const audioEl = $("models-voice-preview-audio");
+          const textEl = $("models-voice-preview-text");
+          if (!audioEl || !statusEl) return;
+          const phrase = (textEl?.value || "").trim();
+          statusEl.textContent = "Synthesizing…";
+          statusEl.style.color = "var(--muted)";
           try {
+            if (modelsVoicePreviewObjectUrl) {
+              URL.revokeObjectURL(modelsVoicePreviewObjectUrl);
+              modelsVoicePreviewObjectUrl = null;
+            }
+            audioEl.style.display = "none";
+            audioEl.removeAttribute("src");
+
             const headers = { "Content-Type": "application/json" };
             if (currentTenantId) headers["X-Tenant-ID"] = currentTenantId;
             if (adminAuthToken) headers["X-Admin-Key"] = adminAuthToken;
-            const res = await fetch("/api/tts/preview", { method: "POST", headers, body: "{}" });
-            const text = await res.text();
-            let msg = text;
+
+            const res = await fetch("/api/tts/preview", {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ text: phrase || undefined }),
+            });
+
+            if (!res.ok) {
+              const errText = await res.text();
+              let msg = errText;
+              try {
+                const j = JSON.parse(errText);
+                msg = j.message || j.error || errText;
+              } catch (_) {}
+              statusEl.textContent = `Failed: ${msg}`;
+              statusEl.style.color = "var(--danger)";
+              setStatus("Voice preview failed", "err");
+              return;
+            }
+
+            const blob = await res.blob();
+            modelsVoicePreviewObjectUrl = URL.createObjectURL(blob);
+            audioEl.src = modelsVoicePreviewObjectUrl;
+            audioEl.style.display = "block";
+            statusEl.textContent = "Ready — press play if sound does not start automatically.";
+            statusEl.style.color = "var(--success)";
+            setStatus("Voice preview ready", "ok");
             try {
-              const j = JSON.parse(text);
-              msg = j.message || j.error || text;
-            } catch (_) {}
-            out.textContent = res.ok ? String(msg) : `HTTP ${res.status}: ${msg}`;
-            if (!res.ok) setStatus("Voice preview not available from control plane", "err");
-            else setStatus("Preview response received", "ok");
+              await audioEl.play();
+            } catch (_) {
+              /* autoplay blocked — user can press play */
+            }
           } catch (e) {
-            out.textContent = String(e.message || e);
-            setStatus("Preview request failed", "err");
+            statusEl.textContent = String(e.message || e);
+            statusEl.style.color = "var(--danger)";
+            setStatus("Voice preview request failed", "err");
           }
         });
 
@@ -2520,12 +2593,6 @@
           $("tts-status").textContent = "Failed to save TTS config: " + err.message;
           setStatus("TTS config save failed", "err");
         }
-      }
-
-      async function previewTts() {
-        // TTS preview is not available - it runs in the voice runtime
-        $("tts-status").textContent = "Preview not available. TTS is handled by the voice runtime.";
-        setStatus("TTS preview runs in voice runtime", "ok");
       }
 
       // ───────────────────────────────────────────────

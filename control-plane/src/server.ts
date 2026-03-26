@@ -39,6 +39,7 @@ import {
   type VoicePreset,
   type PromptConfig,
 } from "./config";
+import { resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
 import { tenants, DEFAULT_TENANT_ID, type TenantContext } from "./tenants";
 import {
   authenticateAdminKey,
@@ -1567,7 +1568,33 @@ app.post("/api/tts/config", (req, res) => {
   res.json(response);
 });
 
-app.post("/api/tts/preview", (_req, res) => respondVoiceRuntimeMoved(res));
+app.post("/api/tts/preview", async (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+
+  try {
+    const raw = req.body as { text?: unknown };
+    const text = resolvePreviewText(raw?.text);
+    const cfg = tenant.config.getTtsConfig();
+    const { body: audio, contentType } = await synthesizeTtsPreview(cfg, text);
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "no-store");
+    res.send(audio);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "tts_url_missing" || msg.includes("tts_url_missing")) {
+      return res.status(400).json({
+        error: "tts_url_missing",
+        message: "Set the TTS server URL in Step 3 Voice for this business.",
+      });
+    }
+    logger.error("POST /api/tts/preview failed", { err, tenantId: tenant.id });
+    return res.status(502).json({
+      error: "tts_preview_failed",
+      message: msg,
+    });
+  }
+});
 
 /* ────────────────────────────────────────────────
    Admin – health / analytics / calls / telephony secret
