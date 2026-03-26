@@ -96,6 +96,28 @@ function getEnvChatterboxUrl(): string | undefined {
   return sanitizeUrl(process.env.CHATTERBOX_URL);
 }
 
+/** Host is loopback — not reachable from the control-plane container in Docker. */
+function isLoopbackHttpUrl(urlStr: string): boolean {
+  try {
+    const u = new URL(urlStr);
+    const h = u.hostname.toLowerCase();
+    return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer CHATTERBOX_URL when the DB still has a dev-only loopback URL. */
+function resolveChatterboxUrl(
+  saved: string | undefined,
+  envUrl: string | undefined
+): string | undefined {
+  const s = sanitizeUrl(saved);
+  const e = envUrl;
+  if (e && s && isLoopbackHttpUrl(s)) return e;
+  return s || e;
+}
+
 // TTS tuning defaults from env (optional); prefer XTTS_* then KOKORO_*
 const DEFAULT_TTS_RATE = clamp(
   parseNumberEnv("XTTS_RATE", parseNumberEnv("KOKORO_RATE", 0.95)),
@@ -324,8 +346,7 @@ export class LLMConfigStore {
       ttsMode: base.ttsMode || "coqui_xtts",
       coquiXttsUrl: base.coquiXttsUrl,
       kokoroUrl: base.kokoroUrl,
-      // Persisted URL wins; else CHATTERBOX_URL (compose) so preview matches voice-runtime.
-      chatterboxUrl: sanitizeUrl(base.chatterboxUrl) || getEnvChatterboxUrl(),
+      chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",

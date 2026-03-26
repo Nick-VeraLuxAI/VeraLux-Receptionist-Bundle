@@ -99,13 +99,31 @@ process.on("uncaughtException", (err) => {
 
 const app = express();
 
-/** Avoid stale admin HTML/CSS at browsers and reverse proxies (shell is not fingerprinted by filename). */
+/** HTML/CSS shells are not fingerprinted; tell browsers and CDNs (e.g. Cloudflare) not to cache them. */
+function applyAdminShellCachePolicy(res: Response): void {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("CDN-Cache-Control", "no-store");
+  res.setHeader("Surrogate-Control", "no-store");
+}
+
 function noStoreAdminUiShell(req: Request, res: Response, next: NextFunction) {
   const p = req.path;
-  if (p === "/admin-neural.css" || p === "/admin.html") {
-    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
+  const staticShells = new Set([
+    "/admin-neural.css",
+    "/admin.html",
+    "/owner.html",
+    "/portal.html",
+  ]);
+  if (
+    staticShells.has(p) ||
+    p === "/admin" ||
+    p === "/admin/" ||
+    p === "/owner" ||
+    p === "/owner/"
+  ) {
+    applyAdminShellCachePolicy(res);
   }
   next();
 }
@@ -2691,13 +2709,12 @@ app.get("/api/telnyx/audio/:id.wav", (_req, res) =>
    ──────────────────────────────────────────────── */
 
 app.get("/admin", (_req, res) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
+  applyAdminShellCachePolicy(res);
   res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
 });
 
 app.get("/owner", (_req, res) => {
+  applyAdminShellCachePolicy(res);
   res.sendFile(path.join(__dirname, "..", "public", "owner.html"));
 });
 
