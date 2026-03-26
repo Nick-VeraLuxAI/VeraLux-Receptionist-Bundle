@@ -430,6 +430,8 @@ services:
       # Create a token at https://huggingface.co/settings/tokens and accept the model license on the model card.
       - HF_TOKEN=${HF_TOKEN:-}
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      # Reduces CUDA fragmentation; helps large-model loads when VRAM is tight.
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
     ports:
       - "${CHATTERBOX_PORT:-7005}:7005"
     networks:

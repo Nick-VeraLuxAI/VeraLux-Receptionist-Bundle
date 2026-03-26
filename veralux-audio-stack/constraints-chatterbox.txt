@@ -1,0 +1,2 @@
+# chatterbox-tts requires numpy<1.26; keep resolver from upgrading after librosa/scipy.
+numpy>=1.24,<1.26

@@ -1,0 +1,14 @@
+# Transitive deps for chatterbox-tts==0.1.6 (METADATA), excluding torch/torchaudio — those come from the PyTorch CUDA base image.
+# Install: pip install -r requirements-chatterbox-upstream.txt && pip install chatterbox-tts==0.1.6 --no-deps
+librosa==0.11.0
+s3tokenizer
+transformers==4.46.3
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+spacy-pkuseg
+pykakasi==2.3.0
+pyloudnorm
+omegaconf
+# Upstream lists gradio; server-only path does not import it — omit to keep the image smaller.

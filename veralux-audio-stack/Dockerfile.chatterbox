@@ -1,8 +1,10 @@
 # Resemble Chatterbox TTS HTTP server (port 7005). GPU strongly recommended.
 # Build context: veralux-audio-stack/
 # Docs: https://github.com/resemble-ai/chatterbox
-# Match chatterbox-tts (torch==2.6.0); older PyTorch images force pip to resolve legacy chatterbox + pkuseg.
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+#
+# PyTorch 2.7 + CUDA 12.8: supports Blackwell (sm_120), e.g. RTX 50 series. chatterbox-tts pins torch==2.6.0;
+# we install it with --no-deps and pull transitive libs from requirements-chatterbox-upstream.txt.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
 
 WORKDIR /app
 
@@ -12,16 +14,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# chatterbox requires numpy<1.26; align before other pip installs.
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools \
+    && pip install --no-cache-dir "numpy>=1.24,<1.26"
+
 # Turbo needs a reference WAV >5s unless the client sends speaker_wav_url; tile sample in the script.
-RUN pip install --no-cache-dir soundfile numpy
+RUN pip install --no-cache-dir soundfile
 COPY download_chatterbox_default_prompt.py ./
 RUN python3 download_chatterbox_default_prompt.py || (echo "default prompt download failed" >&2; exit 1)
 
-COPY requirements-chatterbox.txt chatterbox_server.py ./
+COPY constraints-chatterbox.txt requirements-chatterbox-upstream.txt chatterbox_server.py ./
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir wheel setuptools \
-    && pip install --no-cache-dir -r requirements-chatterbox.txt
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.32.0" \
+    "slowapi>=0.1.9" \
+    "pydantic>=2.0" \
+    "soundfile>=0.12.0" \
+    && pip install --no-cache-dir -r requirements-chatterbox-upstream.txt -c constraints-chatterbox.txt \
+    && pip install --no-cache-dir chatterbox-tts==0.1.6 --no-deps
 
 ENV CHATTERBOX_DEVICE=cuda
 ENV CHATTERBOX_VARIANT=turbo
