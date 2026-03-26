@@ -5,6 +5,7 @@ from TTS.api import TTS
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+import asyncio
 import uvicorn
 import io
 import logging
@@ -36,6 +37,10 @@ _tts_io.load_fsspec = _load_fsspec_allow_pickle
 # Rate limiting
 RATE_LIMIT = os.getenv("RATE_LIMIT_PER_MINUTE", "30")
 limiter = Limiter(key_func=get_remote_address)
+
+# Serialize calls into the Coqui model (not thread-safe); synthesis still runs in a worker
+# thread so the event loop can answer GET /health while TTS runs (avoids Docker "unhealthy").
+_tts_lock = asyncio.Lock()
 
 app = FastAPI()
 app.state.limiter = limiter
@@ -322,16 +327,19 @@ async def synthesize(request: Request, req: TTSRequest):
             ),
         )
 
-    try:
+    def _synth():
         if "text" in _TTS_PARAMS:
-            wav = tts.tts(text=text, **tts_kwargs)
-        else:
-            wav = tts.tts(text, **tts_kwargs)
+            return tts.tts(text=text, **tts_kwargs)
+        return tts.tts(text, **tts_kwargs)
+
+    try:
+        async with _tts_lock:
+            wav = await asyncio.to_thread(_synth)
     except Exception as e:
         logger.exception("POST /tts 500: TTS synthesis failed: %s", e)
         return JSONResponse(status_code=500, content={"error": str(e)})
 
-    # Ensure numpy 1D float; XTTS returns 24 kHz
+    # Ensure numpy 1D float; XTTS returns 24 kHz (lightweight vs model inference)
     wav = np.asarray(wav, dtype=np.float32).flatten()
     out_sr = req.output_sample_rate if req.output_sample_rate is not None else OUTPUT_SAMPLE_RATE
     if out_sr != MODEL_SAMPLE_RATE:
