@@ -53,6 +53,8 @@ uvicorn chatterbox_server:app --host 0.0.0.0 --port 7005
 
 The **Dockerfile** (`Dockerfile.chatterbox`) downloads a default English prompt WAV at build time and sets `CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav` so Turbo works without a tenant reference until you override it.
 
+**Hugging Face token:** Upstream `chatterbox-tts` pulls model weights from Hugging Face; gated models require a token. Set `HF_TOKEN` (read access) in your environment or `.env` when using `docker compose` — the `chatterbox-gpu` service passes it through. Accept the model license on the model’s Hugging Face page if prompted.
+
 - **GET /health** — variant, device, whether the model has been loaded.
 - **POST /tts** JSON: `text` (required), optional `speaker_wav_url` (HTTP(S) WAV for cloning / Turbo prompt), optional `language_id` (multilingual, e.g. `en`, `fr`).
 
