@@ -178,6 +178,24 @@ const transferProfileSchema = z.object({
 export type TransferProfile = z.infer<typeof transferProfileSchema>;
 
 // ---------------------------------------------------------------------------
+// Quick replies (many caller phrasings → one canned answer; runtime skips LLM)
+// ---------------------------------------------------------------------------
+
+export const quickReplyIntentSchema = z.object({
+  /** Optional id for logs (e.g. "hours"). */
+  id: z.string().min(1).optional(),
+  /**
+   * Phrases matched case-insensitively as substrings of the normalized caller utterance.
+   * Minimum length 4 per phrase to reduce accidental hits.
+   */
+  match: z.array(z.string().min(4)).min(1),
+  /** Exact text spoken via TTS and stored in conversation history. */
+  reply: z.string().min(1).max(4000),
+});
+
+export type QuickReplyIntent = z.infer<typeof quickReplyIntentSchema>;
+
+// ---------------------------------------------------------------------------
 // Call forwarding
 // ---------------------------------------------------------------------------
 
@@ -237,6 +255,11 @@ const runtimeTenantConfigBaseSchema = z
      * Keys are section names, values are the text.
      */
     assistantContext: z.record(z.string().min(1)).optional(),
+    /**
+     * Ordered list: first matching intent wins. Each intent can list many `match` phrases
+     * that all map to the same `reply`.
+     */
+    quickReplies: z.array(quickReplyIntentSchema).max(200).optional(),
   })
   // passthrough allows the runtime to accept fields added by a newer control plane
   // without breaking validation

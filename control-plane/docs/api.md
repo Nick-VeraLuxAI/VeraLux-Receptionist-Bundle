@@ -67,6 +67,8 @@ These endpoints publish DID mappings and runtime config for the voice runtime. T
 
 - `POST /api/admin/runtime/tenants/:tenantId/config`: publish runtime config
 - `GET /api/admin/runtime/tenants/:tenantId/config`: read runtime config from Redis
+- `GET /api/admin/runtime/tenants/:tenantId/quick-replies`: read `quickReplies` slice; `200` with `{ quickReplies: [], runtimeConfigMissing: true }` when no Redis tenant config yet
+- `PUT /api/admin/runtime/tenants/:tenantId/quick-replies`: replace `quickReplies` on existing runtime config (`admin`); `404` if full runtime config is not in Redis yet
 - `POST /api/admin/runtime/dids/map`: map DID to tenant
 - `POST /api/admin/runtime/dids/unmap`: remove DID mapping
 - `GET /api/admin/runtime/dids/:didE164`: lookup DID mapping

@@ -22,6 +22,7 @@ import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import { getEffectiveSpeakerWavUrl, type VoiceMode } from '../tenants/tenantConfig';
 import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
 import { generateAssistantReply, generateAssistantReplyStream, type AssistantReplyResult } from '../ai/brainClient';
+import { matchQuickReply } from '../ai/quickReplyMatch';
 import {
   CallSessionConfig,
   CallSessionMetrics,
@@ -102,6 +103,8 @@ export class CallSession {
   private readonly ttsConfig?: RuntimeTenantConfig['tts'];
   private readonly transferProfiles?: RuntimeTenantConfig['transferProfiles'];
   private readonly assistantContext?: RuntimeTenantConfig['assistantContext'];
+  /** Many caller phrasings → one canned reply; skips LLM when a phrase matches. */
+  private readonly quickReplies?: RuntimeTenantConfig['quickReplies'];
 
   /**
    * Voice mode for XTTS: 'preset' uses built-in voice_id, 'cloned' uses reference audio.
@@ -287,6 +290,7 @@ export class CallSession {
     this.ttsConfig = config.tenantConfig?.tts;
     this.transferProfiles = config.tenantConfig?.transferProfiles;
     this.assistantContext = config.tenantConfig?.assistantContext;
+    this.quickReplies = config.tenantConfig?.quickReplies;
 
     this.logContext = {
       call_control_id: this.callControlId,
@@ -798,18 +802,22 @@ export class CallSession {
   private async tryRespondToLateFinal(transcript: string): Promise<void> {
     this.isRespondingToLateFinal = true;
     try {
-      const tenantLabel = this.tenantId ?? 'unknown';
       let response = '';
       try {
-        const reply = await generateAssistantReply({
-          tenantId: this.tenantId,
-          callControlId: this.callControlId,
-          transcript,
-          history: this.conversationHistory,
-          transferProfiles: this.transferProfiles,
-          assistantContext: this.assistantContext,
-        });
-        response = reply.text;
+        const quick = this.tryMatchQuickReply(transcript);
+        if (quick) {
+          response = quick.text;
+        } else {
+          const reply = await generateAssistantReply({
+            tenantId: this.tenantId,
+            callControlId: this.callControlId,
+            transcript,
+            history: this.conversationHistory,
+            transferProfiles: this.transferProfiles,
+            assistantContext: this.assistantContext,
+          });
+          response = reply.text;
+        }
         log.info(
           {
             event: 'late_final_assistant_reply',
@@ -1820,24 +1828,31 @@ export class CallSession {
           replySource = streamResult.reply.source;
           playbackDone = streamResult.playbackDone;
         } else {
-          const endLlm = startStageTimer('llm', tenantLabel);
-          try {
-            const reply = await generateAssistantReply({
-              tenantId: this.tenantId,
-              callControlId: this.callControlId,
-              transcript: trimmed,
-              history: this.conversationHistory,
-              transferProfiles: this.transferProfiles,
-              assistantContext: this.assistantContext,
-            });
-            endLlm();
-            replyResult = reply;
-            response = reply.text;
-            replySource = reply.source;
-          } catch (error) {
-            incStageError('llm', tenantLabel);
-            endLlm();
-            throw error;
+          const quick = this.tryMatchQuickReply(trimmed);
+          if (quick) {
+            replyResult = quick;
+            response = quick.text;
+            replySource = quick.source;
+          } else {
+            const endLlm = startStageTimer('llm', tenantLabel);
+            try {
+              const reply = await generateAssistantReply({
+                tenantId: this.tenantId,
+                callControlId: this.callControlId,
+                transcript: trimmed,
+                history: this.conversationHistory,
+                transferProfiles: this.transferProfiles,
+                assistantContext: this.assistantContext,
+              });
+              endLlm();
+              replyResult = reply;
+              response = reply.text;
+              replySource = reply.source;
+            } catch (error) {
+              incStageError('llm', tenantLabel);
+              endLlm();
+              throw error;
+            }
           }
         }
       } catch (error) {
@@ -1968,12 +1983,34 @@ export class CallSession {
     }
   }
 
-
+  /**
+   * Tenant-configured quick replies: substring match on normalized transcript.
+   * First matching intent (and first matching phrase within it) wins.
+   */
+  private tryMatchQuickReply(transcript: string): AssistantReplyResult | null {
+    if (!this.quickReplies?.length) return null;
+    const hit = matchQuickReply(transcript, this.quickReplies);
+    if (!hit) return null;
+    log.info(
+      {
+        event: 'quick_reply_hit',
+        quick_reply_id: hit.intentId ?? null,
+        ...this.logContext,
+      },
+      'quick reply matched; skipping LLM',
+    );
+    return { text: hit.reply, source: 'quick_reply' };
+  }
 
   private async streamAssistantReply(
     transcript: string,
     handlingToken: number,
   ): Promise<{ reply: AssistantReplyResult; playbackDone?: Promise<void> }> {
+    const quick = this.tryMatchQuickReply(transcript);
+    if (quick) {
+      return { reply: quick, playbackDone: this.playAssistantTurn(quick.text) };
+    }
+
     let bufferedText = '';
     let firstTokenAt: number | undefined;
     let speakCursor = 0;

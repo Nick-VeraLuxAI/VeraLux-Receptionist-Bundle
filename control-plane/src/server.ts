@@ -21,6 +21,7 @@ import {
 import {
   normalizeE164,
   parseRuntimeTenantConfig,
+  quickReplyIntentSchema,
   type RuntimeTenantConfig,
 } from "./runtime/runtimeContract";
 import {
@@ -2265,6 +2266,83 @@ app.get("/api/admin/runtime/tenants/:tenantId/config", async (req, res) => {
     return res.status(500).json({ error: "runtime_config_read_failed" });
   }
 });
+
+const quickRepliesPutBodySchema = z.object({
+  quickReplies: z.array(quickReplyIntentSchema).max(200),
+});
+
+app.get("/api/admin/runtime/tenants/:tenantId/quick-replies", async (req, res) => {
+  if (!ensureRuntimeAdminEnabled(res)) return;
+
+  const tenantId = req.params.tenantId?.trim();
+  if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+  if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+  try {
+    const config = await getTenantConfig(tenantId);
+    if (!config) {
+      return res.json({ quickReplies: [], runtimeConfigMissing: true });
+    }
+    return res.json({
+      quickReplies: config.quickReplies ?? [],
+      runtimeConfigMissing: false,
+    });
+  } catch (err) {
+    console.error("GET /api/admin/runtime/tenants/:tenantId/quick-replies error:", err);
+    return res.status(500).json({ error: "runtime_quick_replies_read_failed" });
+  }
+});
+
+app.put(
+  "/api/admin/runtime/tenants/:tenantId/quick-replies",
+  adminGuard("admin"),
+  async (req, res) => {
+    if (!ensureRuntimeAdminEnabled(res)) return;
+
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+    const parsedBody = quickRepliesPutBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      return res.status(400).json({
+        error: "invalid_quick_replies",
+        details: parsedBody.error.flatten(),
+      });
+    }
+
+    try {
+      const existing = await getTenantConfig(tenantId);
+      if (!existing) {
+        return res.status(404).json({
+          error: "runtime_config_not_found",
+          message:
+            "Publish full voice runtime tenant config to Redis first, then quick replies can be saved.",
+        });
+      }
+
+      const merged: RuntimeTenantConfig = parseRuntimeTenantConfig({
+        ...existing,
+        quickReplies: parsedBody.data.quickReplies,
+      });
+
+      await publishTenantConfig(tenantId, merged);
+      return res.json({
+        status: "ok",
+        quickReplies: merged.quickReplies ?? [],
+      });
+    } catch (err: any) {
+      if (err?.issues) {
+        return res.status(400).json({
+          error: "invalid_runtime_config_after_merge",
+          details: err.issues,
+        });
+      }
+      console.error("PUT /api/admin/runtime/tenants/:tenantId/quick-replies error:", err);
+      return res.status(500).json({ error: "runtime_quick_replies_write_failed" });
+    }
+  }
+);
 
 app.post("/api/admin/runtime/dids/map", adminGuard("admin"), async (req, res) => {
   if (!ensureRuntimeAdminEnabled(res)) return;

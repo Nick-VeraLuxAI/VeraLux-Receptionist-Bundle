@@ -146,6 +146,12 @@ function buildReport({ didKey, cfgKey, didPrefix, cfgPrefix }, exampleConfig) {
     '- GET /api/admin/runtime/tenants/:tenantId/config: `{ error: "runtime_config_read_failed" }`'
   );
   lines.push(
+    '- GET /api/admin/runtime/tenants/:tenantId/quick-replies: `{ error: "runtime_quick_replies_read_failed" }`'
+  );
+  lines.push(
+    "- PUT /api/admin/runtime/tenants/:tenantId/quick-replies: `{ error: \"runtime_quick_replies_write_failed\" }` (400/404 possible from validation or missing Redis config)"
+  );
+  lines.push(
     '- POST /api/admin/runtime/dids/map: `{ error: "runtime_map_failed" }`'
   );
   lines.push(

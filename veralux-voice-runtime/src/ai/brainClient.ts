@@ -23,6 +23,7 @@ export type AssistantReplySource =
   | 'brain_http'
   | 'brain_http_stream'
   | 'brain_local_default'
+  | 'quick_reply'
   | 'fallback_error';
 
 /** When the brain wants to transfer the call, it can return this in the reply. */

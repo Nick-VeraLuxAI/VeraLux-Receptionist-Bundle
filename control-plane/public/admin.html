@@ -544,6 +544,22 @@
             <button type="button" id="models-wizard-next">Next</button>
           </footer>
         </div>
+
+        <section class="panel" style="margin-top: 24px" id="admin-quick-replies-section">
+          <h2 class="models-wizard__step-title">Quick replies (voice runtime)</h2>
+          <p class="small muted">
+            Many caller phrases can map to <strong>one</strong> spoken answer. When a final transcript contains a phrase (case-insensitive), the
+            receptionist skips the LLM and speaks the reply — lower latency. Phrases must be at least 4 characters; first matching intent wins.
+            Requires published voice runtime config in Redis.
+          </p>
+          <div id="admin-qr-status" class="small" style="margin-bottom: 10px; min-height: 18px"></div>
+          <div id="admin-qr-list"></div>
+          <div class="row models-wizard__actions" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
+            <button type="button" id="admin-qr-add">Add intent</button>
+            <button type="button" id="admin-qr-save">Save to voice runtime</button>
+            <button type="button" class="secondary" id="admin-qr-reload">Reload</button>
+          </div>
+        </section>
       </div>
 
       <div class="tab-content" data-tab="forwarding">
@@ -3288,6 +3304,111 @@
         }
       }
 
+      let adminQuickRepliesCache = [];
+
+      function parseQrMatchLines(raw) {
+        return (raw || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      async function loadAdminQuickReplies() {
+        const st = $("admin-qr-status");
+        if (!currentTenantId) {
+          if (st) st.textContent = "Select a business first.";
+          return;
+        }
+        try {
+          const data = await fetchJSON(
+            `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/quick-replies`
+          );
+          adminQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+          if (st) {
+            st.textContent = data.runtimeConfigMissing
+              ? "No voice runtime config in Redis yet — publish full tenant config first."
+              : `Loaded ${adminQuickRepliesCache.length} intent(s).`;
+          }
+          renderAdminQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Load failed: " + err.message;
+        }
+      }
+
+      function renderAdminQuickReplies() {
+        const root = $("admin-qr-list");
+        if (!root) return;
+        root.innerHTML = "";
+        adminQuickRepliesCache.forEach((intent, idx) => {
+          const card = document.createElement("div");
+          card.className = "card";
+          card.style.marginBottom = "10px";
+          card.style.padding = "12px";
+          const idVal = intent.id ? escapeHtml(String(intent.id)) : "";
+          const matchText = (intent.match || []).join("\n");
+          const replyText = intent.reply || "";
+          card.innerHTML = `
+            <div class="flex-between" style="margin-bottom:8px">
+              <strong>Intent ${idx + 1}</strong>
+              <button type="button" class="secondary admin-qr-remove" data-idx="${idx}">Remove</button>
+            </div>
+            <label class="small">Id (optional, for logs)</label>
+            <input type="text" class="admin-qr-id" data-idx="${idx}" value="${idVal}" placeholder="e.g. hours" style="width:100%;max-width:420px;margin-bottom:8px" />
+            <label class="small">Caller phrases (one per line, each ≥ 4 characters)</label>
+            <textarea class="admin-qr-match" data-idx="${idx}" rows="3" style="width:100%;font-family:inherit">${escapeHtml(matchText)}</textarea>
+            <label class="small">Reply spoken to caller</label>
+            <textarea class="admin-qr-reply" data-idx="${idx}" rows="3" style="width:100%;font-family:inherit">${escapeHtml(replyText)}</textarea>
+          `;
+          card.querySelector(".admin-qr-remove").addEventListener("click", () => {
+            adminQuickRepliesCache.splice(idx, 1);
+            renderAdminQuickReplies();
+          });
+          root.appendChild(card);
+        });
+      }
+
+      function collectAdminQuickRepliesFromDom() {
+        const cards = document.querySelectorAll("#admin-qr-list .card");
+        const out = [];
+        cards.forEach((card) => {
+          const id = card.querySelector(".admin-qr-id")?.value?.trim() || undefined;
+          const match = parseQrMatchLines(card.querySelector(".admin-qr-match")?.value || "");
+          const reply = card.querySelector(".admin-qr-reply")?.value?.trim() || "";
+          if (!match.length && !reply) return;
+          const row = { match, reply };
+          if (id) row.id = id;
+          out.push(row);
+        });
+        return out;
+      }
+
+      async function saveAdminQuickReplies() {
+        const st = $("admin-qr-status");
+        if (!currentTenantId) return;
+        try {
+          const quickReplies = collectAdminQuickRepliesFromDom();
+          await fetchJSON(
+            `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/quick-replies`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quickReplies }),
+            }
+          );
+          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          setStatus("Quick replies saved", "ok");
+          await loadAdminQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Save failed: " + err.message;
+          setStatus("Quick replies save failed", "err");
+        }
+      }
+
+      function addAdminQuickReplyIntent() {
+        adminQuickRepliesCache.push({ match: [], reply: "" });
+        renderAdminQuickReplies();
+      }
+
       function refreshAll() {
         setStatus("Refreshing…", "ok");
         loadConfig();
@@ -3305,6 +3426,7 @@
         loadWorkflowRuns();
         loadLeads();
         loadWorkflowSettings();
+        loadAdminQuickReplies();
       }
 
       // ── Subscription / Billing ──
@@ -3927,6 +4049,13 @@
         $("refresh-config").addEventListener("click", () => loadConfig(true));
         $("prompt-form").addEventListener("submit", savePrompts);
         $("refresh-prompts").addEventListener("click", () => loadPrompts(true));
+
+        const adminQrAdd = $("admin-qr-add");
+        if (adminQrAdd) adminQrAdd.addEventListener("click", () => addAdminQuickReplyIntent());
+        const adminQrSave = $("admin-qr-save");
+        if (adminQrSave) adminQrSave.addEventListener("click", () => saveAdminQuickReplies());
+        const adminQrReload = $("admin-qr-reload");
+        if (adminQrReload) adminQrReload.addEventListener("click", () => loadAdminQuickReplies());
 
         const refreshHealthBtn = $("refresh-health");
         if (refreshHealthBtn) {

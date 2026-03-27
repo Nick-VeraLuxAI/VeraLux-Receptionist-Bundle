@@ -19,4 +19,6 @@ export {
   type RuntimeTtsChatterbox,
   type RuntimeTtsConfig,
   type TransferProfile,
+  type QuickReplyIntent,
+  quickReplyIntentSchema,
 } from "@veralux/shared";

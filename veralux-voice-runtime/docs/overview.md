@@ -7,7 +7,7 @@ Veralux Voice Runtime is a TypeScript service that handles Telnyx call control w
 - Telnyx webhook processing for call lifecycle events.
 - Media WebSocket ingestion for live audio frames.
 - Chunked STT via Whisper HTTP and TTS via Kokoro HTTP or Coqui XTTS (switchable per tenant).
-- Per-tenant runtime config loaded from Redis (tenantcfg v1).
+- Per-tenant runtime config loaded from Redis (tenantcfg v1), including optional `quickReplies`: many caller phrases can map to one canned reply and **skip the LLM** for lower latency and cost.
 - Capacity limits with Redis Lua scripts and override keys.
 - Prometheus metrics endpoint (`/metrics`) with HTTP and stage timing.
 - Local audio storage and public URL publishing for playback.

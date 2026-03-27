@@ -671,6 +671,24 @@
             </details>
 
             <details class="portal-acc">
+              <summary class="portal-acc__summary">Quick replies <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">
+                  Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply — lower latency. Each phrase must be at least 4 characters; the first matching intent wins. Requires voice runtime config already published to Redis.
+                </p>
+                <div class="owner-panel-inner">
+                  <div id="portal-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
+                  <div id="portal-qr-list"></div>
+                  <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
+                    <button type="button" id="portal-qr-add">Add intent</button>
+                    <button type="button" id="portal-qr-save">Save to voice runtime</button>
+                    <button type="button" class="secondary" id="portal-qr-reload">Reload</button>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
               <summary class="portal-acc__summary">Voice synthesis (TTS) <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
                 <p class="portal-acc__intro">Pick a provider — only settings that apply to that engine are shown. Matches the admin voice step.</p>
@@ -1124,6 +1142,7 @@
           loadBilling(),
           loadPortalLeads(),
           loadPortalWorkflows(),
+          loadPortalQuickReplies(),
         ]);
         refreshLiveSummary();
       }
@@ -1325,6 +1344,108 @@
         } catch (err) {
           $("prompt-status").textContent = "Save failed: " + err.message;
         }
+      }
+
+      let portalQuickRepliesCache = [];
+
+      function parsePortalQrMatchLines(raw) {
+        return (raw || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      async function loadPortalQuickReplies() {
+        const st = $("portal-qr-status");
+        if (!tenantId) {
+          if (st) st.textContent = "";
+          return;
+        }
+        try {
+          const data = await apiFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(tenantId)}/quick-replies`
+          );
+          portalQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+          if (st) {
+            st.textContent = data.runtimeConfigMissing
+              ? "No voice runtime config in Redis yet — your provider must publish full tenant config first."
+              : `Loaded ${portalQuickRepliesCache.length} intent(s).`;
+          }
+          renderPortalQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Load failed: " + err.message;
+          console.error("loadPortalQuickReplies:", err);
+        }
+      }
+
+      function renderPortalQuickReplies() {
+        const root = $("portal-qr-list");
+        if (!root) return;
+        root.innerHTML = "";
+        portalQuickRepliesCache.forEach((intent, idx) => {
+          const card = document.createElement("div");
+          card.style.cssText = "margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.02)";
+          const idVal = intent.id ? escapeHtml(String(intent.id)) : "";
+          const matchText = (intent.match || []).join("\n");
+          const replyText = intent.reply || "";
+          card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <strong>Intent ${idx + 1}</strong>
+              <button type="button" class="secondary portal-qr-remove" data-idx="${idx}">Remove</button>
+            </div>
+            <label class="help" for="portal-qr-id-${idx}">Id (optional, for logs)</label>
+            <input type="text" id="portal-qr-id-${idx}" class="portal-qr-id" data-idx="${idx}" value="${idVal}" placeholder="e.g. hours" style="width:100%;max-width:420px;margin:4px 0 8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px" />
+            <label class="help" for="portal-qr-match-${idx}">Caller phrases (one per line, each ≥ 4 characters)</label>
+            <textarea id="portal-qr-match-${idx}" class="portal-qr-match" data-idx="${idx}" rows="3" style="width:100%;margin:4px 0 8px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(matchText)}</textarea>
+            <label class="help" for="portal-qr-reply-${idx}">Reply spoken to caller</label>
+            <textarea id="portal-qr-reply-${idx}" class="portal-qr-reply" data-idx="${idx}" rows="3" style="width:100%;margin-top:4px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(replyText)}</textarea>
+          `;
+          card.querySelector(".portal-qr-remove").addEventListener("click", () => {
+            portalQuickRepliesCache.splice(idx, 1);
+            renderPortalQuickReplies();
+          });
+          root.appendChild(card);
+        });
+      }
+
+      function collectPortalQuickRepliesFromDom() {
+        const cards = document.querySelectorAll("#portal-qr-list > div");
+        const out = [];
+        cards.forEach((card) => {
+          const id = card.querySelector(".portal-qr-id")?.value?.trim() || undefined;
+          const match = parsePortalQrMatchLines(card.querySelector(".portal-qr-match")?.value || "");
+          const reply = card.querySelector(".portal-qr-reply")?.value?.trim() || "";
+          if (!match.length && !reply) return;
+          const row = { match, reply };
+          if (id) row.id = id;
+          out.push(row);
+        });
+        return out;
+      }
+
+      async function savePortalQuickReplies() {
+        const st = $("portal-qr-status");
+        if (!tenantId) return;
+        try {
+          const quickReplies = collectPortalQuickRepliesFromDom();
+          await apiFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(tenantId)}/quick-replies`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quickReplies }),
+            }
+          );
+          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          await loadPortalQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Save failed: " + err.message;
+        }
+      }
+
+      function addPortalQuickReplyIntent() {
+        portalQuickRepliesCache.push({ match: [], reply: "" });
+        renderPortalQuickReplies();
       }
 
       // ── Pricing ──
@@ -1791,6 +1912,12 @@
         $("fp-add").addEventListener("click", addForwarding);
         $("save-prompts").addEventListener("click", savePrompts);
         $("refresh-prompts").addEventListener("click", loadPrompts);
+        const portalQrAdd = $("portal-qr-add");
+        if (portalQrAdd) portalQrAdd.addEventListener("click", () => addPortalQuickReplyIntent());
+        const portalQrSave = $("portal-qr-save");
+        if (portalQrSave) portalQrSave.addEventListener("click", () => savePortalQuickReplies());
+        const portalQrReload = $("portal-qr-reload");
+        if (portalQrReload) portalQrReload.addEventListener("click", () => loadPortalQuickReplies());
         $("save-portal-tts").addEventListener("click", savePortalTts);
         const pTtsMode = $("portal-ttsMode");
         if (pTtsMode) pTtsMode.addEventListener("change", onPortalTtsProviderModeChange);

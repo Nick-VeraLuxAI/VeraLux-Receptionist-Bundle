@@ -28,6 +28,7 @@ export {
   type RuntimePromptConfig,
   type RuntimeLLMContext,
   type TransferProfile,
+  type QuickReplyIntent,
 } from '@veralux/shared';
 
 import type { RuntimeTenantConfig } from '@veralux/shared';

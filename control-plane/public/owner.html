@@ -444,6 +444,20 @@
       </section>
 
       <section class="owner-panel">
+        <h2>Quick replies (voice runtime)</h2>
+        <p class="help">
+          Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply. Phrases must be at least 4 characters; the first matching intent wins. Requires voice runtime config already published to Redis.
+        </p>
+        <div id="owner-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
+        <div id="owner-qr-list"></div>
+        <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
+          <button type="button" id="owner-qr-add">Add intent</button>
+          <button type="button" id="owner-qr-save">Save to voice runtime</button>
+          <button type="button" class="secondary" id="owner-qr-reload">Reload</button>
+        </div>
+      </section>
+
+      <section class="owner-panel">
         <h2>Receptionist voice</h2>
         <p class="help">Choose how your receptionist sounds. Pick a TTS engine first — only controls that apply to that engine are shown. Use the active voice control for preset vs a saved custom voice.</p>
 
@@ -760,6 +774,7 @@
           // Load leads and workflows in background
           loadOwnerLeads();
           loadOwnerWorkflows();
+          loadOwnerQuickReplies().catch(() => {});
           
           // Also load voice config
           loadVoiceConfig().catch(() => {});
@@ -1025,6 +1040,104 @@
         } catch (err) {
           if (statusEl) statusEl.textContent = "Failed: " + err.message;
         }
+      }
+
+      let ownerQuickRepliesCache = [];
+
+      function parseOwnerQrMatchLines(raw) {
+        return (raw || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      async function loadOwnerQuickReplies() {
+        const st = $("owner-qr-status");
+        try {
+          const data = await ownerFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/quick-replies`
+          );
+          ownerQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+          if (st) {
+            st.textContent = data.runtimeConfigMissing
+              ? "No voice runtime config in Redis yet — publish full tenant config first."
+              : `Loaded ${ownerQuickRepliesCache.length} intent(s).`;
+          }
+          renderOwnerQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Load failed: " + err.message;
+          console.error("loadOwnerQuickReplies:", err);
+        }
+      }
+
+      function renderOwnerQuickReplies() {
+        const root = $("owner-qr-list");
+        if (!root) return;
+        root.innerHTML = "";
+        ownerQuickRepliesCache.forEach((intent, idx) => {
+          const card = document.createElement("div");
+          card.style.cssText = "margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.02)";
+          const idVal = intent.id ? escapeHtml(String(intent.id)) : "";
+          const matchText = (intent.match || []).join("\n");
+          const replyText = intent.reply || "";
+          card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <strong>Intent ${idx + 1}</strong>
+              <button type="button" class="secondary owner-qr-remove" data-idx="${idx}">Remove</button>
+            </div>
+            <label class="help" for="owner-qr-id-${idx}">Id (optional, for logs)</label>
+            <input type="text" id="owner-qr-id-${idx}" class="owner-qr-id" data-idx="${idx}" value="${idVal}" placeholder="e.g. hours" style="width:100%;max-width:420px;margin:4px 0 8px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px" />
+            <label class="help" for="owner-qr-match-${idx}">Caller phrases (one per line, each ≥ 4 characters)</label>
+            <textarea id="owner-qr-match-${idx}" class="owner-qr-match" data-idx="${idx}" rows="3" style="width:100%;margin:4px 0 8px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(matchText)}</textarea>
+            <label class="help" for="owner-qr-reply-${idx}">Reply spoken to caller</label>
+            <textarea id="owner-qr-reply-${idx}" class="owner-qr-reply" data-idx="${idx}" rows="3" style="width:100%;margin-top:4px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(replyText)}</textarea>
+          `;
+          card.querySelector(".owner-qr-remove").addEventListener("click", () => {
+            ownerQuickRepliesCache.splice(idx, 1);
+            renderOwnerQuickReplies();
+          });
+          root.appendChild(card);
+        });
+      }
+
+      function collectOwnerQuickRepliesFromDom() {
+        const cards = document.querySelectorAll("#owner-qr-list > div");
+        const out = [];
+        cards.forEach((card) => {
+          const id = card.querySelector(".owner-qr-id")?.value?.trim() || undefined;
+          const match = parseOwnerQrMatchLines(card.querySelector(".owner-qr-match")?.value || "");
+          const reply = card.querySelector(".owner-qr-reply")?.value?.trim() || "";
+          if (!match.length && !reply) return;
+          const row = { match, reply };
+          if (id) row.id = id;
+          out.push(row);
+        });
+        return out;
+      }
+
+      async function saveOwnerQuickReplies() {
+        const st = $("owner-qr-status");
+        try {
+          const quickReplies = collectOwnerQuickRepliesFromDom();
+          await ownerFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/quick-replies`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quickReplies }),
+            }
+          );
+          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          await loadOwnerQuickReplies();
+          refreshReadyStatus();
+        } catch (err) {
+          if (st) st.textContent = "Save failed: " + err.message;
+        }
+      }
+
+      function addOwnerQuickReplyIntent() {
+        ownerQuickRepliesCache.push({ match: [], reply: "" });
+        renderOwnerQuickReplies();
       }
 
       /* ── Voice Settings (per-engine panels, aligned with admin) ─────────────────────────── */
@@ -1929,6 +2042,9 @@
         $("bill-manage-billing").addEventListener("click", () => requireAuth(() => openOwnerBillingPortal()));
         $("bill-pay-now").addEventListener("click", () => requireAuth(() => payNowOwner()));
         $("owner-save-prompts").addEventListener("click", () => requireAuth(() => saveOwnerPrompts()));
+        $("owner-qr-add").addEventListener("click", () => addOwnerQuickReplyIntent());
+        $("owner-qr-save").addEventListener("click", () => requireAuth(() => saveOwnerQuickReplies()));
+        $("owner-qr-reload").addEventListener("click", () => requireAuth(() => loadOwnerQuickReplies()));
         $("owner-refresh").addEventListener("click", () => requireAuth(() => loadOwnerData()));
         
         // Voice settings event listeners
