@@ -606,6 +606,21 @@
             <ul id="overview-activity-list" class="portal-activity__list" hidden></ul>
             <p id="overview-activity-empty" class="portal-activity__empty">No leads yet—when callers leave their details, they’ll show up here. Your receptionist is ready to capture them.</p>
           </div>
+
+          <details class="portal-acc" style="margin-top: 24px;">
+            <summary class="portal-acc__summary">Change sign-in passcode</summary>
+            <div class="portal-acc__body">
+              <p class="portal-acc__intro">Use your current passcode, then choose a new one (at least 4 characters). This only affects how you sign in to this portal.</p>
+              <label for="portal-pass-current">Current passcode</label>
+              <input id="portal-pass-current" type="password" autocomplete="current-password" />
+              <label for="portal-pass-new">New passcode</label>
+              <input id="portal-pass-new" type="password" autocomplete="new-password" minlength="4" />
+              <label for="portal-pass-new2">Confirm new passcode</label>
+              <input id="portal-pass-new2" type="password" autocomplete="new-password" minlength="4" />
+              <button type="button" id="portal-pass-submit" style="margin-top: 8px;">Update passcode</button>
+              <p id="portal-pass-msg" class="portal-acc__intro" style="margin-top: 12px; margin-bottom: 0; min-height: 1.25em;"></p>
+            </div>
+          </details>
         </section>
 
         <div class="portal-workspace">
@@ -674,13 +689,18 @@
               <summary class="portal-acc__summary">Quick replies <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
                 <p class="portal-acc__intro">
-                  Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply — lower latency. Each phrase must be at least 4 characters; the first matching intent wins. Requires voice runtime config already published to Redis.
+                  <strong>Two paths:</strong> Most questions go to the AI (Qwen) using your <strong>Greeting &amp; tone</strong> context, <strong>services &amp; pricing</strong>, and transfer contacts — no extra setup. <strong>Quick replies</strong> here are optional: when a caller’s words contain a phrase you list, the system speaks your fixed answer <em>without</em> calling the model (faster, predictable). Each phrase must be at least 4 characters; first match wins. Requires voice runtime config in Redis.
+                </p>
+                <p class="help" style="margin: -8px 0 14px;">
+                  Use <strong>Add FAQ starters</strong> for three local templates from this page. Use <strong>Suggest with AI</strong> to generate more intents from your text (requires <code>OPENAI_API_KEY</code> on the server). Always review and <strong>Save to voice runtime</strong>.
                 </p>
                 <div class="owner-panel-inner">
                   <div id="portal-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
                   <div id="portal-qr-list"></div>
                   <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
                     <button type="button" id="portal-qr-add">Add intent</button>
+                    <button type="button" class="secondary" id="portal-qr-seed-faq">Add FAQ starters</button>
+                    <button type="button" class="secondary" id="portal-qr-suggest-ai">Suggest with AI</button>
                     <button type="button" id="portal-qr-save">Save to voice runtime</button>
                     <button type="button" class="secondary" id="portal-qr-reload">Reload</button>
                   </div>
@@ -1033,13 +1053,80 @@
         }).join("");
       }
 
+      function setPortalAuthHeaders(headers) {
+        if (!authToken) return;
+        if (authToken.split(".").length === 3) {
+          headers.set("Authorization", `Bearer ${authToken}`);
+        } else {
+          headers.set("X-Admin-Key", authToken);
+        }
+      }
+
       async function apiFetch(url, opts = {}) {
         const headers = new Headers(opts.headers || {});
         if (tenantId) headers.set("X-Tenant-ID", tenantId);
-        if (authToken) headers.set("X-Admin-Key", authToken);
+        setPortalAuthHeaders(headers);
         const res = await fetch(url, { ...opts, headers });
         if (!res.ok) throw new Error(await res.text());
         return res.json();
+      }
+
+      async function submitPortalPasscodeChange() {
+        const cur = $("portal-pass-current").value.trim();
+        const n1 = $("portal-pass-new").value.trim();
+        const n2 = $("portal-pass-new2").value.trim();
+        const msg = $("portal-pass-msg");
+        msg.textContent = "";
+        msg.style.color = "";
+        if (!cur || !n1 || !n2) {
+          msg.textContent = "Fill in all fields.";
+          return;
+        }
+        if (n1.length < 4) {
+          msg.textContent = "New passcode must be at least 4 characters.";
+          return;
+        }
+        if (n1 !== n2) {
+          msg.textContent = "New passcodes do not match.";
+          return;
+        }
+        $("portal-pass-submit").disabled = true;
+        try {
+          const headers = new Headers({ "Content-Type": "application/json" });
+          if (tenantId) headers.set("X-Tenant-ID", tenantId);
+          setPortalAuthHeaders(headers);
+          const res = await fetch("/api/owner/change-passcode", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              currentPasscode: cur,
+              newPasscode: n1,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            if (data.error === "invalid_current_passcode") {
+              msg.textContent = "Current passcode is incorrect.";
+            } else if (data.error === "passcode_too_short") {
+              msg.textContent = "New passcode must be at least 4 characters.";
+            } else {
+              msg.textContent =
+                typeof data.error === "string"
+                  ? data.error.replace(/_/g, " ")
+                  : "Could not update passcode.";
+            }
+            return;
+          }
+          $("portal-pass-current").value = "";
+          $("portal-pass-new").value = "";
+          $("portal-pass-new2").value = "";
+          msg.style.color = "var(--success, #34d399)";
+          msg.textContent = "Passcode updated. Use it the next time you sign in.";
+        } catch {
+          msg.textContent = "Connection error. Try again.";
+        } finally {
+          $("portal-pass-submit").disabled = false;
+        }
       }
 
       // ── Login ──
@@ -1115,9 +1202,13 @@
 
         // Validate token still works
         try {
-          const res = await fetch("/api/admin/health", {
-            headers: { "X-Admin-Key": savedToken, "X-Tenant-ID": savedTenant },
-          });
+          const h = new Headers({ "X-Tenant-ID": savedTenant });
+          if (savedToken.split(".").length === 3) {
+            h.set("Authorization", `Bearer ${savedToken}`);
+          } else {
+            h.set("X-Admin-Key", savedToken);
+          }
+          const res = await fetch("/api/admin/health", { headers: h });
           if (!res.ok) throw new Error("expired");
 
           authToken = savedToken;
@@ -1446,6 +1537,143 @@
       function addPortalQuickReplyIntent() {
         portalQuickRepliesCache.push({ match: [], reply: "" });
         renderPortalQuickReplies();
+      }
+
+      /**
+       * Seed common FAQ-style intents from fields elsewhere on the portal (no LLM call).
+       * Skips ids already present: faq_hours, faq_services, faq_pricing.
+       */
+      function seedPortalQuickRepliesFromTenantFields() {
+        const st = $("portal-qr-status");
+        const existingIds = new Set(
+          portalQuickRepliesCache.map((q) => q.id).filter(Boolean)
+        );
+
+        const system = ($("p-system")?.value || "").trim();
+        const notes = ($("price-notes")?.value || "").trim();
+        const itemsSummary = pricingItems
+          .slice(0, 10)
+          .map((i) => {
+            const bits = [i.name, i.price, i.description].filter(Boolean);
+            return bits.join(" — ");
+          })
+          .filter(Boolean)
+          .join(". ");
+        let pricingReply = [itemsSummary, notes].filter(Boolean).join(" ").trim();
+        if (pricingReply.length > 4000) pricingReply = pricingReply.slice(0, 3997) + "…";
+
+        const starterPacks = [
+          {
+            id: "faq_hours",
+            match: [
+              "what are your hours",
+              "when are you open",
+              "are you open today",
+              "business hours",
+            ],
+            reply:
+              "Edit this text with your real hours — for example: We're open Monday through Friday, nine A M to five P M.",
+          },
+          {
+            id: "faq_services",
+            match: [
+              "what services do you offer",
+              "what do you do",
+              "tell me about your business",
+            ],
+            reply:
+              system.slice(0, 800) ||
+              "Edit this reply to describe what your business offers.",
+          },
+          {
+            id: "faq_pricing",
+            match: [
+              "how much does it cost",
+              "what are your prices",
+              "do you have a price list",
+            ],
+            reply:
+              pricingReply ||
+              "Edit this reply with your rates — add services and prices above, then click Add FAQ starters again or type prices here.",
+          },
+        ];
+
+        let added = 0;
+        for (const row of starterPacks) {
+          if (existingIds.has(row.id)) continue;
+          existingIds.add(row.id);
+          portalQuickRepliesCache.push({
+            id: row.id,
+            match: [...row.match],
+            reply: row.reply,
+          });
+          added++;
+        }
+
+        if (st) {
+          st.textContent =
+            added > 0
+              ? `Added ${added} starter intent(s). Edit phrases and replies, then Save to voice runtime.`
+              : "Starters already added (faq_hours, faq_services, faq_pricing). Remove those intents to add again, or add custom intents with Add intent.";
+        }
+        renderPortalQuickReplies();
+      }
+
+      async function suggestPortalQuickRepliesWithAi() {
+        const st = $("portal-qr-status");
+        const btn = $("portal-qr-suggest-ai");
+        try {
+          if (btn) btn.disabled = true;
+          if (st) st.textContent = "Asking AI for suggestions…";
+          const data = await apiFetch("/api/admin/quick-replies/suggest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tenantId,
+              greetingText: $("p-greeting").value,
+              systemPreamble: $("p-system").value,
+              voicePrompt: $("p-voice").value,
+              policyPrompt: $("p-policy").value,
+              pricingItems: pricingItems.map((i) => ({
+                name: i.name,
+                price: i.price,
+                description: i.description,
+              })),
+              pricingNotes: $("price-notes").value,
+              forwardingLines: forwardingProfiles.map((p) =>
+                [p.name, p.role, p.number].filter(Boolean).join(" — "),
+              ),
+              maxIntents: 10,
+            }),
+          });
+          const list = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+          const usedIds = new Set(
+            portalQuickRepliesCache.map((q) => q.id).filter(Boolean),
+          );
+          for (let i = 0; i < list.length; i++) {
+            const row = { ...list[i] };
+            if (row.id && usedIds.has(row.id)) {
+              row.id = `${row.id}_ai_${Date.now()}_${i}`;
+            }
+            if (row.id) usedIds.add(row.id);
+            portalQuickRepliesCache.push(row);
+          }
+          const drop =
+            typeof data.dropped === "number" && data.dropped > 0
+              ? ` (${data.dropped} invalid row(s) skipped)`
+              : "";
+          if (st) {
+            st.textContent =
+              list.length > 0
+                ? `Added ${list.length} AI suggestion(s).${drop} Review, then Save to voice runtime.`
+                : `No valid suggestions returned.${drop} Add more detail under Greeting & pricing, or use FAQ starters.`;
+          }
+          renderPortalQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "AI suggest failed: " + err.message;
+        } finally {
+          if (btn) btn.disabled = false;
+        }
       }
 
       // ── Pricing ──
@@ -1909,6 +2137,7 @@
         $("login-passcode").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
         $("login-phone").addEventListener("keydown", (e) => { if (e.key === "Enter") $("login-passcode").focus(); });
         $("logout-btn").addEventListener("click", logout);
+        $("portal-pass-submit").addEventListener("click", submitPortalPasscodeChange);
         $("fp-add").addEventListener("click", addForwarding);
         $("save-prompts").addEventListener("click", savePrompts);
         $("refresh-prompts").addEventListener("click", loadPrompts);
@@ -1918,6 +2147,10 @@
         if (portalQrSave) portalQrSave.addEventListener("click", () => savePortalQuickReplies());
         const portalQrReload = $("portal-qr-reload");
         if (portalQrReload) portalQrReload.addEventListener("click", () => loadPortalQuickReplies());
+        const portalQrSeed = $("portal-qr-seed-faq");
+        if (portalQrSeed) portalQrSeed.addEventListener("click", () => seedPortalQuickRepliesFromTenantFields());
+        const portalQrAi = $("portal-qr-suggest-ai");
+        if (portalQrAi) portalQrAi.addEventListener("click", () => suggestPortalQuickRepliesWithAi());
         $("save-portal-tts").addEventListener("click", savePortalTts);
         const pTtsMode = $("portal-ttsMode");
         if (pTtsMode) pTtsMode.addEventListener("change", onPortalTtsProviderModeChange);

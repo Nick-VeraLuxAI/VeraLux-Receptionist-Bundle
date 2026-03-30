@@ -42,6 +42,7 @@ Admin auth mode is controlled by `ADMIN_AUTH_MODE`:
 - `POST /api/admin/config`: update tenant LLM config
 - `GET /api/admin/prompts`: read prompt config
 - `POST /api/admin/prompts`: update prompt config
+- `POST /api/admin/quick-replies/suggest` (`admin`): propose `quickReplies` intents via OpenAI from JSON body (greeting, system preamble, pricing items, notes, forwarding lines, `maxIntents`). Requires `OPENAI_API_KEY` on the control plane. Returns `{ quickReplies, dropped?, model }`; does not write Redis — use `PUT .../runtime/tenants/:id/quick-replies` after review. Send `X-Tenant-ID`.
 
 ### LLM context (forwarding & pricing)
 Data the receptionist can use when talking to callers (transfer targets and pricing).

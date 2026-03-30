@@ -58,7 +58,13 @@ import { closeRedis as closeRateLimitRedis } from "./redis";
 import { normalizePhoneNumber } from "./utils/phone";
 import { isUuid } from "./utils/validation";
 import { parsePricingInfo, createForwardingProfile } from "./llmContext";
-import { verifyOwnerPasscode, setOwnerPasscode, issueOwnerJwt } from "./ownerAuth";
+import {
+  verifyOwnerPasscode,
+  setOwnerPasscode,
+  issueOwnerJwt,
+  verifyOwnerPortalToken,
+  changeOwnerPasscodeIfValid,
+} from "./ownerAuth";
 import {
   isStripeConfigured,
   getOrCreateStripeCustomer,
@@ -87,6 +93,10 @@ import {
   updateWorkflowSettings,
   type CallEndedEvent,
 } from "./automations";
+import {
+  quickRepliesSuggestBodySchema,
+  suggestQuickRepliesWithOpenAI,
+} from "./quickRepliesSuggest";
 
 dotenv.config();
 
@@ -122,7 +132,9 @@ function noStoreAdminUiShell(req: Request, res: Response, next: NextFunction) {
     p === "/admin" ||
     p === "/admin/" ||
     p === "/owner" ||
-    p === "/owner/"
+    p === "/owner/" ||
+    p === "/portal" ||
+    p === "/portal/"
   ) {
     applyAdminShellCachePolicy(res);
   }
@@ -139,6 +151,11 @@ app.use(
     },
   })
 );
+/** Canonical portal URL is `/portal`; `/portal.html` redirects (must be before `express.static`). */
+app.get("/portal.html", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(301, "/portal" + q);
+});
 app.use(express.static("public"));
 
 // ────────────────────────────────────────────────
@@ -987,6 +1004,104 @@ app.post("/api/owner/set-passcode", async (req, res) => {
   }
 });
 
+/**
+ * Logged-in client portal session (owner JWT): change passcode with current + new.
+ * Auth: same token as other portal API calls (Bearer preferred for jwt-only prod).
+ */
+app.post("/api/owner/change-passcode", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) {
+      return res.status(401).json({ error: "invalid_or_expired_session" });
+    }
+
+    const body = req.body || {};
+    const currentPasscode =
+      typeof body.currentPasscode === "string" ? body.currentPasscode : "";
+    const newPasscode =
+      typeof body.newPasscode === "string" ? body.newPasscode : "";
+    if (!currentPasscode.trim() || !newPasscode.trim()) {
+      return res.status(400).json({
+        error: "current_and_new_passcode_required",
+      });
+    }
+
+    const result = await changeOwnerPasscodeIfValid(
+      session.tenantId,
+      currentPasscode,
+      newPasscode
+    );
+    if (!result.ok) {
+      if (result.error === "invalid_current") {
+        return res.status(403).json({ error: "invalid_current_passcode" });
+      }
+      if (result.error === "passcode_too_short") {
+        return res
+          .status(400)
+          .json({ error: "passcode_too_short", minLength: 4 });
+      }
+      return res.status(400).json({ error: "passcode_too_long" });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/owner/change-passcode error:", err);
+    return res.status(500).json({ error: "change_passcode_failed" });
+  }
+});
+
+app.post(
+  "/api/admin/tenants/:tenantId/owner-passcode/change",
+  adminGuard("admin"),
+  async (req, res) => {
+    try {
+      const tenantId = req.params.tenantId?.trim();
+      if (!tenantId) {
+        return res.status(400).json({ error: "tenant_id_required" });
+      }
+      if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+      const body = req.body || {};
+      const currentPasscode =
+        typeof body.currentPasscode === "string" ? body.currentPasscode : "";
+      const newPasscode =
+        typeof body.newPasscode === "string" ? body.newPasscode : "";
+      if (!currentPasscode.trim() || !newPasscode.trim()) {
+        return res.status(400).json({
+          error: "current_and_new_passcode_required",
+        });
+      }
+
+      const result = await changeOwnerPasscodeIfValid(
+        tenantId,
+        currentPasscode,
+        newPasscode
+      );
+      if (!result.ok) {
+        if (result.error === "invalid_current") {
+          return res.status(403).json({ error: "invalid_current_passcode" });
+        }
+        if (result.error === "passcode_too_short") {
+          return res
+            .status(400)
+            .json({ error: "passcode_too_short", minLength: 4 });
+        }
+        return res.status(400).json({ error: "passcode_too_long" });
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(
+        "POST /api/admin/tenants/:tenantId/owner-passcode/change error:",
+        err
+      );
+      return res.status(500).json({ error: "change_passcode_failed" });
+    }
+  }
+);
+
 /* ──────────────────────────────────────────────── */
 
 const ADMIN_RATE_MAX = Number(process.env.ADMIN_RATE_MAX || 100);
@@ -1403,8 +1518,8 @@ app.post("/api/admin/stripe/checkout", asyncHandler(async (req, res) => {
   const session = await createCheckoutSession({
     tenantId: tenant.id,
     priceId,
-    successUrl: successUrl || `${baseUrl}/portal.html?checkout=success`,
-    cancelUrl: cancelUrl || `${baseUrl}/portal.html?checkout=cancelled`,
+    successUrl: successUrl || `${baseUrl}/portal?checkout=success`,
+    cancelUrl: cancelUrl || `${baseUrl}/portal?checkout=cancelled`,
     tenantName: tenant.meta.name,
   });
 
@@ -1425,7 +1540,7 @@ app.post("/api/admin/stripe/portal", asyncHandler(async (req, res) => {
 
   const session = await createPortalSession({
     tenantId: tenant.id,
-    returnUrl: returnUrl || `${baseUrl}/portal.html`,
+    returnUrl: returnUrl || `${baseUrl}/portal`,
   });
 
   res.json({ url: session.url });
@@ -2271,6 +2386,55 @@ const quickRepliesPutBodySchema = z.object({
   quickReplies: z.array(quickReplyIntentSchema).max(200),
 });
 
+/**
+ * AI-proposed quick replies from tenant-facing text (portal prompts, pricing, etc.).
+ * Requires OPENAI_API_KEY on the control plane. Does not write Redis.
+ */
+app.post("/api/admin/quick-replies/suggest", adminGuard("admin"), async (req, res) => {
+  const apiKey = (process.env.OPENAI_API_KEY || "").trim();
+  if (!apiKey || apiKey === "CHANGE_ME") {
+    return res.status(503).json({
+      error: "openai_not_configured",
+      message:
+        "Set OPENAI_API_KEY for the control plane (not CHANGE_ME) to use AI quick-reply suggestions.",
+    });
+  }
+
+  const parsed = quickRepliesSuggestBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: "invalid_body",
+      details: parsed.error.flatten(),
+    });
+  }
+
+  const tenantId = extractTenantId(req)?.trim();
+  if (!tenantId) {
+    return res.status(400).json({
+      error: "tenant_id_required",
+      message: "Send X-Tenant-ID (or active-tenant) so suggestions are tenant-scoped in audit.",
+    });
+  }
+  if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  try {
+    const { quickReplies, dropped } = await suggestQuickRepliesWithOpenAI(
+      apiKey,
+      model,
+      parsed.data,
+    );
+    return res.json({ quickReplies, dropped, model });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("POST /api/admin/quick-replies/suggest error:", err);
+    return res.status(502).json({
+      error: "quick_replies_suggest_failed",
+      message,
+    });
+  }
+});
+
 app.get("/api/admin/runtime/tenants/:tenantId/quick-replies", async (req, res) => {
   if (!ensureRuntimeAdminEnabled(res)) return;
 
@@ -2804,6 +2968,11 @@ app.get("/admin", (_req, res) => {
 app.get("/owner", (_req, res) => {
   applyAdminShellCachePolicy(res);
   res.sendFile(path.join(__dirname, "..", "public", "owner.html"));
+});
+
+app.get("/portal", (req, res) => {
+  applyAdminShellCachePolicy(res);
+  res.sendFile(path.join(__dirname, "..", "public", "portal.html"));
 });
 
 /* ────────────────────────────────────────────────

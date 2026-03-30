@@ -91,3 +91,64 @@ export async function issueOwnerJwt(params: {
 
   return jwt;
 }
+
+const OWNER_PASSCODE_MAX_LEN = 200;
+
+/**
+ * Verifies a portal session JWT from issueOwnerJwt. Returns tenant id or null.
+ */
+export async function verifyOwnerPortalToken(
+  rawToken: string
+): Promise<{ tenantId: string } | null> {
+  const token = rawToken?.trim();
+  if (!token || token.split(".").length !== 3) return null;
+
+  let secret: Uint8Array;
+  try {
+    secret = getSigningSecret();
+  } catch {
+    return null;
+  }
+
+  const { jwtVerify } = await getJose();
+  try {
+    const { payload } = await jwtVerify(token, secret, {
+      algorithms: ["HS256"],
+    });
+    const sub = typeof payload.sub === "string" ? payload.sub : "";
+    const tenantId =
+      typeof (payload as { tenant_id?: unknown }).tenant_id === "string"
+        ? (payload as { tenant_id: string }).tenant_id
+        : "";
+    if (!tenantId || sub !== `owner:${tenantId}`) return null;
+    return { tenantId };
+  } catch {
+    return null;
+  }
+}
+
+export type ChangeOwnerPasscodeError =
+  | "invalid_current"
+  | "passcode_too_short"
+  | "passcode_too_long";
+
+/**
+ * Updates owner portal passcode after verifying the current one.
+ */
+export async function changeOwnerPasscodeIfValid(
+  tenantId: string,
+  currentPasscode: string,
+  newPasscode: string
+): Promise<{ ok: true } | { ok: false; error: ChangeOwnerPasscodeError }> {
+  const next = (newPasscode || "").trim();
+  if (next.length < 4) return { ok: false, error: "passcode_too_short" };
+  if (next.length > OWNER_PASSCODE_MAX_LEN) {
+    return { ok: false, error: "passcode_too_long" };
+  }
+  const cur = (currentPasscode || "").trim();
+  if (!(await verifyOwnerPasscode(tenantId, cur))) {
+    return { ok: false, error: "invalid_current" };
+  }
+  await setOwnerPasscode(tenantId, next);
+  return { ok: true };
+}

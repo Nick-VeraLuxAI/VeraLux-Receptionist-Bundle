@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Seeds a dev tenant + owner passcode so portal.html can sign in locally.
+# Seeds a dev tenant + owner passcode so /portal can sign in locally.
 # Admin + Owner UIs use ADMIN_API_KEY from .env (not this script).
 #
 # After running: docker compose (or deploy) restart control — or restart veralux-control.

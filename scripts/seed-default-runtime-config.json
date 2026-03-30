@@ -1,0 +1,40 @@
+{
+  "contractVersion": "v1",
+  "tenantId": "default",
+  "dids": ["+15092193928"],
+  "webhookSecret": "veralux-inline-placeholder-ed25519-used-globally",
+  "caps": {
+    "maxConcurrentCallsTenant": 10,
+    "maxCallsPerMinuteTenant": 60,
+    "maxConcurrentCallsGlobal": 100
+  },
+  "stt": {
+    "mode": "whisper_http",
+    "whisperUrl": "http://whisper:9000/transcribe",
+    "chunkMs": 100,
+    "language": "en"
+  },
+  "tts": {
+    "mode": "chatterbox_http",
+    "chatterboxUrl": "http://chatterbox:7005",
+    "chatterboxVariant": "turbo"
+  },
+  "audio": {
+    "publicBaseUrl": "https://api.veraluxclients.com/audio",
+    "storageDir": "/app/audio"
+  },
+  "llmContext": {
+    "forwardingProfiles": [],
+    "pricing": { "items": [] },
+    "prompts": {
+      "systemPreamble": "You are the AI receptionist for this business. Greet callers warmly, answer questions briefly, and offer to take a message or connect them with the right person.",
+      "schemaHint": "",
+      "policyPrompt": "Do not share sensitive data. If unsure, offer to take a message or transfer. Keep responses concise for phone conversation.",
+      "voicePrompt": "Sound friendly, professional, and natural. Use short sentences."
+    }
+  },
+  "assistantContext": {
+    "hours": "Tell callers you can help with general questions and routing; for exact hours they should leave a message if needed."
+  },
+  "quickReplies": []
+}
