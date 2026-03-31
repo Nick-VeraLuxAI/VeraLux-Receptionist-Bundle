@@ -13,6 +13,7 @@ import {
   type CallRow,
   type ConfigRow,
 } from "./db";
+import { reconcileDidMapsWithPostgres } from "./didMappingSync";
 import { secretStore } from "./secretStore";
 import { normalizePhoneNumber } from "./utils/phone";
 import {
@@ -211,6 +212,9 @@ export class TenantRegistry {
     if (!this.tenants.has(DEFAULT_TENANT_ID)) {
       await this.createAndPersist(DEFAULT_TENANT_ID, "Default Tenant");
     }
+
+    const latestNumbers = (await fetchTenantsFromDb()).numbers;
+    await reconcileDidMapsWithPostgres(latestNumbers);
 
     this.initialized = true;
   }

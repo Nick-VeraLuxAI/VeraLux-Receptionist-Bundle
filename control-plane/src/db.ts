@@ -1,6 +1,8 @@
 import { Pool, type PoolClient } from "pg";
 import fs from "fs";
 import path from "path";
+import { normalizeE164 } from "./runtime/runtimeContract";
+import { syncRedisDidMapAfterTenantNumbersChange } from "./didMappingSync";
 
 const DEFAULT_DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -257,12 +259,72 @@ export async function upsertTenant(meta: {
   }
 }
 
+export async function getTenantNumbers(tenantId: string): Promise<string[]> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ number: string }>(
+      "select number from tenant_numbers where tenant_id = $1 order by number",
+      [tenantId]
+    );
+    return r.rows.map((x) => x.number);
+  } finally {
+    client.release();
+  }
+}
+
+/** Resolve tenant id for an inbound DID using Postgres (canonical mapping). */
+export async function findTenantIdByInboundNumberE164(
+  didNormalized: string
+): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query<{ tenant_id: string; number: string }>(
+      "select tenant_id, number from tenant_numbers"
+    );
+    for (const row of r.rows) {
+      try {
+        if (normalizeE164(row.number) === didNormalized) {
+          return row.tenant_id;
+        }
+      } catch {
+        /* skip malformed row */
+      }
+    }
+    return null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Add a DID to a tenant if missing; updates Redis via setTenantNumbers sync. */
+export async function addTenantNumberIfMissing(
+  tenantId: string,
+  rawNumber: string
+): Promise<void> {
+  const normalized = normalizeE164(String(rawNumber || "").trim());
+  const nums = await getTenantNumbers(tenantId);
+  for (const n of nums) {
+    try {
+      if (normalizeE164(n) === normalized) return;
+    } catch {
+      /* skip */
+    }
+  }
+  await setTenantNumbers(tenantId, [...nums, normalized]);
+}
+
 export async function setTenantNumbers(
   tenantId: string,
   numbers: string[]
 ): Promise<void> {
   const client = await pool.connect();
   try {
+    const prevRes = await client.query<{ number: string }>(
+      "select number from tenant_numbers where tenant_id = $1",
+      [tenantId]
+    );
+    const previousNumbers = prevRes.rows.map((r) => r.number);
+
     const cleaned = Array.from(
       new Set(
         (numbers || [])
@@ -315,6 +377,12 @@ export async function setTenantNumbers(
     }
 
     await client.query("commit");
+
+    await syncRedisDidMapAfterTenantNumbersChange(
+      tenantId,
+      previousNumbers,
+      cleaned
+    );
   } catch (err) {
     await safeRollback(client, "setTenantNumbers");
     throw err;

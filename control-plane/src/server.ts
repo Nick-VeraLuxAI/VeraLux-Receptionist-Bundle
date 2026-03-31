@@ -27,11 +27,8 @@ import {
 import {
   assertRuntimeRedisConfigured,
   getTenantConfig,
-  getTenantForDid,
   healthcheckRedis,
-  mapDidToTenant,
   publishTenantConfig,
-  unmapDid,
   closeRuntimeRedis,
 } from "./runtime/runtimePublisher";
 import {
@@ -52,7 +49,20 @@ import {
   type AdminRole,
 } from "./auth";
 import { secretStore } from "./secretStore";
-import { listAuditLogs, upsertUserBySub, listMembershipsForUser, closePool, pingPool, getSubscription, upsertSubscription, pool as dbPool } from "./db";
+import {
+  listAuditLogs,
+  upsertUserBySub,
+  listMembershipsForUser,
+  closePool,
+  pingPool,
+  getSubscription,
+  upsertSubscription,
+  pool as dbPool,
+  addTenantNumberIfMissing,
+  findTenantIdByInboundNumberE164,
+  getTenantNumbers,
+  setTenantNumbers,
+} from "./db";
 import { rateLimit } from "./rateLimit";
 import { closeRedis as closeRateLimitRedis } from "./redis";
 import { normalizePhoneNumber } from "./utils/phone";
@@ -2542,7 +2552,8 @@ app.post("/api/admin/runtime/dids/map", adminGuard("admin"), async (req, res) =>
   if (!ensureTenantAccess(req as AuthedRequest, res, targetTenantId)) return;
 
   try {
-    await mapDidToTenant(did, targetTenantId);
+    // Postgres `tenant_numbers` is canonical; setTenantNumbers syncs Redis.
+    await addTenantNumberIfMissing(targetTenantId, did);
     return res.json({ status: "ok" });
   } catch (err) {
     console.error("POST /api/admin/runtime/dids/map error:", err);
@@ -2577,12 +2588,20 @@ app.post(
     }
 
     try {
-      const mappedTenant = await getTenantForDid(did);
+      const mappedTenant = await findTenantIdByInboundNumberE164(did);
       if (!mappedTenant) {
         return res.status(404).json({ error: "did_unmapped" });
       }
       if (!ensureTenantAccess(req as AuthedRequest, res, mappedTenant)) return;
-      await unmapDid(did);
+      const nums = await getTenantNumbers(mappedTenant);
+      const next = nums.filter((n) => {
+        try {
+          return normalizeE164(n) !== did;
+        } catch {
+          return true;
+        }
+      });
+      await setTenantNumbers(mappedTenant, next);
       return res.json({ status: "ok", tenantId: mappedTenant });
     } catch (err) {
       console.error("POST /api/admin/runtime/dids/unmap error:", err);
@@ -2613,7 +2632,7 @@ app.get("/api/admin/runtime/dids/:didE164", async (req, res) => {
   }
 
   try {
-    const tenantId = await getTenantForDid(did);
+    const tenantId = await findTenantIdByInboundNumberE164(did);
     if (!tenantId) return res.status(404).json({ error: "did_unmapped" });
     if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
     return res.json({ didE164: did, tenantId });

@@ -167,3 +167,16 @@ export async function closeRuntimeRedis(): Promise<void> {
     cachedPublisher = null;
   }
 }
+
+/** All Redis keys for DID → tenant mapping (used to reconcile with Postgres). */
+export async function listAllMappedDidKeysFromRedis(): Promise<string[]> {
+  const redis = await getClient();
+  const keys: string[] = [];
+  for await (const key of redis.scanIterator({
+    MATCH: "tenantmap:did:*",
+    COUNT: 128,
+  })) {
+    keys.push(String(key));
+  }
+  return keys;
+}
