@@ -129,6 +129,14 @@ cmd_up() {
     # Start services
     $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d "$@"
     
+    # `docker rm` above drops veralux-cloudflared; plain compose up omits profile `cloudflare`.
+    # Bring tunnel back if .env has a token so Error 1033 does not persist after deploy.sh up.
+    if grep -q "CLOUDFLARE_TUNNEL_TOKEN=." "$ENV_FILE" 2>/dev/null; then
+        info "Restarting Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN is set)..."
+        $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared 2>/dev/null || \
+            warn "cloudflared did not start — set CLOUDFLARED_TAG in .env and verify the tunnel token."
+    fi
+    
     echo ""
     success "Services started!"
     echo ""
