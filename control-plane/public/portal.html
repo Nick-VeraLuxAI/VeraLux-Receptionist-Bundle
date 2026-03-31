@@ -872,12 +872,14 @@
                   <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
                     <label for="portal-ttsVoiceId" id="portal-tts-voice-id-label">Voice ID</label>
                     <input id="portal-ttsVoiceId" type="text" placeholder="e.g. en_sample" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <select id="portal-ttsQwen3Speaker" style="display: none; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Qwen3 speaker"></select>
                     <p id="portal-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
                   </div>
 
                   <div id="portal-tts-panel-language" style="display: none; margin-top: 12px">
-                    <label for="portal-ttsLanguage">Language</label>
+                    <label for="portal-ttsLanguage" id="portal-tts-language-label">Language</label>
                     <input id="portal-ttsLanguage" type="text" placeholder="e.g. en" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
+                    <select id="portal-ttsQwen3Language" style="display: none; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Qwen3 language"></select>
                     <p id="portal-tts-language-hint" class="help" style="margin-top: 4px;"></p>
                   </div>
 
@@ -1104,6 +1106,7 @@
     </div>
 
     <!-- ═══════════════ SCRIPT ═══════════════ -->
+    <script src="/qwen3-tts-options.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
       let authToken = "";
@@ -2063,7 +2066,7 @@
           } else if (mode === "qwen3_tts_http") {
             vLabel.textContent = "Speaker (built-in preset)";
             if (vInput) vInput.placeholder = "e.g. Ryan, Aiden";
-            vHint.textContent = "Must match a speaker name your Qwen3 model supports (see model card).";
+            vHint.textContent = "Choose a CustomVoice preset (nine speakers on the Qwen3 model card).";
           } else {
             vLabel.textContent = "Built-in voice ID (XTTS)";
             if (vInput) vInput.placeholder = "e.g. en_sample";
@@ -2078,7 +2081,7 @@
             mode === "chatterbox_http"
               ? "Language for synthesis (ISO codes: en, fr, de, …). Required for Multilingual; must match what your server expects."
               : mode === "qwen3_tts_http"
-                ? "Spoken language label (e.g. English)—must match a language your Qwen3 model lists."
+                ? "Full language names (English, Spanish, …)—not ISO codes. “Auto” infers from text."
                 : mode === "kokoro_http"
                   ? "Language/locale token your Kokoro server expects (often a short letter code; see your server docs)."
                   : "Language code for Coqui XTTS (e.g. en, es, fr).";
@@ -2088,6 +2091,18 @@
         else if (mode === "chatterbox_http") portalApplyChatterboxLanguageDefault();
         else if (mode === "kokoro_http") portalApplyKokoroDefaults();
         else if (mode === "qwen3_tts_http") portalApplyQwen3Defaults();
+
+        if (window.QWEN3_CUSTOMVOICE) {
+          window.QWEN3_CUSTOMVOICE.setVoiceLangUiMode(
+            {
+              voiceInput: "portal-ttsVoiceId",
+              speakerSelect: "portal-ttsQwen3Speaker",
+              langInput: "portal-ttsLanguage",
+              langSelect: "portal-ttsQwen3Language",
+            },
+            mode === "qwen3_tts_http"
+          );
+        }
 
         const warningEl = $("portal-voice-cloning-warning");
         const dm = $("portal-defaultVoiceMode");
@@ -2366,11 +2381,27 @@
           const clonedUrl = cu ? cu.value.trim() : "";
           const clonedLabel = cl ? cl.value.trim() : "";
 
+          const isQwen3 = ttsMode === "qwen3_tts_http";
+          const qSp = $("portal-ttsQwen3Speaker");
+          const qLang = $("portal-ttsQwen3Language");
+          const voiceId =
+            isQwen3 && qSp
+              ? (qSp.value || "").trim() || undefined
+              : voiceEl
+                ? voiceEl.value.trim() || undefined
+                : undefined;
+          const language =
+            isQwen3 && qLang
+              ? (qLang.value || "").trim() || undefined
+              : langEl
+                ? langEl.value.trim() || undefined
+                : undefined;
+
           const payload = {
             ttsMode,
             preset: presetEl ? presetEl.value : "neutral",
-            voiceId: voiceEl ? voiceEl.value.trim() || undefined : undefined,
-            language: langEl ? langEl.value.trim() || undefined : undefined,
+            voiceId,
+            language,
             rate: rateEl ? parseFloat(rateEl.value) : 0.95,
             defaultVoiceMode: dm ? dm.value : "preset",
           };

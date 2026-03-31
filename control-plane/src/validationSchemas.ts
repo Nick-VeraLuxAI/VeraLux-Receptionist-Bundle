@@ -75,7 +75,7 @@ export const ttsConfigSchema = z.object({
   ttsMode: ttsModeSchema.optional(),
   preset: voicePresetSchema.optional(),
   voiceId: z.string().max(100).optional(),
-  language: z.string().max(10).optional(),
+  language: z.string().max(32).optional(),
   rate: z.number().min(0.5).max(2.0).optional(),
   coquiXttsUrl: urlSchema.optional(),
   kokoroUrl: urlSchema.optional(),
