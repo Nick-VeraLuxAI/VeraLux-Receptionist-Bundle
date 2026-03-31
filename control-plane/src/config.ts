@@ -147,6 +147,17 @@ function resolveChatterboxUrl(
   return s || e;
 }
 
+/** Prefer QWEN3_TTS_URL when the DB still has a dev-only loopback URL (browser-saved localhost is wrong inside Docker). */
+function resolveQwen3TtsUrl(
+  saved: string | undefined,
+  envUrl: string | undefined
+): string | undefined {
+  const s = sanitizeUrl(saved);
+  const e = envUrl;
+  if (e && s && isLoopbackHttpUrl(s)) return e;
+  return s || e;
+}
+
 // TTS tuning defaults from env (optional); prefer XTTS_* then KOKORO_*
 const DEFAULT_TTS_RATE = clamp(
   parseNumberEnv("XTTS_RATE", parseNumberEnv("KOKORO_RATE", 0.95)),
@@ -376,7 +387,7 @@ export class LLMConfigStore {
       coquiXttsUrl: base.coquiXttsUrl,
       kokoroUrl: base.kokoroUrl,
       chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
-      qwen3TtsUrl: sanitizeUrl(base.qwen3TtsUrl) || getEnvQwen3TtsUrl(),
+      qwen3TtsUrl: resolveQwen3TtsUrl(base.qwen3TtsUrl, getEnvQwen3TtsUrl()),
       qwen3Instruct: base.qwen3Instruct,
       qwen3DoSample: base.qwen3DoSample,
       qwen3Temperature: base.qwen3Temperature,
