@@ -27,7 +27,9 @@ COPY control-plane/scripts control-plane/scripts/
 COPY control-plane/public control-plane/public/
 
 # Substitute __ADMIN_UI_BUILD_STAMP__ in admin.html (and CSS query param) for deploy parity checks.
-# Override at build: docker compose build --build-arg ADMIN_UI_BUILD_STAMP=20250323.1 control
+# Pass a changing value each release (e.g. git short SHA via ./deploy.sh build). If empty, `date`
+# is used — but Docker may cache that RUN until COPY public/ changes, so the UI stamp can look stale.
+# Override: docker compose build --build-arg ADMIN_UI_BUILD_STAMP=$(git rev-parse --short HEAD) control
 ARG ADMIN_UI_BUILD_STAMP=
 RUN if [ -n "$ADMIN_UI_BUILD_STAMP" ]; then STAMP="$ADMIN_UI_BUILD_STAMP"; else STAMP="$(date -u +%Y%m%d-%H%M%S)UTC"; fi && \
   sed -i "s|__ADMIN_UI_BUILD_STAMP__|${STAMP}|g" control-plane/public/admin.html && \

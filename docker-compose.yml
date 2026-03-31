@@ -25,7 +25,8 @@ services:
       context: .
       dockerfile: control-plane/Dockerfile
       args:
-        # Set when rebuilding so production HTML/CSS show a known stamp (e.g. git SHA or release id).
+        # Prefer setting via ./deploy.sh build (defaults to `git rev-parse --short HEAD`) so Docker
+        # does not reuse a cached stamp layer from an older build. Optional: export ADMIN_UI_BUILD_STAMP=…
         ADMIN_UI_BUILD_STAMP: ${ADMIN_UI_BUILD_STAMP:-}
     container_name: veralux-control
     restart: unless-stopped

@@ -163,14 +163,33 @@ cmd_logs() {
     fi
 }
 
+# Docker caches the control-plane layer that runs `sed` on admin.html. A stale ADMIN_UI_BUILD_STAMP
+# in the shell (or from an old export) can bake the wrong "Build …" text. The Dockerfile's date
+# fallback is also cached until COPY public/ changes. Always set the stamp from git HEAD for
+# ./deploy.sh build so each commit gets a matching UI fingerprint (overrides prior env).
+# To force a custom stamp: ADMIN_UI_BUILD_STAMP_NO_GIT=1 ADMIN_UI_BUILD_STAMP=mytag ./deploy.sh build control
+ensure_admin_ui_build_stamp() {
+    if [[ "${ADMIN_UI_BUILD_STAMP_NO_GIT:-}" == "1" ]]; then
+        info "ADMIN_UI_BUILD_STAMP_NO_GIT=1 — using ADMIN_UI_BUILD_STAMP=${ADMIN_UI_BUILD_STAMP:-}(unset)"
+        export ADMIN_UI_BUILD_STAMP
+        return
+    fi
+    if git rev-parse --short HEAD &>/dev/null; then
+        ADMIN_UI_BUILD_STAMP="$(git rev-parse --short HEAD)"
+        export ADMIN_UI_BUILD_STAMP
+        info "ADMIN_UI_BUILD_STAMP=${ADMIN_UI_BUILD_STAMP} (git HEAD; use ADMIN_UI_BUILD_STAMP_NO_GIT=1 to skip)"
+    fi
+}
+
 cmd_build() {
     info "Building Veralux Receptionist from source..."
-    
+    ensure_admin_ui_build_stamp
+
     local audio_profile
     audio_profile=$(detect_audio_profile)
-    
+
     $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile build "$@"
-    
+
     success "Build complete!"
 }
 
@@ -345,7 +364,7 @@ cmd_help() {
     echo "  restart [services...] Restart services"
     echo "  status               Show service status"
     echo "  logs [service]       Follow service logs"
-    echo "  build [services...]  Build images from local source"
+    echo "  build [services...]  Build images from local source (sets ADMIN_UI_BUILD_STAMP=git HEAD if unset)"
     echo "  update               Rolling update (pull + restart one at a time)"
     echo "  backup [dir] [opts]  Backup the database"
     echo "  tunnel [type]        Start with tunnel (cloudflare or ngrok)"
