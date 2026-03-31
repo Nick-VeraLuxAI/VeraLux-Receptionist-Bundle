@@ -1285,7 +1285,7 @@
           ownerQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — publish full tenant config first."
+              ? "No voice runtime config in Redis yet — use admin Voice → Publish to voice runtime (or POST .../publish-from-tenant)."
               : `Loaded ${ownerQuickRepliesCache.length} intent(s).`;
           }
           renderOwnerQuickReplies();

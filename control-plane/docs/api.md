@@ -66,7 +66,8 @@ Data the receptionist can use when talking to callers (transfer targets and pric
 ## Runtime provisioning APIs (Redis publish)
 These endpoints publish DID mappings and runtime config for the voice runtime. They require `ENABLE_RUNTIME_ADMIN=true` and a valid `REDIS_URL`.
 
-- `POST /api/admin/runtime/tenants/:tenantId/config`: publish runtime config
+- `POST /api/admin/runtime/tenants/:tenantId/config`: publish runtime config (full JSON body)
+- `POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant`: build runtime config from Postgres tenant state (TTS/STT, DIDs, LLM context) and publish to Redis; preserves webhook secret and quick replies from existing Redis config when present
 - `GET /api/admin/runtime/tenants/:tenantId/config`: read runtime config from Redis
 - `GET /api/admin/runtime/tenants/:tenantId/quick-replies`: read `quickReplies` slice; `200` with `{ quickReplies: [], runtimeConfigMissing: true }` when no Redis tenant config yet
 - `PUT /api/admin/runtime/tenants/:tenantId/quick-replies`: replace `quickReplies` on existing runtime config (`admin`); `404` if full runtime config is not in Redis yet

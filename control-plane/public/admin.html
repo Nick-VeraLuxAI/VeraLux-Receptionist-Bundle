@@ -665,10 +665,14 @@
                     </div>
                   </div>
 
-                  <div class="row models-wizard__actions" style="margin-top: 16px">
+                  <div class="row models-wizard__actions" style="margin-top: 16px; flex-wrap: wrap; gap: 8px">
                     <button type="submit">Save voice settings</button>
+                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Push saved voice/STT and prompts from this control plane to Redis for live PSTN calls">
+                      Publish to voice runtime (Redis)
+                    </button>
                   </div>
-                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Use Step 4 → Preview voice to hear TTS.</div>
+                  <div id="admin-runtime-publish-status" class="small" style="margin-top: 6px; min-height: 18px; color: var(--muted)"></div>
+                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Use Step 4 → Preview voice to hear TTS. Live calls use Redis — use <strong>Publish to voice runtime</strong> after changing voice/STT.</div>
                 </form>
               </section>
             </div>
@@ -1564,6 +1568,56 @@
               "",
               "Dry check only — no network call. Save settings, then use a real call or Chat history.",
             ].join("\n");
+          }
+        });
+
+        $("admin-runtime-publish-from-tenant")?.addEventListener("click", async () => {
+          const st = $("admin-runtime-publish-status");
+          if (!currentTenantId) {
+            if (st) {
+              st.textContent = "Select a business first.";
+              st.style.color = "var(--danger)";
+            }
+            setStatus("Select a tenant before publishing to Redis", "err");
+            return;
+          }
+          if (st) {
+            st.textContent = "Publishing…";
+            st.style.color = "var(--muted)";
+          }
+          try {
+            const headers = new Headers();
+            headers.set("X-Tenant-ID", currentTenantId);
+            if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+            const res = await fetch(
+              `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/publish-from-tenant`,
+              { method: "POST", headers }
+            );
+            let body = {};
+            try {
+              body = await res.json();
+            } catch (_) {}
+            if (!res.ok) {
+              const msg =
+                typeof body.message === "string"
+                  ? body.message
+                  : typeof body.error === "string"
+                    ? body.error
+                    : res.statusText;
+              throw new Error(msg || "Publish failed");
+            }
+            if (st) {
+              st.textContent =
+                "Published to voice runtime (Redis). If inbound is new, map each DID to this tenant (POST /api/admin/runtime/dids/map).";
+              st.style.color = "var(--success)";
+            }
+            setStatus("Voice runtime config published to Redis", "ok");
+          } catch (e) {
+            if (st) {
+              st.textContent = String(e.message || e);
+              st.style.color = "var(--danger)";
+            }
+            setStatus("Publish to Redis failed", "err");
           }
         });
       }
@@ -3759,7 +3813,7 @@
           adminQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — publish full tenant config first."
+              ? "No voice runtime config in Redis yet — use Step 3 Voice → Publish to voice runtime (or POST .../publish-from-tenant)."
               : `Loaded ${adminQuickRepliesCache.length} intent(s).`;
           }
           renderAdminQuickReplies();

@@ -32,6 +32,10 @@ import {
   closeRuntimeRedis,
 } from "./runtime/runtimePublisher";
 import {
+  buildTenantRuntimeConfig,
+  BuildRuntimeConfigError,
+} from "./runtime/buildTenantRuntimeConfig";
+import {
   type LLMProvider,
   type TTSConfig,
   type VoicePreset,
@@ -2828,6 +2832,56 @@ app.post(
   }
 );
 
+/**
+ * Build full runtime JSON from Postgres tenant state (TTS/STT, DIDs, LLM context) and publish to Redis.
+ * Preserves webhook secret, quick replies, assistantContext, transferProfiles, and callForwarding from existing Redis config when present.
+ */
+app.post(
+  "/api/admin/runtime/tenants/:tenantId/publish-from-tenant",
+  adminGuard("admin"),
+  async (req, res) => {
+    if (!ensureRuntimeAdminEnabled(res)) return;
+
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+    const tenant = tenants.getOrCreate(tenantId);
+
+    let existing: RuntimeTenantConfig | null;
+    try {
+      existing = await getTenantConfig(tenantId);
+    } catch (err) {
+      console.error("POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant getTenantConfig:", err);
+      return res.status(500).json({ error: "runtime_config_read_failed" });
+    }
+
+    let parsed: RuntimeTenantConfig;
+    try {
+      parsed = buildTenantRuntimeConfig(tenant, existing);
+    } catch (err: unknown) {
+      if (err instanceof BuildRuntimeConfigError) {
+        return res.status(400).json({
+          error: err.code,
+          message: err.message,
+        });
+      }
+      throw err;
+    }
+
+    try {
+      await publishTenantConfig(tenantId, parsed);
+    } catch (err) {
+      console.error("POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant error:", err);
+      return res.status(500).json({ error: "runtime_publish_failed" });
+    }
+
+    const includeSecrets = shouldIncludeRuntimeSecrets(req);
+    const config = includeSecrets ? parsed : redactRuntimeConfig(parsed);
+    return res.json({ status: "ok", config });
+  }
+);
+
 app.get("/api/admin/runtime/tenants/:tenantId/config", async (req, res) => {
   if (!ensureRuntimeAdminEnabled(res)) return;
 
@@ -2947,7 +3001,7 @@ app.put(
         return res.status(404).json({
           error: "runtime_config_not_found",
           message:
-            "Publish full voice runtime tenant config to Redis first, then quick replies can be saved.",
+            "Publish tenant config to Redis first (admin: Step 3 Voice → Publish to voice runtime, or POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant), then quick replies can be saved.",
         });
       }
 

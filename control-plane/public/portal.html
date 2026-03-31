@@ -958,9 +958,13 @@
                     <p id="portal-voice-cloning-warning" class="help" style="display: none; margin-top: 8px; color: var(--accent-warm);">Cloned mode is selected but no reference URL is set.</p>
                   </div>
 
-                  <div class="row" style="margin-top: 14px;">
+                  <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 8px;">
                     <button type="button" id="save-portal-tts">Save voice / TTS</button>
+                    <button type="button" class="secondary" id="portal-runtime-publish-from-tenant" title="Push saved voice/STT to Redis for live calls">
+                      Publish to voice runtime (Redis)
+                    </button>
                   </div>
+                  <div id="portal-runtime-publish-status" class="help" style="margin-top: 6px; min-height: 16px;"></div>
                   <div id="portal-tts-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
                 </div>
               </div>
@@ -1648,7 +1652,7 @@
           portalQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — your provider must publish full tenant config first."
+              ? "No voice runtime config in Redis yet — use Voice → Publish to voice runtime (or ask ops to POST .../publish-from-tenant)."
               : `Loaded ${portalQuickRepliesCache.length} intent(s).`;
           }
           renderPortalQuickReplies();
@@ -2554,6 +2558,49 @@
         const portalQrAi = $("portal-qr-suggest-ai");
         if (portalQrAi) portalQrAi.addEventListener("click", () => suggestPortalQuickRepliesWithAi());
         $("save-portal-tts").addEventListener("click", savePortalTts);
+        $("portal-runtime-publish-from-tenant")?.addEventListener("click", async () => {
+          const st = $("portal-runtime-publish-status");
+          if (!tenantId) {
+            if (st) st.textContent = "Sign in and load your business first.";
+            return;
+          }
+          if (st) {
+            st.textContent = "Publishing…";
+            st.style.color = "var(--muted)";
+          }
+          try {
+            const headers = new Headers();
+            headers.set("X-Tenant-ID", tenantId);
+            setPortalAuthHeaders(headers);
+            const res = await fetch(
+              `/api/admin/runtime/tenants/${encodeURIComponent(tenantId)}/publish-from-tenant`,
+              { method: "POST", headers }
+            );
+            let body = {};
+            try {
+              body = await res.json();
+            } catch (_) {}
+            if (!res.ok) {
+              const msg =
+                typeof body.message === "string"
+                  ? body.message
+                  : typeof body.error === "string"
+                    ? body.error
+                    : "Publish failed";
+              throw new Error(msg);
+            }
+            if (st) {
+              st.textContent =
+                "Published to voice runtime (Redis). Map DIDs to this tenant if inbound routing is new.";
+              st.style.color = "var(--success)";
+            }
+          } catch (e) {
+            if (st) {
+              st.textContent = String(e.message || e);
+              st.style.color = "var(--danger)";
+            }
+          }
+        });
         const pTtsMode = $("portal-ttsMode");
         if (pTtsMode) pTtsMode.addEventListener("change", onPortalTtsProviderModeChange);
         const pRate = $("portal-ttsRate");
