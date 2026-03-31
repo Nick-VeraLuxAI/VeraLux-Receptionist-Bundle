@@ -871,15 +871,13 @@
 
                   <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
                     <label for="portal-ttsVoiceId" id="portal-tts-voice-id-label">Voice ID</label>
-                    <input id="portal-ttsVoiceId" type="text" placeholder="e.g. en_sample" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
-                    <select id="portal-ttsQwen3Speaker" style="display: none; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Qwen3 speaker"></select>
+                    <select id="portal-ttsVoiceId" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Voice"></select>
                     <p id="portal-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
                   </div>
 
                   <div id="portal-tts-panel-language" style="display: none; margin-top: 12px">
                     <label for="portal-ttsLanguage" id="portal-tts-language-label">Language</label>
-                    <input id="portal-ttsLanguage" type="text" placeholder="e.g. en" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
-                    <select id="portal-ttsQwen3Language" style="display: none; width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Qwen3 language"></select>
+                    <select id="portal-ttsLanguage" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Language"></select>
                     <p id="portal-tts-language-hint" class="help" style="margin-top: 4px;"></p>
                   </div>
 
@@ -1928,52 +1926,13 @@
       }
 
       // ── TTS (per-engine panels, same rules as admin) ──
-      const PORTAL_KOKORO_VOICE_PATTERN = /^[ab][fm]_/;
-      const PORTAL_KOKORO_LANG_VALUES = ["a", "b"];
-      const PORTAL_XTTS_DEFAULT_VOICE = "en_sample";
-      const PORTAL_XTTS_DEFAULT_LANG = "en";
-
       function portalUpdateTtsLabels() {
         const rateEl = $("portal-ttsRate");
         const rateVal = $("portal-ttsRateValue");
         if (rateEl && rateVal) rateVal.textContent = Number(rateEl.value).toFixed(2);
       }
 
-      function portalApplyXttsDefaults() {
-        const voiceEl = $("portal-ttsVoiceId");
-        const langEl = $("portal-ttsLanguage");
-        if (voiceEl) {
-          const cv = voiceEl.value.trim();
-          if (!cv || PORTAL_KOKORO_VOICE_PATTERN.test(cv)) voiceEl.value = PORTAL_XTTS_DEFAULT_VOICE;
-        }
-        if (langEl) {
-          const cl = langEl.value.trim();
-          if (!cl || PORTAL_KOKORO_LANG_VALUES.includes(cl)) langEl.value = PORTAL_XTTS_DEFAULT_LANG;
-        }
-      }
-
-      function portalApplyKokoroDefaults() {
-        const voiceEl = $("portal-ttsVoiceId");
-        if (!voiceEl) return;
-        const v = voiceEl.value.trim();
-        if (!v || !PORTAL_KOKORO_VOICE_PATTERN.test(v)) voiceEl.value = "af_bella";
-      }
-
-      function portalApplyChatterboxLanguageDefault() {
-        const langEl = $("portal-ttsLanguage");
-        if (!langEl) return;
-        const cl = langEl.value.trim();
-        if (!cl || PORTAL_KOKORO_LANG_VALUES.includes(cl)) langEl.value = PORTAL_XTTS_DEFAULT_LANG;
-      }
-
-      function portalApplyQwen3Defaults() {
-        const voiceEl = $("portal-ttsVoiceId");
-        const langEl = $("portal-ttsLanguage");
-        if (voiceEl && !voiceEl.value.trim()) voiceEl.value = "Ryan";
-        if (langEl && !langEl.value.trim()) langEl.value = "English";
-      }
-
-      function updatePortalTtsProviderPanels() {
+      function updatePortalTtsProviderPanels(voiceFromCfg, langFromCfg) {
         const modeEl = $("portal-ttsMode");
         if (!modeEl) return;
         const mode = modeEl.value;
@@ -2057,19 +2016,15 @@
 
         const vLabel = $("portal-tts-voice-id-label");
         const vHint = $("portal-tts-voice-id-hint");
-        const vInput = $("portal-ttsVoiceId");
         if (vLabel && vHint) {
           if (mode === "kokoro_http") {
-            vLabel.textContent = "Voice name (Kokoro preset)";
-            if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
-            vHint.textContent = "Which Kokoro voice pack to use—must exist on your Kokoro server.";
+            vLabel.textContent = "Voice (Kokoro preset)";
+            vHint.textContent = "Choose a voice from the list; it must exist on your Kokoro server.";
           } else if (mode === "qwen3_tts_http") {
             vLabel.textContent = "Speaker (built-in preset)";
-            if (vInput) vInput.placeholder = "e.g. Ryan, Aiden";
-            vHint.textContent = "Choose a CustomVoice preset (nine speakers on the Qwen3 model card).";
+            vHint.textContent = "All CustomVoice speakers from the Qwen3 model card.";
           } else {
             vLabel.textContent = "Built-in voice ID (XTTS)";
-            if (vInput) vInput.placeholder = "e.g. en_sample";
             vHint.textContent =
               "Used when “Preset” mode is selected; skipped when using a cloned reference WAV.";
           }
@@ -2079,29 +2034,22 @@
         if (langHint) {
           langHint.textContent =
             mode === "chatterbox_http"
-              ? "Language for synthesis (ISO codes: en, fr, de, …). Required for Multilingual; must match what your server expects."
+              ? "Pick a language code for synthesis. Required for Multilingual; must match what your server expects."
               : mode === "qwen3_tts_http"
-                ? "Full language names (English, Spanish, …)—not ISO codes. “Auto” infers from text."
+                ? "Full language names (not ISO codes). “Auto” infers from text."
                 : mode === "kokoro_http"
-                  ? "Language/locale token your Kokoro server expects (often a short letter code; see your server docs)."
-                  : "Language code for Coqui XTTS (e.g. en, es, fr).";
+                  ? "Language is not used for Kokoro HTTP in this stack; voice choice carries locale."
+                  : "Pick a language code for Coqui XTTS.";
         }
 
-        if (mode === "coqui_xtts") portalApplyXttsDefaults();
-        else if (mode === "chatterbox_http") portalApplyChatterboxLanguageDefault();
-        else if (mode === "kokoro_http") portalApplyKokoroDefaults();
-        else if (mode === "qwen3_tts_http") portalApplyQwen3Defaults();
-
-        if (window.QWEN3_CUSTOMVOICE) {
-          window.QWEN3_CUSTOMVOICE.setVoiceLangUiMode(
-            {
-              voiceInput: "portal-ttsVoiceId",
-              speakerSelect: "portal-ttsQwen3Speaker",
-              langInput: "portal-ttsLanguage",
-              langSelect: "portal-ttsQwen3Language",
-            },
-            mode === "qwen3_tts_http"
-          );
+        const voiceEl = $("portal-ttsVoiceId");
+        const langEl = $("portal-ttsLanguage");
+        if (window.TTS_VOICE_LANG_UI && voiceEl && langEl) {
+          const v = voiceFromCfg !== undefined && voiceFromCfg !== null ? String(voiceFromCfg) : voiceEl.value;
+          const l = langFromCfg !== undefined && langFromCfg !== null ? String(langFromCfg) : langEl.value;
+          const r = window.TTS_VOICE_LANG_UI.resolveVoiceLangDefaults(mode, v, l);
+          window.TTS_VOICE_LANG_UI.fillVoiceSelect(voiceEl, mode, r.voice);
+          window.TTS_VOICE_LANG_UI.fillLanguageSelect(langEl, mode, r.lang);
         }
 
         const warningEl = $("portal-voice-cloning-warning");
@@ -2272,8 +2220,6 @@
         const modeEl = $("portal-ttsMode");
         const urlEl = $("portal-ttsUrl");
         const presetEl = $("portal-ttsPreset");
-        const voiceEl = $("portal-ttsVoiceId");
-        const langEl = $("portal-ttsLanguage");
         const rateEl = $("portal-ttsRate");
         const dm = $("portal-defaultVoiceMode");
         const cu = $("portal-clonedVoiceUrl");
@@ -2288,8 +2234,6 @@
         const cb = $("portal-chatterboxVariant");
         if (cb && cfg.chatterboxVariant) cb.value = cfg.chatterboxVariant;
         presetEl.value = cfg.preset || "neutral";
-        if (voiceEl) voiceEl.value = cfg.voice || cfg.voiceId || "";
-        if (langEl) langEl.value = cfg.language || "";
         rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
         if (dm) dm.value = cfg.defaultVoiceMode || "preset";
         if (cu) cu.value = cfg.clonedVoice?.speakerWavUrl || "";
@@ -2333,7 +2277,7 @@
           tri("coquiSplitSentences", c.coquiSplitSentences);
         })(cfg);
         portalUpdateTtsLabels();
-        updatePortalTtsProviderPanels();
+        updatePortalTtsProviderPanels(cfg.voice || cfg.voiceId || "", cfg.language || "");
         wireQwen3RangeSliders("portal-");
       }
 
@@ -2381,21 +2325,8 @@
           const clonedUrl = cu ? cu.value.trim() : "";
           const clonedLabel = cl ? cl.value.trim() : "";
 
-          const isQwen3 = ttsMode === "qwen3_tts_http";
-          const qSp = $("portal-ttsQwen3Speaker");
-          const qLang = $("portal-ttsQwen3Language");
-          const voiceId =
-            isQwen3 && qSp
-              ? (qSp.value || "").trim() || undefined
-              : voiceEl
-                ? voiceEl.value.trim() || undefined
-                : undefined;
-          const language =
-            isQwen3 && qLang
-              ? (qLang.value || "").trim() || undefined
-              : langEl
-                ? langEl.value.trim() || undefined
-                : undefined;
+          const voiceId = voiceEl ? voiceEl.value.trim() || undefined : undefined;
+          const language = langEl ? langEl.value.trim() || undefined : undefined;
 
           const payload = {
             ttsMode,
