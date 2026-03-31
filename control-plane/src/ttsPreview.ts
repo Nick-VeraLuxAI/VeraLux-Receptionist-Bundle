@@ -1,4 +1,5 @@
 import type { TTSConfig } from "./config";
+import { logger } from "./middleware";
 
 const MAX_PREVIEW_CHARS = 500;
 
@@ -25,6 +26,45 @@ function ttsPostUrl(base: string | undefined): string {
   }
   const u = String(base).trim().replace(/\/$/, "");
   return u.endsWith("/tts") ? u : `${u}/tts`;
+}
+
+/** Rich error fields for logs (Node fetch / system errors expose errno, code, syscall). */
+export function serializeUnknownError(err: unknown): Record<string, unknown> {
+  if (err == null) return { value: String(err) };
+  if (!(err instanceof Error)) return { type: "non_error", value: String(err) };
+  const o: Record<string, unknown> = { name: err.name, message: err.message };
+  const ne = err as NodeJS.ErrnoException & {
+    syscall?: string;
+    address?: string;
+    port?: number;
+    cause?: unknown;
+  };
+  if (ne.code) o.code = ne.code;
+  if (ne.errno !== undefined) o.errno = ne.errno;
+  if (ne.syscall) o.syscall = ne.syscall;
+  if (ne.address) o.address = ne.address;
+  if (ne.port !== undefined) o.port = ne.port;
+  if (ne.cause !== undefined) {
+    if (ne.cause instanceof Error) {
+      const c = ne.cause as NodeJS.ErrnoException & { address?: string; port?: number };
+      o.causeDetail = {
+        name: c.name,
+        message: c.message,
+        code: c.code,
+        errno: c.errno,
+        syscall: c.syscall,
+        address: c.address,
+        port: c.port,
+      };
+    } else {
+      o.cause = String(ne.cause);
+    }
+  }
+  if (err.stack) {
+    const lines = err.stack.split("\n").slice(0, 8);
+    o.stackHead = lines.join("\n");
+  }
+  return o;
 }
 
 /** Node fetch often throws `fetch failed` with no context — add URL + Docker hint for operators. */
@@ -59,11 +99,18 @@ function wrapPreviewFetchError(err: unknown, humanName: string, postUrl: string)
 async function fetchTtsPreview(
   humanName: string,
   postUrl: string,
-  init: RequestInit
+  init: RequestInit,
+  logCtx?: Record<string, unknown>
 ): Promise<Response> {
   try {
     return await fetch(postUrl, init);
   } catch (err: unknown) {
+    logger.error("tts_preview_fetch_network_error", {
+      engine: humanName,
+      postUrl,
+      ...logCtx,
+      error: serializeUnknownError(err),
+    });
     throw wrapPreviewFetchError(err, humanName, postUrl);
   }
 }
@@ -90,11 +137,22 @@ async function ensureAudioResponse(res: Response): Promise<{ body: Buffer; conte
 
   if (!res.ok) {
     const errText = ct.includes("application/json") ? parseJsonErr() : snippet;
+    logger.warn("tts_preview_tts_http_error", {
+      status: res.status,
+      statusText: res.statusText,
+      contentType: ct || "(none)",
+      bodySnippet: snippet.slice(0, 500),
+    });
     throw new Error(`${res.status}: ${errText || res.statusText}`);
   }
 
   if (ct.includes("application/json")) {
-    throw new Error(parseJsonErr() || "TTS returned JSON instead of audio");
+    const parsed = parseJsonErr() || "TTS returned JSON instead of audio";
+    logger.warn("tts_preview_tts_returned_json", {
+      contentType: ct,
+      bodySnippet: snippet.slice(0, 500),
+    });
+    throw new Error(parsed);
   }
 
   return { body, contentType: ct || "audio/wav" };
@@ -108,6 +166,19 @@ export async function synthesizeTtsPreview(
   text: string
 ): Promise<{ body: Buffer; contentType: string }> {
   const mode = cfg.ttsMode || "coqui_xtts";
+  const timeoutMs = previewFetchTimeoutMs();
+  logger.info("tts_preview_synthesize_start", {
+    mode,
+    textChars: text.length,
+    timeoutMs,
+    kokoroUrl: cfg.kokoroUrl,
+    coquiXttsUrl: cfg.coquiXttsUrl,
+    chatterboxUrl: cfg.chatterboxUrl,
+    qwen3TtsUrl: cfg.qwen3TtsUrl,
+    xttsUrl: cfg.xttsUrl,
+    voiceId: cfg.voiceId,
+    envQwen3: process.env.QWEN3_TTS_URL ? "(set)" : "(unset)",
+  });
 
   if (mode === "kokoro_http") {
     const url = ttsPostUrl(cfg.kokoroUrl || cfg.xttsUrl);
@@ -120,7 +191,7 @@ export async function synthesizeTtsPreview(
         language: cfg.language,
         rate: cfg.rate,
       }),
-      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return ensureAudioResponse(res);
   }
@@ -139,7 +210,7 @@ export async function synthesizeTtsPreview(
         speaker_wav_url: speaker,
         language_id: (cfg.language || "en").trim() || "en",
       }),
-      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     return ensureAudioResponse(res);
   }
@@ -158,18 +229,23 @@ export async function synthesizeTtsPreview(
     if (cfg.qwen3SubtalkerTopK !== undefined) gen.subtalker_top_k = cfg.qwen3SubtalkerTopK;
     if (cfg.qwen3SubtalkerTopP !== undefined) gen.subtalker_top_p = cfg.qwen3SubtalkerTopP;
     if (cfg.qwen3SubtalkerTemperature !== undefined) gen.subtalker_temperature = cfg.qwen3SubtalkerTemperature;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text,
-        speaker: (cfg.voiceId || "Ryan").trim() || "Ryan",
-        language: (cfg.language || "English").trim() || "English",
-        instruct: cfg.qwen3Instruct?.trim() || "",
-        ...gen,
-      }),
-      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
-    });
+    const res = await fetchTtsPreview(
+      "Qwen3 TTS",
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text,
+          speaker: (cfg.voiceId || "Ryan").trim() || "Ryan",
+          language: (cfg.language || "English").trim() || "English",
+          instruct: cfg.qwen3Instruct?.trim() || "",
+          ...gen,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+      { qwen3PostUrl: url, resolvedFrom: cfg.qwen3TtsUrl ? "qwen3TtsUrl" : cfg.xttsUrl ? "xttsUrl" : "fallback" }
+    );
     return ensureAudioResponse(res);
   }
 
@@ -197,7 +273,7 @@ export async function synthesizeTtsPreview(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(previewFetchTimeoutMs()),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   return ensureAudioResponse(res);
 }

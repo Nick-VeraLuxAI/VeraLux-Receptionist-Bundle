@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import type { TTSConfig } from "./config";
 import { del, getJSON, setJSON } from "./redis";
-import { synthesizeTtsPreview } from "./ttsPreview";
+import { serializeUnknownError, synthesizeTtsPreview } from "./ttsPreview";
+import { logger } from "./middleware";
 
 type JobState =
   | { status: "pending"; tenantId: string; expiresAt: number }
@@ -70,6 +71,15 @@ function createPreviewJobMemory(tenantId: string, cfg: TTSConfig, text: string):
         msg === "tts_url_missing" || msg.includes("tts_url_missing")
           ? "tts_url_missing"
           : "tts_preview_failed";
+      logger.error("tts_preview_job_failed", {
+        jobId: id,
+        tenantId,
+        storage: "memory",
+        mode: cfg.ttsMode,
+        qwen3TtsUrl: cfg.qwen3TtsUrl,
+        message: msg,
+        error: serializeUnknownError(err),
+      });
       jobs.set(id, {
         status: "error",
         tenantId,
@@ -104,6 +114,15 @@ async function runRedisPreviewJob(
       msg === "tts_url_missing" || msg.includes("tts_url_missing")
         ? "tts_url_missing"
         : "tts_preview_failed";
+    logger.error("tts_preview_job_failed", {
+      jobId: id,
+      tenantId,
+      storage: "redis",
+      mode: cfg.ttsMode,
+      qwen3TtsUrl: cfg.qwen3TtsUrl,
+      message: msg,
+      error: serializeUnknownError(err),
+    });
     const row: RedisPreviewJob = { v: 1, st: "err", tn: tenantId, cd: code, mg: msg };
     await setJSON(redisJobKey(id), row, TTL_SEC);
   }
