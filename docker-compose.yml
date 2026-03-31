@@ -86,7 +86,8 @@ services:
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
-      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://qwen3-tts:7010}
+      # Qwen3 is service qwen3-tts-gpu (profile gpu); hostname resolves only when that container is up.
+      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://veralux-qwen3-tts:7010}
       - WHISPER_URL=${WHISPER_URL:-http://whisper:9000/transcribe}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -157,7 +158,8 @@ services:
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
-      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://qwen3-tts:7010}
+      # Qwen3 is service qwen3-tts-gpu (profile gpu); hostname resolves only when that container is up.
+      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://veralux-qwen3-tts:7010}
       - QWEN3_TTS_SPEAKER=${QWEN3_TTS_SPEAKER:-Ryan}
       - QWEN3_TTS_LANGUAGE=${QWEN3_TTS_LANGUAGE:-English}
       # Media/Audio

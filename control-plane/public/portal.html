@@ -2037,7 +2037,7 @@
               : mode === "chatterbox_http"
                 ? "http://127.0.0.1:7005"
                 : mode === "qwen3_tts_http"
-                  ? "http://qwen3-tts:7010"
+                  ? "http://veralux-qwen3-tts:7010"
                   : "http://127.0.0.1:7002/tts";
         }
         const pUrlHint = $("portal-tts-url-hint");
@@ -2045,7 +2045,7 @@
           if (mode === "qwen3_tts_http") {
             pUrlHint.style.display = "block";
             pUrlHint.textContent =
-              "Preview runs on the control-plane host. In Docker use the service URL (e.g. http://qwen3-tts:7010), not localhost.";
+              "Preview runs from the control-plane container. Use http://veralux-qwen3-tts:7010 (or qwen3-tts) when the Qwen3 container is up. DNS errors mean qwen3-tts-gpu is not running — start with: docker compose --profile gpu up -d qwen3-tts-gpu";
           } else {
             pUrlHint.style.display = "none";
             pUrlHint.textContent = "";

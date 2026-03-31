@@ -88,10 +88,32 @@ function wrapPreviewFetchError(err: unknown, humanName: string, postUrl: string)
     /* keep postUrl */
   }
 
-  const dockerHint =
-    /localhost|127\.0\.0\.1/i.test(postUrl) || /localhost|127\.0\.0\.1/i.test(hostPart)
-      ? " If the API runs inside Docker, localhost here is the control-plane container itself — use the Qwen3/Kokoro/etc. service name on the compose network (e.g. http://qwen3-tts:7010)."
-      : " Confirm the TTS service is running and reachable from the control-plane host.";
+  const lowCore = core.toLowerCase();
+  const dnsFail =
+    lowCore.includes("getaddrinfo") ||
+    lowCore.includes("eai_again") ||
+    lowCore.includes("enotfound") ||
+    lowCore.includes("name or service not known");
+  const refused =
+    lowCore.includes("econnrefused") ||
+    lowCore.includes("connection refused");
+
+  let dockerHint: string;
+  if (/localhost|127\.0\.0\.1/i.test(postUrl) || /localhost|127\.0\.0\.1/i.test(hostPart)) {
+    dockerHint =
+      " If the API runs inside Docker, localhost here is the control-plane container itself — use the TTS service hostname on the compose network (e.g. http://veralux-qwen3-tts:7010).";
+  } else if (dnsFail && humanName === "Qwen3 TTS") {
+    dockerHint =
+      " Docker DNS could not resolve this host — the Qwen3 container is usually not running. In this stack, Qwen3 is service `qwen3-tts-gpu` (Compose profile `gpu`). Start: `docker compose --profile gpu up -d qwen3-tts-gpu` (NVIDIA GPU + image required). Until it is healthy, `qwen3-tts` / `veralux-qwen3-tts` will not resolve.";
+  } else if (dnsFail) {
+    dockerHint =
+      " Docker DNS could not resolve this hostname — start the TTS container and ensure it uses the same Docker network as the control plane.";
+  } else if (refused) {
+    dockerHint =
+      " Nothing accepted the connection on that host:port — the service may be down or the port wrong.";
+  } else {
+    dockerHint = " Confirm the TTS service is running and reachable from the control-plane host.";
+  }
 
   return new Error(`${humanName} unreachable at ${hostPart}: ${core}.${dockerHint}`);
 }

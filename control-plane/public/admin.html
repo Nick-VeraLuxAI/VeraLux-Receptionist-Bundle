@@ -2764,7 +2764,7 @@
               : mode === "chatterbox_http"
                 ? "http://127.0.0.1:7005"
                 : mode === "qwen3_tts_http"
-                  ? "http://qwen3-tts:7010"
+                  ? "http://veralux-qwen3-tts:7010"
                   : "http://127.0.0.1:7002/tts";
         }
         const urlHintEl = $("tts-url-hint");
@@ -2772,7 +2772,7 @@
           if (mode === "qwen3_tts_http") {
             urlHintEl.style.display = "block";
             urlHintEl.textContent =
-              "Voice preview runs on the control-plane server. In Docker, use the compose service hostname (e.g. http://qwen3-tts:7010), not localhost — localhost would point at the control container, not your Qwen3 service.";
+              "Preview calls the TTS URL from the control-plane container (not your browser). Use the Qwen3 container name or alias, e.g. http://veralux-qwen3-tts:7010. If you see “getaddrinfo” / DNS errors, the Qwen3 service is not running — it is docker compose service qwen3-tts-gpu (profile gpu). Start: docker compose --profile gpu up -d qwen3-tts-gpu";
           } else {
             urlHintEl.style.display = "none";
             urlHintEl.textContent = "";
