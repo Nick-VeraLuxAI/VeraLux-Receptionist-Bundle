@@ -103,6 +103,49 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
+/** Strip control chars and cap length so corrupt DB / API data cannot balloon JSON or crash downstream. */
+const TTS_CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+
+function truncateTtsField(s: string | undefined, maxLen: number): string {
+  const t = (s ?? "").replace(TTS_CTRL_CHARS, "").trim();
+  return t.length > maxLen ? t.slice(0, maxLen) : t;
+}
+
+function clampOptNum(n: number | undefined, min: number, max: number): number | undefined {
+  if (n === undefined) return undefined;
+  if (!Number.isFinite(n)) return undefined;
+  return clamp(n, min, max);
+}
+
+function clampOptInt(n: number | undefined, min: number, max: number): number | undefined {
+  if (n === undefined) return undefined;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/** On update, ignore non-finite `next` and keep `current`. */
+function mergeBoundedNum(
+  next: number | undefined,
+  current: number | undefined,
+  min: number,
+  max: number
+): number | undefined {
+  if (next === undefined) return current;
+  if (!Number.isFinite(next)) return current;
+  return clamp(next, min, max);
+}
+
+function mergeBoundedInt(
+  next: number | undefined,
+  current: number | undefined,
+  min: number,
+  max: number
+): number | undefined {
+  if (next === undefined) return current;
+  if (!Number.isFinite(next)) return current;
+  return Math.min(max, Math.max(min, Math.round(next)));
+}
+
 function sanitizeUrl(value: string | undefined): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -381,16 +424,20 @@ export class LLMConfigStore {
     const tuned = VOICE_PRESETS[preset] || VOICE_PRESETS.neutral;
     const envTtsUrl = getEnvTtsUrl();
 
+    const rateSource =
+      typeof base.rate === "number" && Number.isFinite(base.rate) ? base.rate : tuned.rate;
+    const vi = truncateTtsField(base.voiceId || DEFAULT_TTS_VOICE, 100) || DEFAULT_TTS_VOICE;
+    const lang = truncateTtsField(base.language || DEFAULT_TTS_LANG, 32) || DEFAULT_TTS_LANG;
+    const qInstr = base.qwen3Instruct
+      ? truncateTtsField(String(base.qwen3Instruct), 500) || undefined
+      : undefined;
+
     const config: TTSConfig = {
       xttsUrl: envTtsUrl || base.xttsUrl || DEFAULT_TTS_URL,
-      voiceId: base.voiceId || DEFAULT_TTS_VOICE,
-      language: base.language || DEFAULT_TTS_LANG,
+      voiceId: vi,
+      language: lang,
       // If a preset exists, it can provide a default rate — but explicit rate wins.
-      rate: clamp(
-        typeof base.rate === "number" ? base.rate : tuned.rate,
-        0.8,
-        1.2
-      ),
+      rate: clamp(rateSource, 0.8, 1.2),
       preset,
       // Extended fields - default to coqui_xtts for voice cloning support
       ttsMode: base.ttsMode || "coqui_xtts",
@@ -398,24 +445,24 @@ export class LLMConfigStore {
       kokoroUrl: base.kokoroUrl,
       chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
       qwen3TtsUrl: resolveQwen3TtsUrl(base.qwen3TtsUrl, getEnvQwen3TtsUrl()),
-      qwen3Instruct: base.qwen3Instruct,
+      qwen3Instruct: qInstr,
       qwen3DoSample: base.qwen3DoSample,
-      qwen3Temperature: base.qwen3Temperature,
-      qwen3TopP: base.qwen3TopP,
-      qwen3TopK: base.qwen3TopK,
-      qwen3RepetitionPenalty: base.qwen3RepetitionPenalty,
-      qwen3MaxNewTokens: base.qwen3MaxNewTokens,
+      qwen3Temperature: clampOptNum(base.qwen3Temperature, 0, 2),
+      qwen3TopP: clampOptNum(base.qwen3TopP, 0, 1),
+      qwen3TopK: clampOptInt(base.qwen3TopK, 0, 1_000_000),
+      qwen3RepetitionPenalty: clampOptNum(base.qwen3RepetitionPenalty, 0.5, 2),
+      qwen3MaxNewTokens: clampOptInt(base.qwen3MaxNewTokens, 1, 32768),
       qwen3NonStreamingMode: base.qwen3NonStreamingMode,
       qwen3SubtalkerDoSample: base.qwen3SubtalkerDoSample,
-      qwen3SubtalkerTopK: base.qwen3SubtalkerTopK,
-      qwen3SubtalkerTopP: base.qwen3SubtalkerTopP,
-      qwen3SubtalkerTemperature: base.qwen3SubtalkerTemperature,
-      coquiTemperature: base.coquiTemperature,
-      coquiLengthPenalty: base.coquiLengthPenalty,
-      coquiRepetitionPenalty: base.coquiRepetitionPenalty,
-      coquiTopK: base.coquiTopK,
-      coquiTopP: base.coquiTopP,
-      coquiSpeed: base.coquiSpeed,
+      qwen3SubtalkerTopK: clampOptInt(base.qwen3SubtalkerTopK, 0, 1_000_000),
+      qwen3SubtalkerTopP: clampOptNum(base.qwen3SubtalkerTopP, 0, 1),
+      qwen3SubtalkerTemperature: clampOptNum(base.qwen3SubtalkerTemperature, 0, 2),
+      coquiTemperature: clampOptNum(base.coquiTemperature, 0, 2),
+      coquiLengthPenalty: clampOptNum(base.coquiLengthPenalty, -10, 10),
+      coquiRepetitionPenalty: clampOptNum(base.coquiRepetitionPenalty, 0.5, 2),
+      coquiTopK: clampOptInt(base.coquiTopK, 0, 1_000_000),
+      coquiTopP: clampOptNum(base.coquiTopP, 0, 1),
+      coquiSpeed: clampOptNum(base.coquiSpeed, 0.25, 4),
       coquiSplitSentences: base.coquiSplitSentences,
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
@@ -433,18 +480,18 @@ export class LLMConfigStore {
       ...next,
       preset: (next.preset as VoicePreset) ?? current.preset,
       rate: clamp(
-        typeof next.rate === "number" ? next.rate : current.rate,
+        typeof next.rate === "number" && Number.isFinite(next.rate) ? next.rate : current.rate,
         0.8,
         1.2
       ),
       // Ensure language never becomes empty
       language:
         typeof next.language === "string" && next.language.trim().length
-          ? next.language.trim()
+          ? truncateTtsField(next.language, 32)
           : current.language,
       voiceId:
         typeof next.voiceId === "string" && next.voiceId.trim().length
-          ? next.voiceId.trim()
+          ? truncateTtsField(next.voiceId, 100)
           : current.voiceId,
       xttsUrl:
         typeof next.xttsUrl === "string" && next.xttsUrl.trim().length
@@ -476,29 +523,46 @@ export class LLMConfigStore {
           : next.qwen3TtsUrl === undefined
           ? current.qwen3TtsUrl
           : undefined,
-      qwen3Instruct: next.qwen3Instruct !== undefined ? next.qwen3Instruct : current.qwen3Instruct,
+      qwen3Instruct:
+        next.qwen3Instruct !== undefined
+          ? next.qwen3Instruct
+            ? truncateTtsField(String(next.qwen3Instruct), 500) || undefined
+            : undefined
+          : current.qwen3Instruct,
       qwen3DoSample: next.qwen3DoSample !== undefined ? next.qwen3DoSample : current.qwen3DoSample,
-      qwen3Temperature: next.qwen3Temperature !== undefined ? next.qwen3Temperature : current.qwen3Temperature,
-      qwen3TopP: next.qwen3TopP !== undefined ? next.qwen3TopP : current.qwen3TopP,
-      qwen3TopK: next.qwen3TopK !== undefined ? next.qwen3TopK : current.qwen3TopK,
-      qwen3RepetitionPenalty:
-        next.qwen3RepetitionPenalty !== undefined ? next.qwen3RepetitionPenalty : current.qwen3RepetitionPenalty,
-      qwen3MaxNewTokens: next.qwen3MaxNewTokens !== undefined ? next.qwen3MaxNewTokens : current.qwen3MaxNewTokens,
+      qwen3Temperature: mergeBoundedNum(next.qwen3Temperature, current.qwen3Temperature, 0, 2),
+      qwen3TopP: mergeBoundedNum(next.qwen3TopP, current.qwen3TopP, 0, 1),
+      qwen3TopK: mergeBoundedInt(next.qwen3TopK, current.qwen3TopK, 0, 1_000_000),
+      qwen3RepetitionPenalty: mergeBoundedNum(
+        next.qwen3RepetitionPenalty,
+        current.qwen3RepetitionPenalty,
+        0.5,
+        2
+      ),
+      qwen3MaxNewTokens: mergeBoundedInt(next.qwen3MaxNewTokens, current.qwen3MaxNewTokens, 1, 32768),
       qwen3NonStreamingMode:
         next.qwen3NonStreamingMode !== undefined ? next.qwen3NonStreamingMode : current.qwen3NonStreamingMode,
       qwen3SubtalkerDoSample:
         next.qwen3SubtalkerDoSample !== undefined ? next.qwen3SubtalkerDoSample : current.qwen3SubtalkerDoSample,
-      qwen3SubtalkerTopK: next.qwen3SubtalkerTopK !== undefined ? next.qwen3SubtalkerTopK : current.qwen3SubtalkerTopK,
-      qwen3SubtalkerTopP: next.qwen3SubtalkerTopP !== undefined ? next.qwen3SubtalkerTopP : current.qwen3SubtalkerTopP,
-      qwen3SubtalkerTemperature:
-        next.qwen3SubtalkerTemperature !== undefined ? next.qwen3SubtalkerTemperature : current.qwen3SubtalkerTemperature,
-      coquiTemperature: next.coquiTemperature !== undefined ? next.coquiTemperature : current.coquiTemperature,
-      coquiLengthPenalty: next.coquiLengthPenalty !== undefined ? next.coquiLengthPenalty : current.coquiLengthPenalty,
-      coquiRepetitionPenalty:
-        next.coquiRepetitionPenalty !== undefined ? next.coquiRepetitionPenalty : current.coquiRepetitionPenalty,
-      coquiTopK: next.coquiTopK !== undefined ? next.coquiTopK : current.coquiTopK,
-      coquiTopP: next.coquiTopP !== undefined ? next.coquiTopP : current.coquiTopP,
-      coquiSpeed: next.coquiSpeed !== undefined ? next.coquiSpeed : current.coquiSpeed,
+      qwen3SubtalkerTopK: mergeBoundedInt(next.qwen3SubtalkerTopK, current.qwen3SubtalkerTopK, 0, 1_000_000),
+      qwen3SubtalkerTopP: mergeBoundedNum(next.qwen3SubtalkerTopP, current.qwen3SubtalkerTopP, 0, 1),
+      qwen3SubtalkerTemperature: mergeBoundedNum(
+        next.qwen3SubtalkerTemperature,
+        current.qwen3SubtalkerTemperature,
+        0,
+        2
+      ),
+      coquiTemperature: mergeBoundedNum(next.coquiTemperature, current.coquiTemperature, 0, 2),
+      coquiLengthPenalty: mergeBoundedNum(next.coquiLengthPenalty, current.coquiLengthPenalty, -10, 10),
+      coquiRepetitionPenalty: mergeBoundedNum(
+        next.coquiRepetitionPenalty,
+        current.coquiRepetitionPenalty,
+        0.5,
+        2
+      ),
+      coquiTopK: mergeBoundedInt(next.coquiTopK, current.coquiTopK, 0, 1_000_000),
+      coquiTopP: mergeBoundedNum(next.coquiTopP, current.coquiTopP, 0, 1),
+      coquiSpeed: mergeBoundedNum(next.coquiSpeed, current.coquiSpeed, 0.25, 4),
       coquiSplitSentences:
         next.coquiSplitSentences !== undefined ? next.coquiSplitSentences : current.coquiSplitSentences,
       chatterboxVariant: next.chatterboxVariant ?? current.chatterboxVariant,

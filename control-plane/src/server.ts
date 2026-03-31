@@ -609,20 +609,42 @@ function clamp(n: number, min: number, max: number): number {
 }
 
 function optBoolBody(v: unknown): boolean | undefined {
-  if (typeof v !== "boolean") return undefined;
-  return v;
+  if (typeof v === "boolean") return v;
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return undefined;
+}
+
+/** Accepts JSON numbers and numeric strings (clients sometimes stringify sliders). */
+function toFiniteNumber(v: unknown): number | undefined {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
 }
 
 function optNumBody(v: unknown, min: number, max: number): number | undefined {
-  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
-  return clamp(v, min, max);
+  const n = toFiniteNumber(v);
+  if (n === undefined) return undefined;
+  return clamp(n, min, max);
 }
 
 function optIntBody(v: unknown, min: number, max: number): number | undefined {
-  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
-  const n = Math.round(v);
-  if (n < min || n > max) return undefined;
-  return n;
+  const n = toFiniteNumber(v);
+  if (n === undefined) return undefined;
+  const r = Math.round(n);
+  return Math.min(max, Math.max(min, r));
+}
+
+const CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+
+function sanitizeTtsShortText(v: unknown, maxLen: number): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.replace(CTRL_CHARS, "").trim();
+  if (!t) return undefined;
+  return t.length > maxLen ? t.slice(0, maxLen) : t;
 }
 
 /** Clear Qwen3-only fields when switching TTS mode away from qwen3_tts_http. */
@@ -1965,7 +1987,9 @@ app.post("/api/tts/config", (req, res) => {
     }
   }
 
-  const safeRate = typeof rate === "number" ? clamp(rate, 0.8, 1.2) : undefined;
+  const safeRateRaw = toFiniteNumber(rate);
+  const safeRate =
+    safeRateRaw !== undefined ? clamp(safeRateRaw, 0.8, 1.2) : undefined;
 
   // Validate voice cloning config
   if (defaultVoiceMode === "cloned") {
@@ -1986,11 +2010,11 @@ app.post("/api/tts/config", (req, res) => {
     }
   }
 
-  // Build the extended config object
+  // Build the extended config object (bounded strings — avoids huge payloads / DB surprises)
   const configUpdate: any = {
     xttsUrl: ttsUrlValue,
-    voiceId: typeof voiceId === "string" ? voiceId : undefined,
-    language: typeof language === "string" ? language : undefined,
+    voiceId: sanitizeTtsShortText(voiceId, 100),
+    language: sanitizeTtsShortText(language, 32),
     rate: safeRate,
     preset: presetValue,
   };
@@ -2073,8 +2097,7 @@ app.post("/api/tts/config", (req, res) => {
   } else if (ttsMode === "qwen3_tts_http") {
     configUpdate.ttsMode = "qwen3_tts_http";
     configUpdate.qwen3TtsUrl = ttsUrlValue;
-    configUpdate.qwen3Instruct =
-      typeof qwen3Instruct === "string" && qwen3Instruct.trim() ? qwen3Instruct.trim() : undefined;
+    configUpdate.qwen3Instruct = sanitizeTtsShortText(qwen3Instruct, 500);
     if ("qwen3DoSample" in body) {
       const v = body.qwen3DoSample;
       configUpdate.qwen3DoSample =

@@ -14,6 +14,16 @@ function previewFetchTimeoutMs(): number {
 const DEFAULT_PHRASE =
   "Hello, this is a quick voice preview from your VeraLux receptionist settings.";
 
+const QWEN3_SPEAKER_MAX = 100;
+const QWEN3_LANG_MAX = 32;
+const QWEN3_INSTRUCT_MAX = 500;
+const CTRL = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
+
+function sanitizeQwen3Str(s: string | undefined, maxLen: number): string {
+  const t = (s ?? "").replace(CTRL, "").trim();
+  return t.length > maxLen ? t.slice(0, maxLen) : t;
+}
+
 export function resolvePreviewText(raw: unknown): string {
   if (typeof raw !== "string" || !raw.trim()) return DEFAULT_PHRASE;
   const t = raw.trim();
@@ -240,17 +250,29 @@ export async function synthesizeTtsPreview(
   if (mode === "qwen3_tts_http") {
     const url = ttsPostUrl(cfg.qwen3TtsUrl || cfg.xttsUrl);
     const gen: Record<string, boolean | number> = {};
+    const putNum = (key: string, v: number | undefined, min: number, max: number) => {
+      if (v === undefined || !Number.isFinite(v)) return;
+      gen[key] = Math.min(max, Math.max(min, v));
+    };
+    const putInt = (key: string, v: number | undefined, min: number, max: number) => {
+      if (v === undefined || !Number.isFinite(v)) return;
+      gen[key] = Math.min(max, Math.max(min, Math.round(v)));
+    };
     if (cfg.qwen3DoSample !== undefined) gen.do_sample = cfg.qwen3DoSample;
-    if (cfg.qwen3Temperature !== undefined) gen.temperature = cfg.qwen3Temperature;
-    if (cfg.qwen3TopP !== undefined) gen.top_p = cfg.qwen3TopP;
-    if (cfg.qwen3TopK !== undefined) gen.top_k = cfg.qwen3TopK;
-    if (cfg.qwen3RepetitionPenalty !== undefined) gen.repetition_penalty = cfg.qwen3RepetitionPenalty;
-    if (cfg.qwen3MaxNewTokens !== undefined) gen.max_new_tokens = cfg.qwen3MaxNewTokens;
+    putNum("temperature", cfg.qwen3Temperature, 0, 2);
+    putNum("top_p", cfg.qwen3TopP, 0, 1);
+    putInt("top_k", cfg.qwen3TopK, 0, 1_000_000);
+    putNum("repetition_penalty", cfg.qwen3RepetitionPenalty, 0.5, 2);
+    putInt("max_new_tokens", cfg.qwen3MaxNewTokens, 1, 32768);
     if (cfg.qwen3NonStreamingMode !== undefined) gen.non_streaming_mode = cfg.qwen3NonStreamingMode;
     if (cfg.qwen3SubtalkerDoSample !== undefined) gen.subtalker_dosample = cfg.qwen3SubtalkerDoSample;
-    if (cfg.qwen3SubtalkerTopK !== undefined) gen.subtalker_top_k = cfg.qwen3SubtalkerTopK;
-    if (cfg.qwen3SubtalkerTopP !== undefined) gen.subtalker_top_p = cfg.qwen3SubtalkerTopP;
-    if (cfg.qwen3SubtalkerTemperature !== undefined) gen.subtalker_temperature = cfg.qwen3SubtalkerTemperature;
+    putInt("subtalker_top_k", cfg.qwen3SubtalkerTopK, 0, 1_000_000);
+    putNum("subtalker_top_p", cfg.qwen3SubtalkerTopP, 0, 1);
+    putNum("subtalker_temperature", cfg.qwen3SubtalkerTemperature, 0, 2);
+    const speaker = sanitizeQwen3Str(cfg.voiceId || "Ryan", QWEN3_SPEAKER_MAX) || "Ryan";
+    const language = sanitizeQwen3Str(cfg.language || "English", QWEN3_LANG_MAX) || "English";
+    const instruct = sanitizeQwen3Str(cfg.qwen3Instruct, QWEN3_INSTRUCT_MAX);
+
     const res = await fetchTtsPreview(
       "Qwen3 TTS",
       url,
@@ -259,9 +281,9 @@ export async function synthesizeTtsPreview(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           text,
-          speaker: (cfg.voiceId || "Ryan").trim() || "Ryan",
-          language: (cfg.language || "English").trim() || "English",
-          instruct: cfg.qwen3Instruct?.trim() || "",
+          speaker,
+          language,
+          instruct,
           ...gen,
         }),
         signal: AbortSignal.timeout(timeoutMs),
