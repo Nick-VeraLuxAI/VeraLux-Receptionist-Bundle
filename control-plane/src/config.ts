@@ -147,7 +147,16 @@ function resolveChatterboxUrl(
   return s || e;
 }
 
-/** Prefer QWEN3_TTS_URL when the DB still has a dev-only loopback URL (browser-saved localhost is wrong inside Docker). */
+/** Old docs / UI used hostname `qwen3-tts`; compose uses `veralux-qwen3-tts` + env default. */
+function isLegacyQwen3DockerHostname(urlStr: string): boolean {
+  try {
+    return new URL(urlStr).hostname.toLowerCase() === "qwen3-tts";
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer QWEN3_TTS_URL when the DB has loopback or legacy `qwen3-tts` (saved URL must not beat compose env). */
 function resolveQwen3TtsUrl(
   saved: string | undefined,
   envUrl: string | undefined
@@ -155,6 +164,7 @@ function resolveQwen3TtsUrl(
   const s = sanitizeUrl(saved);
   const e = envUrl;
   if (e && s && isLoopbackHttpUrl(s)) return e;
+  if (e && s && isLegacyQwen3DockerHostname(s)) return e;
   return s || e;
 }
 
