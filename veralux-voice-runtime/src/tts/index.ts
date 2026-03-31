@@ -12,7 +12,7 @@ import {
 import { synthesizeSpeech as synthesizeKokoro } from './kokoroTTS';
 import { synthesizeSpeechCoquiXtts } from './coquiXtts';
 import { synthesizeSpeechChatterbox } from './chatterboxTTS';
-import { synthesizeSpeechQwen3 } from './qwen3Tts';
+import { mergeQwen3TenantAndRequest, synthesizeSpeechQwen3 } from './qwen3Tts';
 import type { TTSRequest, TTSResult } from './types';
 
 /** Build TTS config from .env when no tenant config is set. Kokoro and Coqui use separate voice defaults. */
@@ -60,6 +60,7 @@ function ttsConfigFromEnv(): RuntimeTenantConfig['tts'] {
     voice: env.KOKORO_VOICE_ID ?? 'af_bella',
     format: 'wav',
     sampleRate: env.TTS_SAMPLE_RATE,
+    rate: env.KOKORO_RATE,
   };
 }
 
@@ -107,16 +108,21 @@ export async function synthesizeSpeech(
       coquiRepetitionPenalty: request.coquiRepetitionPenalty ?? config.coquiRepetitionPenalty,
       coquiTopK: request.coquiTopK ?? config.coquiTopK,
       coquiTopP: request.coquiTopP ?? config.coquiTopP,
-      coquiSpeed: request.coquiSpeed ?? config.coquiSpeed,
+      coquiSpeed:
+        request.coquiSpeed ??
+        config.coquiSpeed ??
+        (config.mode === 'coqui_xtts' ? config.rate : undefined),
       coquiSplitSentences: request.coquiSplitSentences ?? config.coquiSplitSentences,
     });
   } else if (config.mode === 'qwen3_tts_http') {
+    const gen = mergeQwen3TenantAndRequest(request, config);
     result = await synthesizeSpeechQwen3({
       text: request.text,
       qwen3TtsUrl: request.qwen3TtsUrl ?? config.qwen3TtsUrl,
       speaker: request.voice ?? config.speaker,
       language: request.language ?? config.language,
       instruct: request.instruct ?? config.instruct,
+      gen,
     });
   } else {
     const kokoroConfig = config.mode === 'kokoro_http' ? config : undefined;
@@ -126,6 +132,7 @@ export async function synthesizeSpeech(
       format: request.format ?? kokoroConfig?.format,
       sampleRate: request.sampleRate ?? kokoroConfig?.sampleRate,
       kokoroUrl: kokoroConfig?.kokoroUrl ?? request.kokoroUrl,
+      rate: request.rate ?? kokoroConfig?.rate,
     });
   }
 

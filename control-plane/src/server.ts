@@ -608,6 +608,49 @@ function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
+function optBoolBody(v: unknown): boolean | undefined {
+  if (typeof v !== "boolean") return undefined;
+  return v;
+}
+
+function optNumBody(v: unknown, min: number, max: number): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  return clamp(v, min, max);
+}
+
+function optIntBody(v: unknown, min: number, max: number): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+  const n = Math.round(v);
+  if (n < min || n > max) return undefined;
+  return n;
+}
+
+/** Clear Qwen3-only fields when switching TTS mode away from qwen3_tts_http. */
+function clearQwen3GenFields(u: Record<string, unknown>): void {
+  u.qwen3DoSample = undefined;
+  u.qwen3Temperature = undefined;
+  u.qwen3TopP = undefined;
+  u.qwen3TopK = undefined;
+  u.qwen3RepetitionPenalty = undefined;
+  u.qwen3MaxNewTokens = undefined;
+  u.qwen3NonStreamingMode = undefined;
+  u.qwen3SubtalkerDoSample = undefined;
+  u.qwen3SubtalkerTopK = undefined;
+  u.qwen3SubtalkerTopP = undefined;
+  u.qwen3SubtalkerTemperature = undefined;
+}
+
+/** Clear Coqui XTTS decoding fields when switching away from coqui_xtts. */
+function clearCoquiGenFields(u: Record<string, unknown>): void {
+  u.coquiTemperature = undefined;
+  u.coquiLengthPenalty = undefined;
+  u.coquiRepetitionPenalty = undefined;
+  u.coquiTopK = undefined;
+  u.coquiTopP = undefined;
+  u.coquiSpeed = undefined;
+  u.coquiSplitSentences = undefined;
+}
+
 /**
  * Syncs a tenant's LLM context (forwarding profiles, pricing, prompts) to the
  * existing RuntimeTenantConfig in Redis. If no config exists yet, logs a warning.
@@ -1794,11 +1837,28 @@ app.post("/api/admin/stripe/sync", asyncHandler(async (req, res) => {
 type ExtendedTtsConfig = TTSConfig & {
   mode?: string;
   voice?: string;
+  coquiTemperature?: number;
+  coquiLengthPenalty?: number;
+  coquiRepetitionPenalty?: number;
+  coquiTopK?: number;
+  coquiTopP?: number;
   coquiSpeed?: number;
+  coquiSplitSentences?: boolean;
   chatterboxUrl?: string;
   chatterboxVariant?: string;
   qwen3TtsUrl?: string;
   qwen3Instruct?: string;
+  qwen3DoSample?: boolean;
+  qwen3Temperature?: number;
+  qwen3TopP?: number;
+  qwen3TopK?: number;
+  qwen3RepetitionPenalty?: number;
+  qwen3MaxNewTokens?: number;
+  qwen3NonStreamingMode?: boolean;
+  qwen3SubtalkerDoSample?: boolean;
+  qwen3SubtalkerTopK?: number;
+  qwen3SubtalkerTopP?: number;
+  qwen3SubtalkerTemperature?: number;
 };
 
 app.get("/api/tts/config", (req, res) => {
@@ -1839,6 +1899,25 @@ app.get("/api/tts/config", (req, res) => {
   if ((baseCfg as any).qwen3Instruct) {
     extendedCfg.qwen3Instruct = (baseCfg as any).qwen3Instruct;
   }
+  const bq = baseCfg as any;
+  if (bq.qwen3DoSample !== undefined) extendedCfg.qwen3DoSample = bq.qwen3DoSample;
+  if (bq.qwen3Temperature !== undefined) extendedCfg.qwen3Temperature = bq.qwen3Temperature;
+  if (bq.qwen3TopP !== undefined) extendedCfg.qwen3TopP = bq.qwen3TopP;
+  if (bq.qwen3TopK !== undefined) extendedCfg.qwen3TopK = bq.qwen3TopK;
+  if (bq.qwen3RepetitionPenalty !== undefined) extendedCfg.qwen3RepetitionPenalty = bq.qwen3RepetitionPenalty;
+  if (bq.qwen3MaxNewTokens !== undefined) extendedCfg.qwen3MaxNewTokens = bq.qwen3MaxNewTokens;
+  if (bq.qwen3NonStreamingMode !== undefined) extendedCfg.qwen3NonStreamingMode = bq.qwen3NonStreamingMode;
+  if (bq.qwen3SubtalkerDoSample !== undefined) extendedCfg.qwen3SubtalkerDoSample = bq.qwen3SubtalkerDoSample;
+  if (bq.qwen3SubtalkerTopK !== undefined) extendedCfg.qwen3SubtalkerTopK = bq.qwen3SubtalkerTopK;
+  if (bq.qwen3SubtalkerTopP !== undefined) extendedCfg.qwen3SubtalkerTopP = bq.qwen3SubtalkerTopP;
+  if (bq.qwen3SubtalkerTemperature !== undefined) extendedCfg.qwen3SubtalkerTemperature = bq.qwen3SubtalkerTemperature;
+  if (bq.coquiTemperature !== undefined) extendedCfg.coquiTemperature = bq.coquiTemperature;
+  if (bq.coquiLengthPenalty !== undefined) extendedCfg.coquiLengthPenalty = bq.coquiLengthPenalty;
+  if (bq.coquiRepetitionPenalty !== undefined) extendedCfg.coquiRepetitionPenalty = bq.coquiRepetitionPenalty;
+  if (bq.coquiTopK !== undefined) extendedCfg.coquiTopK = bq.coquiTopK;
+  if (bq.coquiTopP !== undefined) extendedCfg.coquiTopP = bq.coquiTopP;
+  if (bq.coquiSpeed !== undefined) extendedCfg.coquiSpeed = bq.coquiSpeed;
+  if (bq.coquiSplitSentences !== undefined) extendedCfg.coquiSplitSentences = bq.coquiSplitSentences;
 
   res.json(extendedCfg);
 });
@@ -1847,6 +1926,7 @@ app.post("/api/tts/config", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
+  const body = req.body as Partial<ExtendedTtsConfig> & Record<string, unknown>;
   const {
     xttsUrl,
     coquiXttsUrl,
@@ -1862,7 +1942,7 @@ app.post("/api/tts/config", (req, res) => {
     ttsMode,
     defaultVoiceMode,
     clonedVoice,
-  } = req.body as Partial<ExtendedTtsConfig>;
+  } = body;
 
   // Determine the TTS URL based on mode
   const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl || qwen3TtsUrl;
@@ -1926,6 +2006,7 @@ app.post("/api/tts/config", (req, res) => {
     configUpdate.chatterboxVariant = undefined;
     configUpdate.qwen3TtsUrl = undefined;
     configUpdate.qwen3Instruct = undefined;
+    clearQwen3GenFields(configUpdate);
     if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
       configUpdate.defaultVoiceMode = defaultVoiceMode;
     }
@@ -1934,6 +2015,39 @@ app.post("/api/tts/config", (req, res) => {
         speakerWavUrl: clonedVoice.speakerWavUrl.trim(),
         label: clonedVoice.label?.trim() || undefined,
       };
+    }
+    if ("coquiTemperature" in body) {
+      const v = body.coquiTemperature;
+      configUpdate.coquiTemperature =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
+    }
+    if ("coquiLengthPenalty" in body) {
+      const v = body.coquiLengthPenalty;
+      configUpdate.coquiLengthPenalty =
+        v === null || v === undefined ? undefined : optNumBody(v as number, -10, 10);
+    }
+    if ("coquiRepetitionPenalty" in body) {
+      const v = body.coquiRepetitionPenalty;
+      configUpdate.coquiRepetitionPenalty =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0.5, 2);
+    }
+    if ("coquiTopK" in body) {
+      const v = body.coquiTopK;
+      configUpdate.coquiTopK =
+        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
+    }
+    if ("coquiTopP" in body) {
+      const v = body.coquiTopP;
+      configUpdate.coquiTopP = v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
+    }
+    if ("coquiSpeed" in body) {
+      const v = body.coquiSpeed;
+      configUpdate.coquiSpeed = v === null || v === undefined ? undefined : optNumBody(v as number, 0.25, 4);
+    }
+    if ("coquiSplitSentences" in body) {
+      const v = body.coquiSplitSentences;
+      configUpdate.coquiSplitSentences =
+        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
     }
   } else if (ttsMode === "chatterbox_http") {
     configUpdate.ttsMode = "chatterbox_http";
@@ -1945,6 +2059,8 @@ app.post("/api/tts/config", (req, res) => {
     configUpdate.kokoroUrl = undefined;
     configUpdate.qwen3TtsUrl = undefined;
     configUpdate.qwen3Instruct = undefined;
+    clearQwen3GenFields(configUpdate);
+    clearCoquiGenFields(configUpdate);
     if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
       configUpdate.defaultVoiceMode = defaultVoiceMode;
     }
@@ -1959,6 +2075,61 @@ app.post("/api/tts/config", (req, res) => {
     configUpdate.qwen3TtsUrl = ttsUrlValue;
     configUpdate.qwen3Instruct =
       typeof qwen3Instruct === "string" && qwen3Instruct.trim() ? qwen3Instruct.trim() : undefined;
+    if ("qwen3DoSample" in body) {
+      const v = body.qwen3DoSample;
+      configUpdate.qwen3DoSample =
+        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
+    }
+    if ("qwen3Temperature" in body) {
+      const v = body.qwen3Temperature;
+      configUpdate.qwen3Temperature =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
+    }
+    if ("qwen3TopP" in body) {
+      const v = body.qwen3TopP;
+      configUpdate.qwen3TopP = v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
+    }
+    if ("qwen3TopK" in body) {
+      const v = body.qwen3TopK;
+      configUpdate.qwen3TopK =
+        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
+    }
+    if ("qwen3RepetitionPenalty" in body) {
+      const v = body.qwen3RepetitionPenalty;
+      configUpdate.qwen3RepetitionPenalty =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0.5, 2);
+    }
+    if ("qwen3MaxNewTokens" in body) {
+      const v = body.qwen3MaxNewTokens;
+      configUpdate.qwen3MaxNewTokens =
+        v === null || v === undefined ? undefined : optIntBody(v as number, 1, 32768);
+    }
+    if ("qwen3NonStreamingMode" in body) {
+      const v = body.qwen3NonStreamingMode;
+      configUpdate.qwen3NonStreamingMode =
+        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
+    }
+    if ("qwen3SubtalkerDoSample" in body) {
+      const v = body.qwen3SubtalkerDoSample;
+      configUpdate.qwen3SubtalkerDoSample =
+        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
+    }
+    if ("qwen3SubtalkerTopK" in body) {
+      const v = body.qwen3SubtalkerTopK;
+      configUpdate.qwen3SubtalkerTopK =
+        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
+    }
+    if ("qwen3SubtalkerTopP" in body) {
+      const v = body.qwen3SubtalkerTopP;
+      configUpdate.qwen3SubtalkerTopP =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
+    }
+    if ("qwen3SubtalkerTemperature" in body) {
+      const v = body.qwen3SubtalkerTemperature;
+      configUpdate.qwen3SubtalkerTemperature =
+        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
+    }
+    clearCoquiGenFields(configUpdate);
     configUpdate.coquiXttsUrl = undefined;
     configUpdate.kokoroUrl = undefined;
     configUpdate.chatterboxUrl = undefined;
@@ -1972,6 +2143,8 @@ app.post("/api/tts/config", (req, res) => {
     configUpdate.chatterboxVariant = undefined;
     configUpdate.qwen3TtsUrl = undefined;
     configUpdate.qwen3Instruct = undefined;
+    clearQwen3GenFields(configUpdate);
+    clearCoquiGenFields(configUpdate);
     // Clear voice cloning fields for Kokoro
     configUpdate.defaultVoiceMode = undefined;
     configUpdate.clonedVoice = undefined;

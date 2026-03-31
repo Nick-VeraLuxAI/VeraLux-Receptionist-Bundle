@@ -250,6 +250,8 @@ const EnvSchema = z.object({
   /** Greeting text used to generate greeting.wav at startup and for live-TTS fallback. Default: "Hi! Thanks for calling. How can I help you today?" */
   GREETING_TEXT: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   KOKORO_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Kokoro speaking speed (0.5–1.5); forwarded as JSON `rate`. */
+  KOKORO_RATE: z.preprocess(emptyToUndefined, z.coerce.number().min(0.5).max(1.5).optional()),
   TTS_SAMPLE_RATE: z.preprocess(ttsSampleRateFallback, z.coerce.number().int().positive().default(8000)),
 
   /** When true, LRU + optional Redis cache TTS audio by synthesis parameters (reduces TTS compute). */

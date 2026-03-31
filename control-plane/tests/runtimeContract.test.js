@@ -58,11 +58,17 @@ test("runtimeContract accepts qwen3_tts_http tts", () => {
         qwen3TtsUrl: "http://localhost:7010",
         speaker: "Ryan",
         language: "English",
+        qwen3Temperature: 0.85,
+        qwen3TopP: 0.92,
+        qwen3DoSample: true,
       },
     }),
   );
   assert.equal(parsed.tts.mode, "qwen3_tts_http");
   assert.equal(parsed.tts.qwen3TtsUrl, "http://localhost:7010");
+  assert.equal(parsed.tts.qwen3Temperature, 0.85);
+  assert.equal(parsed.tts.qwen3TopP, 0.92);
+  assert.equal(parsed.tts.qwen3DoSample, true);
 });
 
 test("runtimeContract rejects missing webhook secret", () => {

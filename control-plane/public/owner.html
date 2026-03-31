@@ -491,21 +491,94 @@
           </div>
 
           <div id="owner-tts-panel-chatterbox" style="display: none; margin-top: 14px">
-            <label for="owner-chatterboxVariant">Chatterbox model (must match server)</label>
+            <label for="owner-chatterboxVariant">Voice model variant</label>
             <select id="owner-chatterboxVariant" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
               <option value="turbo" selected>Turbo (English, low-latency)</option>
               <option value="standard">Standard (English)</option>
               <option value="multilingual">Multilingual</option>
             </select>
             <p class="help" style="margin-top: 8px;">
-              Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value. <strong>Turbo</strong> needs a reference: cloned audio below, or the VeraLux Chatterbox image’s bundled default prompt WAV. Override with <code>CHATTERBOX_DEFAULT_AUDIO_PROMPT</code> if needed.
+              Must match your server’s <code>CHATTERBOX_VARIANT</code>. Turbo is fastest for English but needs a reference voice. Multilingual needs a language code.
+            </p>
+            <p class="help" style="margin-top: 8px;">
+              This HTTP API only accepts text, reference audio, and language. No extra per-request sampling controls—tuning is via server env (variant, workers, device).
             </p>
           </div>
 
           <div id="owner-tts-panel-qwen3" style="display: none; margin-top: 14px">
-            <label for="owner-qwen3Instruct">Style instruction (optional)</label>
+            <label for="owner-qwen3Instruct">Speaking style (optional)</label>
             <textarea id="owner-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;"></textarea>
-            <p class="help" style="margin-top: 8px;">Natural-language hint for Qwen3 CustomVoice. Server base URL is set above (e.g. port 7010).</p>
+            <p class="help" style="margin-top: 8px;">Describe how you want it to sound in plain English. Server URL is set above.</p>
+            <details style="margin-top: 12px">
+              <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
+              <p class="help" style="margin: 8px 0">Controls how the model picks sounds. Leave empty for defaults.</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                <div>
+                  <label for="owner-qwen3DoSample" style="font-weight: 600">Use random sampling</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. <code>do_sample</code></p>
+                  <select id="owner-qwen3DoSample" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="owner-qwen3Temperature" style="font-weight: 600">Creativity (temperature)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Higher = more varied. <code>temperature</code></p>
+                  <input id="owner-qwen3Temperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3TopP" style="font-weight: 600">Focus diversity (top‑p)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                  <input id="owner-qwen3TopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3TopK" style="font-weight: 600">Choice limit (top‑k)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                  <input id="owner-qwen3TopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3RepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>repetition_penalty</code></p>
+                  <input id="owner-qwen3RepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3MaxNewTokens" style="font-weight: 600">Max generation length</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Upper bound on generated audio tokens. <code>max_new_tokens</code></p>
+                  <input id="owner-qwen3MaxNewTokens" type="number" step="1" min="1" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3NonStreamingMode" style="font-weight: 600">Process full text at once</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>non_streaming_mode</code></p>
+                  <select id="owner-qwen3NonStreamingMode" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+              </div>
+              <p class="help" style="margin: 12px 0 6px; font-weight: 600">Secondary voice (advanced)</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px">
+                <div>
+                  <label for="owner-qwen3SubtalkerDoSample" style="font-weight: 600">Secondary voice: random sampling</label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_dosample</code></p>
+                  <select id="owner-qwen3SubtalkerDoSample" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="owner-qwen3SubtalkerTopK" style="font-weight: 600">Secondary voice: choice limit (top‑k)</label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_k</code></p>
+                  <input id="owner-qwen3SubtalkerTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3SubtalkerTopP" style="font-weight: 600">Secondary voice: focus diversity (top‑p)</label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_p</code></p>
+                  <input id="owner-qwen3SubtalkerTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-qwen3SubtalkerTemperature" style="font-weight: 600">Secondary voice: creativity (temperature)</label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_temperature</code></p>
+                  <input id="owner-qwen3SubtalkerTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+              </div>
+            </details>
           </div>
 
           <div id="owner-tts-panel-voice-id" style="display: none; margin-top: 14px">
@@ -521,28 +594,74 @@
           </div>
 
           <div id="owner-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
-            <label for="owner-ttsPreset">Voice character (rate preset)</label>
+            <label for="owner-ttsPreset">Character &amp; pacing preset</label>
             <select id="owner-ttsPreset" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
               <option value="neutral">Neutral</option>
               <option value="warm">Warm</option>
               <option value="energetic">Energetic</option>
               <option value="calm">Calm</option>
             </select>
-            <p class="help" style="margin-top: 8px;">Combined with speed below where the runtime uses tenant TTS settings.</p>
+            <p class="help" style="margin-top: 8px;">Tone and default pace for Coqui XTTS. Works with speaking speed below.</p>
+          </div>
+
+          <div id="owner-tts-panel-coqui-adv" style="display: none; margin-top: 14px">
+            <details>
+              <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech decoding (optional)</summary>
+              <p class="help" style="margin: 8px 0">Same ideas as Qwen3: creativity, diversity, repeats. Leave empty for server defaults.</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                <div>
+                  <label for="owner-coquiTemperature" style="font-weight: 600">Creativity (temperature)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>temperature</code></p>
+                  <input id="owner-coquiTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiTopP" style="font-weight: 600">Focus diversity (top‑p)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                  <input id="owner-coquiTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiTopK" style="font-weight: 600">Choice limit (top‑k)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                  <input id="owner-coquiTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiRepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>repetition_penalty</code></p>
+                  <input id="owner-coquiRepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiLengthPenalty" style="font-weight: 600">Phrase length bias</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>length_penalty</code></p>
+                  <input id="owner-coquiLengthPenalty" type="number" step="0.1" placeholder="Default" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiSpeed" style="font-weight: 600">Speaking speed (override)</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">If set, replaces the slider below for XTTS <code>speed</code> only.</p>
+                  <input id="owner-coquiSpeed" type="number" step="0.05" min="0.25" max="4" placeholder="Use slider" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit" />
+                </div>
+                <div>
+                  <label for="owner-coquiSplitSentences" style="font-weight: 600">Split into sentences</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>split_sentences</code></p>
+                  <select id="owner-coquiSplitSentences" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+              </div>
+            </details>
           </div>
 
           <div id="owner-tts-panel-rate" style="display: none; margin-top: 14px">
-            <label for="owner-ttsRate">Speed <span id="owner-ttsRateValue" class="help" style="float: right">0.95</span></label>
+            <label for="owner-ttsRate">Speaking speed <span id="owner-ttsRateValue" class="help" style="float: right">0.95</span></label>
             <input id="owner-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
             <p id="owner-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
           </div>
 
           <div id="owner-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
             <h4 id="owner-tts-cloning-heading" style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Reference / cloning</h4>
-            <label for="owner-defaultVoiceMode">Default voice mode</label>
+            <label for="owner-defaultVoiceMode">How to pick the voice on each call</label>
             <select id="owner-defaultVoiceMode" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
-              <option value="preset">Preset (built-in)</option>
-              <option value="cloned">Cloned (reference audio)</option>
+              <option value="preset">Built-in voice ID (preset)</option>
+              <option value="cloned">Cloned from reference recording</option>
             </select>
             <p class="help" style="margin-top: 10px;">Reference audio: 3–15s clear speech. Paste a WAV URL (often added in admin). This stays in sync with <strong>Active voice</strong> below when you pick a custom voice.</p>
             <label for="owner-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio URL (WAV)</label>
@@ -1294,13 +1413,13 @@
         if (blurb) {
           const blurbs = {
             kokoro_http:
-              "Kokoro: lightweight ONNX TTS. Set your HTTP server URL and a Kokoro voice ID (e.g. af_bella). No cloning on this path.",
+              "Kokoro: fast, lightweight voices. Set your server URL and a voice name from your Kokoro install. No cloning on this path.",
             coqui_xtts:
-              "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
+              "Coqui XTTS: built-in voice ID or clone from a reference recording. Language, character preset, and speaking speed apply here.",
             chatterbox_http:
-              "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+              "Chatterbox: voice from a reference clip. Pick the same model variant your server runs; set language; Multilingual needs both.",
             qwen3_tts_http:
-              "Qwen3-TTS 1.7B CustomVoice: HTTP base URL (e.g. :7010). Speaker and language use model preset names (Ryan, English). Optional style instruction.",
+              "Qwen3 CustomVoice: preset speaker and language, optional plain-English style, and optional fine-tuning if you need it.",
           };
           blurb.textContent = blurbs[mode] || "";
         }
@@ -1311,20 +1430,21 @@
         showBlock("owner-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts" || mode === "qwen3_tts_http");
         showBlock("owner-tts-panel-language", showClone || mode === "qwen3_tts_http");
         showBlock("owner-tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("owner-tts-panel-coqui-adv", mode === "coqui_xtts");
         showBlock("owner-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
 
         const rateHint = $("owner-tts-rate-hint");
         if (rateHint) {
           rateHint.textContent =
             mode === "kokoro_http"
-              ? "1.0 = normal. Sent to your Kokoro server as rate in the JSON body."
-              : "1.0 = normal. Applied on the Coqui XTTS path where the runtime uses tenant TTS rate.";
+              ? "1.0 = normal pace. Sent as JSON field rate (maps to synthesis speed on the Kokoro server)."
+              : "1.0 = normal pace. Sent as Coqui XTTS speed unless you set an override in Fine-tune above.";
         }
 
         const cloneHead = $("owner-tts-cloning-heading");
         if (cloneHead) {
           cloneHead.textContent =
-            mode === "chatterbox_http" ? "Reference speaker (Chatterbox)" : "Voice cloning (Coqui XTTS)";
+            mode === "chatterbox_http" ? "Reference voice sample (Chatterbox)" : "Clone from reference audio (Coqui XTTS)";
         }
 
         const urlLabel = $("owner-tts-url-label");
@@ -1355,19 +1475,18 @@
         const vInput = $("owner-ttsVoiceId");
         if (vLabel && vHint) {
           if (mode === "kokoro_http") {
-            vLabel.textContent = "Kokoro voice ID";
+            vLabel.textContent = "Voice name (Kokoro preset)";
             if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
-            vHint.textContent =
-              "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+            vHint.textContent = "Which Kokoro voice pack to use—must exist on your Kokoro server.";
           } else if (mode === "qwen3_tts_http") {
-            vLabel.textContent = "Speaker (preset)";
+            vLabel.textContent = "Speaker (built-in preset)";
             if (vInput) vInput.placeholder = "e.g. Ryan, Aiden";
-            vHint.textContent = "CustomVoice speaker id sent to your Qwen3-TTS server.";
+            vHint.textContent = "Must match a speaker name your Qwen3 model supports (see model card).";
           } else {
-            vLabel.textContent = "Preset voice ID (XTTS)";
+            vLabel.textContent = "Built-in voice ID (XTTS)";
             if (vInput) vInput.placeholder = "e.g. en_sample";
             vHint.textContent =
-              "Used when default mode is Preset; not used when synthesizing from a reference WAV.";
+              "Used when “Preset” mode is selected; skipped when using a cloned reference WAV.";
           }
         }
 
@@ -1375,10 +1494,12 @@
         if (langHint) {
           langHint.textContent =
             mode === "chatterbox_http"
-              ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
+              ? "Language for synthesis (ISO codes: en, fr, de, …). Required for Multilingual; must match what your server expects."
               : mode === "qwen3_tts_http"
-                ? "Language name for CustomVoice (e.g. English)."
-                : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+                ? "Spoken language label (e.g. English)—must match a language your Qwen3 model lists."
+                : mode === "kokoro_http"
+                  ? "Language/locale token your Kokoro server expects (often a short letter code; see your server docs)."
+                  : "Language code for Coqui XTTS (e.g. en, es, fr).";
         }
 
         if (mode === "coqui_xtts") {
@@ -1480,6 +1601,52 @@
 
         const ownerQi = $("owner-qwen3Instruct");
         if (ownerQi) ownerQi.value = cfg.qwen3Instruct || "";
+        (function ownerFillQwen3Gen(c) {
+          const p = "owner-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          const num = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            el.value = v === undefined || v === null ? "" : String(v);
+          };
+          tri("qwen3DoSample", c.qwen3DoSample);
+          num("qwen3Temperature", c.qwen3Temperature);
+          num("qwen3TopP", c.qwen3TopP);
+          num("qwen3TopK", c.qwen3TopK);
+          num("qwen3RepetitionPenalty", c.qwen3RepetitionPenalty);
+          num("qwen3MaxNewTokens", c.qwen3MaxNewTokens);
+          tri("qwen3NonStreamingMode", c.qwen3NonStreamingMode);
+          tri("qwen3SubtalkerDoSample", c.qwen3SubtalkerDoSample);
+          num("qwen3SubtalkerTopK", c.qwen3SubtalkerTopK);
+          num("qwen3SubtalkerTopP", c.qwen3SubtalkerTopP);
+          num("qwen3SubtalkerTemperature", c.qwen3SubtalkerTemperature);
+        })(cfg);
+        (function ownerFillCoquiGen(c) {
+          const p = "owner-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          const num = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            el.value = v === undefined || v === null ? "" : String(v);
+          };
+          num("coquiTemperature", c.coquiTemperature);
+          num("coquiTopP", c.coquiTopP);
+          num("coquiTopK", c.coquiTopK);
+          num("coquiRepetitionPenalty", c.coquiRepetitionPenalty);
+          num("coquiLengthPenalty", c.coquiLengthPenalty);
+          num("coquiSpeed", c.coquiSpeed);
+          tri("coquiSplitSentences", c.coquiSplitSentences);
+        })(cfg);
 
         ownerUpdateTtsLabels();
         updateOwnerTtsProviderPanels();
@@ -1712,6 +1879,26 @@
             if (clonedUrl) {
               payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
             }
+            const ocNum = (id) => {
+              const el = $("owner-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const ocTri = (id) => {
+              const el = $("owner-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.coquiTemperature = ocNum("coquiTemperature");
+            payload.coquiTopP = ocNum("coquiTopP");
+            payload.coquiTopK = ocNum("coquiTopK");
+            payload.coquiRepetitionPenalty = ocNum("coquiRepetitionPenalty");
+            payload.coquiLengthPenalty = ocNum("coquiLengthPenalty");
+            payload.coquiSpeed = ocNum("coquiSpeed");
+            payload.coquiSplitSentences = ocTri("coquiSplitSentences");
           } else if (ttsMode === "chatterbox_http") {
             payload.chatterboxUrl = url || undefined;
             const cv = $("owner-chatterboxVariant");
@@ -1723,6 +1910,30 @@
             payload.qwen3TtsUrl = url || undefined;
             const oqi = $("owner-qwen3Instruct");
             if (oqi && oqi.value.trim()) payload.qwen3Instruct = oqi.value.trim();
+            const oqNum = (id) => {
+              const el = $("owner-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const oqTri = (id) => {
+              const el = $("owner-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.qwen3DoSample = oqTri("qwen3DoSample");
+            payload.qwen3Temperature = oqNum("qwen3Temperature");
+            payload.qwen3TopP = oqNum("qwen3TopP");
+            payload.qwen3TopK = oqNum("qwen3TopK");
+            payload.qwen3RepetitionPenalty = oqNum("qwen3RepetitionPenalty");
+            payload.qwen3MaxNewTokens = oqNum("qwen3MaxNewTokens");
+            payload.qwen3NonStreamingMode = oqTri("qwen3NonStreamingMode");
+            payload.qwen3SubtalkerDoSample = oqTri("qwen3SubtalkerDoSample");
+            payload.qwen3SubtalkerTopK = oqNum("qwen3SubtalkerTopK");
+            payload.qwen3SubtalkerTopP = oqNum("qwen3SubtalkerTopP");
+            payload.qwen3SubtalkerTemperature = oqNum("qwen3SubtalkerTemperature");
           } else {
             payload.kokoroUrl = url || undefined;
             payload.xttsUrl = url || undefined;

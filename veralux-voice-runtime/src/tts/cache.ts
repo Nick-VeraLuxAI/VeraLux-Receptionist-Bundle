@@ -53,12 +53,29 @@ export function buildTtsCacheDescriptor(
       cr: request.coquiRepetitionPenalty ?? config.coquiRepetitionPenalty ?? null,
       ck: request.coquiTopK ?? config.coquiTopK ?? null,
       cp: request.coquiTopP ?? config.coquiTopP ?? null,
-      cs: request.coquiSpeed ?? config.coquiSpeed ?? null,
+      cs:
+        request.coquiSpeed ??
+        config.coquiSpeed ??
+        (config.mode === 'coqui_xtts' ? config.rate : undefined) ??
+        null,
       cx: request.coquiSplitSentences ?? config.coquiSplitSentences ?? null,
       ss: env.COQUI_SINGLE_SPEAKER,
     };
   }
   if (config.mode === 'qwen3_tts_http') {
+    const gen = {
+      ds: request.qwen3DoSample ?? config.qwen3DoSample ?? null,
+      temp: request.qwen3Temperature ?? config.qwen3Temperature ?? null,
+      tp: request.qwen3TopP ?? config.qwen3TopP ?? null,
+      tk: request.qwen3TopK ?? config.qwen3TopK ?? null,
+      rp: request.qwen3RepetitionPenalty ?? config.qwen3RepetitionPenalty ?? null,
+      mnt: request.qwen3MaxNewTokens ?? config.qwen3MaxNewTokens ?? null,
+      nsm: request.qwen3NonStreamingMode ?? config.qwen3NonStreamingMode ?? null,
+      sds: request.qwen3SubtalkerDoSample ?? config.qwen3SubtalkerDoSample ?? null,
+      stk: request.qwen3SubtalkerTopK ?? config.qwen3SubtalkerTopK ?? null,
+      stp: request.qwen3SubtalkerTopP ?? config.qwen3SubtalkerTopP ?? null,
+      stt: request.qwen3SubtalkerTemperature ?? config.qwen3SubtalkerTemperature ?? null,
+    };
     return {
       s: CACHE_SCHEMA,
       m: 'qwen3_tts_http',
@@ -67,6 +84,7 @@ export function buildTtsCacheDescriptor(
       spk: request.voice ?? config.speaker ?? null,
       l: request.language ?? config.language ?? null,
       i: request.instruct ?? config.instruct ?? null,
+      ...gen,
     };
   }
   const kokoro = config.mode === 'kokoro_http' ? config : undefined;
@@ -77,7 +95,8 @@ export function buildTtsCacheDescriptor(
     u: request.kokoroUrl ?? kokoro?.kokoroUrl ?? env.KOKORO_URL,
     v: request.voice ?? kokoro?.voice ?? null,
     f: request.format ?? kokoro?.format ?? 'wav',
-    r: request.sampleRate ?? kokoro?.sampleRate ?? env.TTS_SAMPLE_RATE,
+    sr: request.sampleRate ?? kokoro?.sampleRate ?? env.TTS_SAMPLE_RATE,
+    spd: request.rate ?? kokoro?.rate ?? null,
   };
 }
 

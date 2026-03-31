@@ -14,17 +14,22 @@ export async function synthesizeSpeech(request: TTSRequest): Promise<TTSResult> 
     { event: 'tts_request', sample_rate: sampleRate, voice: request.voice, format },
     'tts request',
   );
+  const payload: Record<string, unknown> = {
+    text: request.text,
+    voice: request.voice,
+    format,
+    sampleRate,
+  };
+  if (request.rate != null && Number.isFinite(request.rate)) {
+    payload.rate = request.rate;
+  }
+
   const response = await fetchWithTimeoutRetry(kokoroUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      text: request.text,
-      voice: request.voice,
-      format,
-      sampleRate,
-    }),
+    body: JSON.stringify(payload),
     timeoutMs: 15_000,
     retries: 1,
   });

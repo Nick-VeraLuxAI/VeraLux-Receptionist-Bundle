@@ -100,6 +100,8 @@ const ttsKokoroSchema = z.object({
   voice: z.string().min(1).optional(),
   format: z.string().min(1).optional(),
   sampleRate: z.number().int().positive().optional(),
+  /** Speaking speed; forwarded as `rate` to kokoro_server (maps to Kokoro synthesis speed). */
+  rate: z.number().min(0.5).max(1.5).optional(),
 });
 
 /** Coqui XTTS config with voice cloning support. */
@@ -123,6 +125,8 @@ const ttsCoquiXttsSchema = z.object({
   coquiTopP: z.number().min(0).max(1).optional(),
   coquiSpeed: z.number().positive().optional(),
   coquiSplitSentences: z.boolean().optional(),
+  /** Portal speaking speed when coquiSpeed is unset; same meaning as preset rate slider. */
+  rate: z.number().min(0.8).max(1.2).optional(),
 });
 
 export type RuntimeTtsCoquiXtts = z.infer<typeof ttsCoquiXttsSchema>;
@@ -156,6 +160,19 @@ const ttsQwen3Schema = z.object({
   instruct: z.string().optional(),
   format: z.string().min(1).optional(),
   sampleRate: z.number().int().positive().optional(),
+  /** Generation kwargs — see Qwen3-TTS generate_custom_voice. Omitted = server/model defaults. */
+  qwen3DoSample: z.boolean().optional(),
+  qwen3Temperature: z.number().min(0).max(2).optional(),
+  qwen3TopP: z.number().min(0).max(1).optional(),
+  qwen3TopK: z.number().int().min(0).optional(),
+  qwen3RepetitionPenalty: z.number().min(0.5).max(2).optional(),
+  qwen3MaxNewTokens: z.number().int().min(1).max(32768).optional(),
+  qwen3NonStreamingMode: z.boolean().optional(),
+  /** Sub-talker sampling (qwen3-tts-tokenizer-v2 only). */
+  qwen3SubtalkerDoSample: z.boolean().optional(),
+  qwen3SubtalkerTopK: z.number().int().min(0).optional(),
+  qwen3SubtalkerTopP: z.number().min(0).max(1).optional(),
+  qwen3SubtalkerTemperature: z.number().min(0).max(2).optional(),
 });
 
 export type RuntimeTtsQwen3 = z.infer<typeof ttsQwen3Schema>;

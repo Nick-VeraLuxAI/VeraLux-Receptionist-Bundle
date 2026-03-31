@@ -760,21 +760,94 @@
                   </div>
 
                   <div id="portal-tts-panel-chatterbox" style="display: none; margin-top: 14px">
-                    <label for="portal-chatterboxVariant">Chatterbox model (must match server)</label>
+                    <label for="portal-chatterboxVariant">Voice model variant</label>
                     <select id="portal-chatterboxVariant" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
                       <option value="turbo" selected>Turbo (English, low-latency)</option>
                       <option value="standard">Standard (English)</option>
                       <option value="multilingual">Multilingual</option>
                     </select>
                     <p class="help" style="margin-top: 8px;">
-                      Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value. <strong>Turbo</strong> needs a reference: cloned audio below, or the VeraLux Chatterbox image’s bundled default prompt WAV.
+                      Must match your server’s <code>CHATTERBOX_VARIANT</code>. Turbo is fastest for English but needs a reference voice. Multilingual needs a language code. Standard is English without Turbo’s latency focus.
+                    </p>
+                    <p id="portal-tts-chatterbox-tuning" class="help" style="margin-top: 10px;">
+                      This HTTP API only accepts text, reference audio, and language. There are no extra per-request “sampling” controls here—tuning is via server env (variant, workers, device).
                     </p>
                   </div>
 
                   <div id="portal-tts-panel-qwen3" style="display: none; margin-top: 14px">
-                    <label for="portal-qwen3Instruct">Style instruction (optional)</label>
+                    <label for="portal-qwen3Instruct">Speaking style (optional)</label>
                     <textarea id="portal-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;"></textarea>
-                    <p class="help" style="margin-top: 8px;">Natural-language hint for Qwen3 CustomVoice. Base URL is set above.</p>
+                    <p class="help" style="margin-top: 8px;">Describe how you want it to sound in plain English. Ignored on some small models. Server URL is set above.</p>
+                    <details style="margin-top: 12px">
+                      <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
+                      <p class="help" style="margin: 8px 0">Controls how the model picks sounds. Leave empty for defaults. Sub-voice row only applies on some setups.</p>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                        <div>
+                          <label for="portal-qwen3DoSample" style="font-weight: 600">Use random sampling</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. <code>do_sample</code></p>
+                          <select id="portal-qwen3DoSample" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
+                            <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label for="portal-qwen3Temperature" style="font-weight: 600">Creativity (temperature)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Higher = more varied. <code>temperature</code></p>
+                          <input id="portal-qwen3Temperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3TopP" style="font-weight: 600">Focus diversity (top‑p)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Nucleus sampling 0–1. <code>top_p</code></p>
+                          <input id="portal-qwen3TopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3TopK" style="font-weight: 600">Choice limit (top‑k)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                          <input id="portal-qwen3TopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3RepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Typical 1.0–1.2. <code>repetition_penalty</code></p>
+                          <input id="portal-qwen3RepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3MaxNewTokens" style="font-weight: 600">Max generation length</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Upper bound on generated audio tokens. <code>max_new_tokens</code></p>
+                          <input id="portal-qwen3MaxNewTokens" type="number" step="1" min="1" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3NonStreamingMode" style="font-weight: 600">Process full text at once</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>non_streaming_mode</code></p>
+                          <select id="portal-qwen3NonStreamingMode" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
+                            <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                          </select>
+                        </div>
+                      </div>
+                      <p class="help" style="margin: 12px 0 6px; font-weight: 600">Secondary voice (advanced)</p>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px">
+                        <div>
+                          <label for="portal-qwen3SubtalkerDoSample" style="font-weight: 600">Secondary voice: random sampling</label>
+                          <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_dosample</code></p>
+                          <select id="portal-qwen3SubtalkerDoSample" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
+                            <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label for="portal-qwen3SubtalkerTopK" style="font-weight: 600">Secondary voice: choice limit (top‑k)</label>
+                          <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_k</code></p>
+                          <input id="portal-qwen3SubtalkerTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3SubtalkerTopP" style="font-weight: 600">Secondary voice: focus diversity (top‑p)</label>
+                          <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_p</code></p>
+                          <input id="portal-qwen3SubtalkerTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-qwen3SubtalkerTemperature" style="font-weight: 600">Secondary voice: creativity (temperature)</label>
+                          <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_temperature</code></p>
+                          <input id="portal-qwen3SubtalkerTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                      </div>
+                    </details>
                   </div>
 
                   <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
@@ -790,30 +863,76 @@
                   </div>
 
                   <div id="portal-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
-                    <label for="portal-ttsPreset">Voice character (rate preset)</label>
+                    <label for="portal-ttsPreset">Character &amp; pacing preset</label>
                     <select id="portal-ttsPreset" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
                       <option value="neutral">Neutral</option>
                       <option value="warm">Warm</option>
                       <option value="energetic">Energetic</option>
                       <option value="calm">Calm</option>
                     </select>
-                    <p class="help" style="margin-top: 8px;">Combined with speed below where the runtime uses tenant TTS settings.</p>
+                    <p class="help" style="margin-top: 8px;">Tone and default pace for Coqui XTTS. Works with speaking speed below.</p>
+                  </div>
+
+                  <div id="portal-tts-panel-coqui-adv" style="display: none; margin-top: 14px">
+                    <details>
+                      <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech decoding (optional)</summary>
+                      <p class="help" style="margin: 8px 0">Same ideas as Qwen3: creativity, diversity, repeats. Leave empty for server defaults. Your XTTS HTTP server must accept these JSON keys.</p>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                        <div>
+                          <label for="portal-coquiTemperature" style="font-weight: 600">Creativity (temperature)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>temperature</code></p>
+                          <input id="portal-coquiTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiTopP" style="font-weight: 600">Focus diversity (top‑p)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                          <input id="portal-coquiTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiTopK" style="font-weight: 600">Choice limit (top‑k)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                          <input id="portal-coquiTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiRepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>repetition_penalty</code></p>
+                          <input id="portal-coquiRepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiLengthPenalty" style="font-weight: 600">Phrase length bias</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>length_penalty</code></p>
+                          <input id="portal-coquiLengthPenalty" type="number" step="0.1" placeholder="Default" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiSpeed" style="font-weight: 600">Speaking speed (override)</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">If set, replaces the slider below for XTTS <code>speed</code> only.</p>
+                          <input id="portal-coquiSpeed" type="number" step="0.05" min="0.25" max="4" placeholder="Use slider" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                        </div>
+                        <div>
+                          <label for="portal-coquiSplitSentences" style="font-weight: 600">Split into sentences</label>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>split_sentences</code></p>
+                          <select id="portal-coquiSplitSentences" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
+                            <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                          </select>
+                        </div>
+                      </div>
+                    </details>
                   </div>
 
                   <div id="portal-tts-panel-rate" style="display: none; margin-top: 14px">
-                    <label for="portal-ttsRate">Speed <span id="portal-ttsRateValue" class="help" style="float: right">0.95</span></label>
+                    <label for="portal-ttsRate">Speaking speed <span id="portal-ttsRateValue" class="help" style="float: right">0.95</span></label>
                     <input id="portal-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
                     <p id="portal-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
                   </div>
 
                   <div id="portal-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 12px; border-radius: 10px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
                     <h4 id="portal-tts-cloning-heading" style="margin: 0 0 8px; font-size: 13px; color: var(--primary)">Reference / cloning</h4>
-                    <label for="portal-defaultVoiceMode">Default voice mode</label>
+                    <label for="portal-defaultVoiceMode">How to pick the voice on each call</label>
                     <select id="portal-defaultVoiceMode" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
-                      <option value="preset">Preset (built-in)</option>
-                      <option value="cloned">Cloned (reference audio)</option>
+                      <option value="preset">Built-in voice ID (preset)</option>
+                      <option value="cloned">Cloned from reference recording</option>
                     </select>
-                    <label for="portal-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio URL (WAV)</label>
+                    <label for="portal-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio file URL (WAV)</label>
                     <input id="portal-clonedVoiceUrl" type="url" placeholder="https://…" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
                     <label for="portal-clonedVoiceLabel" style="margin-top: 10px; display: block">Voice label (optional)</label>
                     <input id="portal-clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
@@ -1846,13 +1965,13 @@
         if (blurb) {
           const blurbs = {
             kokoro_http:
-              "Kokoro: lightweight ONNX TTS. Set your HTTP server URL and a Kokoro voice ID (e.g. af_bella). No cloning on this path.",
+              "Kokoro: fast, lightweight voices. Set your server URL and a voice name from your Kokoro install. No cloning on this path.",
             coqui_xtts:
-              "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
+              "Coqui XTTS: built-in voice ID or clone from a reference recording. Language, character preset, and speaking speed apply here.",
             chatterbox_http:
-              "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+              "Chatterbox: voice from a reference clip. Pick the same model variant your server runs; set language; Multilingual needs both.",
             qwen3_tts_http:
-              "Qwen3-TTS 1.7B CustomVoice: set the HTTP base (e.g. :7010). Speaker and language use preset names. Optional style instruction.",
+              "Qwen3 CustomVoice: preset speaker and language, optional plain-English style, and optional fine-tuning if you need it.",
           };
           blurb.textContent = blurbs[mode] || "";
         }
@@ -1863,20 +1982,21 @@
         showBlock("portal-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts" || mode === "qwen3_tts_http");
         showBlock("portal-tts-panel-language", showClone || mode === "qwen3_tts_http");
         showBlock("portal-tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("portal-tts-panel-coqui-adv", mode === "coqui_xtts");
         showBlock("portal-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
 
         const rateHint = $("portal-tts-rate-hint");
         if (rateHint) {
           rateHint.textContent =
             mode === "kokoro_http"
-              ? "1.0 = normal. Sent to your Kokoro server as rate in the JSON body."
-              : "1.0 = normal. Applied on the Coqui XTTS path where the runtime uses tenant TTS rate.";
+              ? "1.0 = normal pace. Sent as JSON field rate (maps to synthesis speed on the Kokoro server)."
+              : "1.0 = normal pace. Sent as Coqui XTTS speed unless you set an override in Fine-tune above.";
         }
 
         const cloneHead = $("portal-tts-cloning-heading");
         if (cloneHead) {
           cloneHead.textContent =
-            mode === "chatterbox_http" ? "Reference speaker (Chatterbox)" : "Voice cloning (Coqui XTTS)";
+            mode === "chatterbox_http" ? "Reference voice sample (Chatterbox)" : "Clone from reference audio (Coqui XTTS)";
         }
 
         const urlLabel = $("portal-tts-url-label");
@@ -1907,19 +2027,18 @@
         const vInput = $("portal-ttsVoiceId");
         if (vLabel && vHint) {
           if (mode === "kokoro_http") {
-            vLabel.textContent = "Kokoro voice ID";
+            vLabel.textContent = "Voice name (Kokoro preset)";
             if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
-            vHint.textContent =
-              "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+            vHint.textContent = "Which Kokoro voice pack to use—must exist on your Kokoro server.";
           } else if (mode === "qwen3_tts_http") {
-            vLabel.textContent = "Speaker (preset)";
+            vLabel.textContent = "Speaker (built-in preset)";
             if (vInput) vInput.placeholder = "e.g. Ryan, Aiden";
-            vHint.textContent = "CustomVoice speaker id sent to the Qwen3-TTS server.";
+            vHint.textContent = "Must match a speaker name your Qwen3 model supports (see model card).";
           } else {
-            vLabel.textContent = "Preset voice ID (XTTS)";
+            vLabel.textContent = "Built-in voice ID (XTTS)";
             if (vInput) vInput.placeholder = "e.g. en_sample";
             vHint.textContent =
-              "Used when default mode is Preset; not used when synthesizing from a reference WAV.";
+              "Used when “Preset” mode is selected; skipped when using a cloned reference WAV.";
           }
         }
 
@@ -1927,10 +2046,12 @@
         if (langHint) {
           langHint.textContent =
             mode === "chatterbox_http"
-              ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
+              ? "Language for synthesis (ISO codes: en, fr, de, …). Required for Multilingual; must match what your server expects."
               : mode === "qwen3_tts_http"
-                ? "Language name for CustomVoice (e.g. English)."
-                : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+                ? "Spoken language label (e.g. English)—must match a language your Qwen3 model lists."
+                : mode === "kokoro_http"
+                  ? "Language/locale token your Kokoro server expects (often a short letter code; see your server docs)."
+                  : "Language code for Coqui XTTS (e.g. en, es, fr).";
         }
 
         if (mode === "coqui_xtts") portalApplyXttsDefaults();
@@ -2012,6 +2133,52 @@
         if (cl) cl.value = cfg.clonedVoice?.label || "";
         const pqi = $("portal-qwen3Instruct");
         if (pqi) pqi.value = cfg.qwen3Instruct || "";
+        (function portalFillQwen3Gen(c) {
+          const p = "portal-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          const num = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            el.value = v === undefined || v === null ? "" : String(v);
+          };
+          tri("qwen3DoSample", c.qwen3DoSample);
+          num("qwen3Temperature", c.qwen3Temperature);
+          num("qwen3TopP", c.qwen3TopP);
+          num("qwen3TopK", c.qwen3TopK);
+          num("qwen3RepetitionPenalty", c.qwen3RepetitionPenalty);
+          num("qwen3MaxNewTokens", c.qwen3MaxNewTokens);
+          tri("qwen3NonStreamingMode", c.qwen3NonStreamingMode);
+          tri("qwen3SubtalkerDoSample", c.qwen3SubtalkerDoSample);
+          num("qwen3SubtalkerTopK", c.qwen3SubtalkerTopK);
+          num("qwen3SubtalkerTopP", c.qwen3SubtalkerTopP);
+          num("qwen3SubtalkerTemperature", c.qwen3SubtalkerTemperature);
+        })(cfg);
+        (function portalFillCoquiGen(c) {
+          const p = "portal-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          const num = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            el.value = v === undefined || v === null ? "" : String(v);
+          };
+          num("coquiTemperature", c.coquiTemperature);
+          num("coquiTopP", c.coquiTopP);
+          num("coquiTopK", c.coquiTopK);
+          num("coquiRepetitionPenalty", c.coquiRepetitionPenalty);
+          num("coquiLengthPenalty", c.coquiLengthPenalty);
+          num("coquiSpeed", c.coquiSpeed);
+          tri("coquiSplitSentences", c.coquiSplitSentences);
+        })(cfg);
         portalUpdateTtsLabels();
         updatePortalTtsProviderPanels();
       }
@@ -2072,6 +2239,26 @@
           if (ttsMode === "coqui_xtts") {
             payload.coquiXttsUrl = url || undefined;
             if (clonedUrl) payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            const pcNum = (id) => {
+              const el = $("portal-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const pcTri = (id) => {
+              const el = $("portal-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.coquiTemperature = pcNum("coquiTemperature");
+            payload.coquiTopP = pcNum("coquiTopP");
+            payload.coquiTopK = pcNum("coquiTopK");
+            payload.coquiRepetitionPenalty = pcNum("coquiRepetitionPenalty");
+            payload.coquiLengthPenalty = pcNum("coquiLengthPenalty");
+            payload.coquiSpeed = pcNum("coquiSpeed");
+            payload.coquiSplitSentences = pcTri("coquiSplitSentences");
           } else if (ttsMode === "chatterbox_http") {
             payload.chatterboxUrl = url || undefined;
             const cv = $("portal-chatterboxVariant");
@@ -2081,6 +2268,30 @@
             payload.qwen3TtsUrl = url || undefined;
             const pqi = $("portal-qwen3Instruct");
             if (pqi && pqi.value.trim()) payload.qwen3Instruct = pqi.value.trim();
+            const pqNum = (id) => {
+              const el = $("portal-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const pqTri = (id) => {
+              const el = $("portal-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.qwen3DoSample = pqTri("qwen3DoSample");
+            payload.qwen3Temperature = pqNum("qwen3Temperature");
+            payload.qwen3TopP = pqNum("qwen3TopP");
+            payload.qwen3TopK = pqNum("qwen3TopK");
+            payload.qwen3RepetitionPenalty = pqNum("qwen3RepetitionPenalty");
+            payload.qwen3MaxNewTokens = pqNum("qwen3MaxNewTokens");
+            payload.qwen3NonStreamingMode = pqTri("qwen3NonStreamingMode");
+            payload.qwen3SubtalkerDoSample = pqTri("qwen3SubtalkerDoSample");
+            payload.qwen3SubtalkerTopK = pqNum("qwen3SubtalkerTopK");
+            payload.qwen3SubtalkerTopP = pqNum("qwen3SubtalkerTopP");
+            payload.qwen3SubtalkerTemperature = pqNum("qwen3SubtalkerTemperature");
           } else {
             payload.kokoroUrl = url || undefined;
             payload.xttsUrl = url || undefined;

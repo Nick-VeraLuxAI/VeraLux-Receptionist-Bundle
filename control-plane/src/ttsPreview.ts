@@ -105,6 +105,18 @@ export async function synthesizeTtsPreview(
 
   if (mode === "qwen3_tts_http") {
     const url = ttsPostUrl(cfg.qwen3TtsUrl || cfg.xttsUrl);
+    const gen: Record<string, boolean | number> = {};
+    if (cfg.qwen3DoSample !== undefined) gen.do_sample = cfg.qwen3DoSample;
+    if (cfg.qwen3Temperature !== undefined) gen.temperature = cfg.qwen3Temperature;
+    if (cfg.qwen3TopP !== undefined) gen.top_p = cfg.qwen3TopP;
+    if (cfg.qwen3TopK !== undefined) gen.top_k = cfg.qwen3TopK;
+    if (cfg.qwen3RepetitionPenalty !== undefined) gen.repetition_penalty = cfg.qwen3RepetitionPenalty;
+    if (cfg.qwen3MaxNewTokens !== undefined) gen.max_new_tokens = cfg.qwen3MaxNewTokens;
+    if (cfg.qwen3NonStreamingMode !== undefined) gen.non_streaming_mode = cfg.qwen3NonStreamingMode;
+    if (cfg.qwen3SubtalkerDoSample !== undefined) gen.subtalker_dosample = cfg.qwen3SubtalkerDoSample;
+    if (cfg.qwen3SubtalkerTopK !== undefined) gen.subtalker_top_k = cfg.qwen3SubtalkerTopK;
+    if (cfg.qwen3SubtalkerTopP !== undefined) gen.subtalker_top_p = cfg.qwen3SubtalkerTopP;
+    if (cfg.qwen3SubtalkerTemperature !== undefined) gen.subtalker_temperature = cfg.qwen3SubtalkerTemperature;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -113,6 +125,7 @@ export async function synthesizeTtsPreview(
         speaker: (cfg.voiceId || "Ryan").trim() || "Ryan",
         language: (cfg.language || "English").trim() || "English",
         instruct: cfg.qwen3Instruct?.trim() || "",
+        ...gen,
       }),
       signal: AbortSignal.timeout(previewFetchTimeoutMs()),
     });
@@ -121,10 +134,10 @@ export async function synthesizeTtsPreview(
 
   // coqui_xtts
   const url = ttsPostUrl(cfg.coquiXttsUrl || cfg.xttsUrl);
-  const body: Record<string, string | number> = {
+  const body: Record<string, string | number | boolean> = {
     text,
     language: (cfg.language || "en").trim() || "en",
-    speed: cfg.rate,
+    speed: cfg.coquiSpeed ?? cfg.rate,
   };
   if (cfg.defaultVoiceMode === "cloned" && cfg.clonedVoice?.speakerWavUrl?.trim()) {
     body.speaker_wav = cfg.clonedVoice.speakerWavUrl.trim();
@@ -132,6 +145,12 @@ export async function synthesizeTtsPreview(
     body.voice_id = cfg.voiceId;
     body.speaker = cfg.voiceId;
   }
+  if (cfg.coquiTemperature != null) body.temperature = cfg.coquiTemperature;
+  if (cfg.coquiLengthPenalty != null) body.length_penalty = cfg.coquiLengthPenalty;
+  if (cfg.coquiRepetitionPenalty != null) body.repetition_penalty = cfg.coquiRepetitionPenalty;
+  if (cfg.coquiTopK != null) body.top_k = cfg.coquiTopK;
+  if (cfg.coquiTopP != null) body.top_p = cfg.coquiTopP;
+  if (cfg.coquiSplitSentences != null) body.split_sentences = cfg.coquiSplitSentences;
 
   const res = await fetch(url, {
     method: "POST",

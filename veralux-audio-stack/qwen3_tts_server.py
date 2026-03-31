@@ -10,7 +10,13 @@ Env:
   RATE_LIMIT_PER_MINUTE    HTTP rate limit (default: 10000)
 
 POST /tts JSON:
-  { "text": "...", "speaker": "Ryan", "language": "English", "instruct": "" }
+  { "text": "...", "speaker": "Ryan", "language": "English", "instruct": "",
+    "do_sample": true, "temperature": 0.8, "top_p": 0.9, "top_k": 50,
+    "repetition_penalty": 1.1, "max_new_tokens": 1024, "non_streaming_mode": true,
+    "subtalker_dosample": null, "subtalker_top_k": null, "subtalker_top_p": null,
+    "subtalker_temperature": null }
+
+Optional generation kwargs match Qwen3TTSModel.generate_custom_voice (omit or null to use model defaults).
 
 Returns audio/wav (PCM16).
 """
@@ -101,7 +107,13 @@ def _load_model() -> Any:
     return MODEL
 
 
-def _synthesize(text: str, speaker: str, language: str, instruct: str) -> tuple[bytes, int]:
+def _synthesize(
+    text: str,
+    speaker: str,
+    language: str,
+    instruct: str,
+    gen_kwargs: dict[str, Any],
+) -> tuple[bytes, int]:
     model = _load_model()
     inst = instruct.strip()
     wavs, sr = model.generate_custom_voice(
@@ -109,6 +121,7 @@ def _synthesize(text: str, speaker: str, language: str, instruct: str) -> tuple[
         language=language if language else "English",
         speaker=speaker or DEFAULT_SPEAKER,
         instruct=inst,
+        **gen_kwargs,
     )
     w = wavs[0] if isinstance(wavs, (list, tuple)) else wavs
     if hasattr(w, "detach"):
@@ -140,6 +153,43 @@ class TtsBody(BaseModel):
     speaker: str | None = None
     language: str | None = None
     instruct: str | None = None
+    # Optional — forwarded to generate_custom_voice (see Qwen3-TTS docs)
+    do_sample: bool | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    top_k: int | None = Field(default=None, ge=0)
+    repetition_penalty: float | None = Field(default=None, ge=0.5, le=2.0)
+    max_new_tokens: int | None = Field(default=None, ge=1, le=32768)
+    non_streaming_mode: bool | None = None
+    subtalker_dosample: bool | None = None
+    subtalker_top_k: int | None = Field(default=None, ge=0)
+    subtalker_top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    subtalker_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+
+
+_GEN_FIELDS = (
+    "do_sample",
+    "temperature",
+    "top_p",
+    "top_k",
+    "repetition_penalty",
+    "max_new_tokens",
+    "non_streaming_mode",
+    "subtalker_dosample",
+    "subtalker_top_k",
+    "subtalker_top_p",
+    "subtalker_temperature",
+)
+
+
+def _extract_gen_kwargs(body: TtsBody) -> dict[str, Any]:
+    d = body.model_dump()
+    out: dict[str, Any] = {}
+    for k in _GEN_FIELDS:
+        v = d.get(k)
+        if v is not None:
+            out[k] = v
+    return out
 
 
 @app.get("/health")
@@ -165,11 +215,12 @@ async def tts(request: Request, body: TtsBody) -> Response:
     speaker = (body.speaker or DEFAULT_SPEAKER).strip()
     language = (body.language or DEFAULT_LANGUAGE).strip()
     instruct = (body.instruct or "").strip()
+    gen_kwargs = _extract_gen_kwargs(body)
 
     try:
         async with tts_semaphore:
             wav_bytes, _sr = await run_in_threadpool(
-                _synthesize, text, speaker, language, instruct
+                _synthesize, text, speaker, language, instruct, gen_kwargs
             )
         return Response(content=wav_bytes, media_type="audio/wav")
     except Exception as e:

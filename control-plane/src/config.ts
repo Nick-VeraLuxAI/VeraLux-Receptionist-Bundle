@@ -63,6 +63,27 @@ export interface TTSConfig {
   qwen3TtsUrl?: string;
   /** Optional style hint for Qwen3 CustomVoice preview. */
   qwen3Instruct?: string;
+  /** Qwen3 CustomVoice generation (optional; forwarded to qwen3_tts_server / generate_custom_voice). */
+  qwen3DoSample?: boolean;
+  qwen3Temperature?: number;
+  qwen3TopP?: number;
+  qwen3TopK?: number;
+  qwen3RepetitionPenalty?: number;
+  qwen3MaxNewTokens?: number;
+  qwen3NonStreamingMode?: boolean;
+  qwen3SubtalkerDoSample?: boolean;
+  qwen3SubtalkerTopK?: number;
+  qwen3SubtalkerTopP?: number;
+  qwen3SubtalkerTemperature?: number;
+  /** Coqui XTTS decoding (optional; forwarded to your XTTS HTTP API). */
+  coquiTemperature?: number;
+  coquiLengthPenalty?: number;
+  coquiRepetitionPenalty?: number;
+  coquiTopK?: number;
+  coquiTopP?: number;
+  /** Explicit XTTS speed; if unset, `rate` (speaking speed slider) is used for synthesis. */
+  coquiSpeed?: number;
+  coquiSplitSentences?: boolean;
   /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
   chatterboxVariant?: ChatterboxVariant;
   clonedVoice?: ClonedVoiceConfig;        // Cloned voice profile
@@ -357,6 +378,24 @@ export class LLMConfigStore {
       chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
       qwen3TtsUrl: sanitizeUrl(base.qwen3TtsUrl) || getEnvQwen3TtsUrl(),
       qwen3Instruct: base.qwen3Instruct,
+      qwen3DoSample: base.qwen3DoSample,
+      qwen3Temperature: base.qwen3Temperature,
+      qwen3TopP: base.qwen3TopP,
+      qwen3TopK: base.qwen3TopK,
+      qwen3RepetitionPenalty: base.qwen3RepetitionPenalty,
+      qwen3MaxNewTokens: base.qwen3MaxNewTokens,
+      qwen3NonStreamingMode: base.qwen3NonStreamingMode,
+      qwen3SubtalkerDoSample: base.qwen3SubtalkerDoSample,
+      qwen3SubtalkerTopK: base.qwen3SubtalkerTopK,
+      qwen3SubtalkerTopP: base.qwen3SubtalkerTopP,
+      qwen3SubtalkerTemperature: base.qwen3SubtalkerTemperature,
+      coquiTemperature: base.coquiTemperature,
+      coquiLengthPenalty: base.coquiLengthPenalty,
+      coquiRepetitionPenalty: base.coquiRepetitionPenalty,
+      coquiTopK: base.coquiTopK,
+      coquiTopP: base.coquiTopP,
+      coquiSpeed: base.coquiSpeed,
+      coquiSplitSentences: base.coquiSplitSentences,
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",
@@ -417,6 +456,30 @@ export class LLMConfigStore {
           ? current.qwen3TtsUrl
           : undefined,
       qwen3Instruct: next.qwen3Instruct !== undefined ? next.qwen3Instruct : current.qwen3Instruct,
+      qwen3DoSample: next.qwen3DoSample !== undefined ? next.qwen3DoSample : current.qwen3DoSample,
+      qwen3Temperature: next.qwen3Temperature !== undefined ? next.qwen3Temperature : current.qwen3Temperature,
+      qwen3TopP: next.qwen3TopP !== undefined ? next.qwen3TopP : current.qwen3TopP,
+      qwen3TopK: next.qwen3TopK !== undefined ? next.qwen3TopK : current.qwen3TopK,
+      qwen3RepetitionPenalty:
+        next.qwen3RepetitionPenalty !== undefined ? next.qwen3RepetitionPenalty : current.qwen3RepetitionPenalty,
+      qwen3MaxNewTokens: next.qwen3MaxNewTokens !== undefined ? next.qwen3MaxNewTokens : current.qwen3MaxNewTokens,
+      qwen3NonStreamingMode:
+        next.qwen3NonStreamingMode !== undefined ? next.qwen3NonStreamingMode : current.qwen3NonStreamingMode,
+      qwen3SubtalkerDoSample:
+        next.qwen3SubtalkerDoSample !== undefined ? next.qwen3SubtalkerDoSample : current.qwen3SubtalkerDoSample,
+      qwen3SubtalkerTopK: next.qwen3SubtalkerTopK !== undefined ? next.qwen3SubtalkerTopK : current.qwen3SubtalkerTopK,
+      qwen3SubtalkerTopP: next.qwen3SubtalkerTopP !== undefined ? next.qwen3SubtalkerTopP : current.qwen3SubtalkerTopP,
+      qwen3SubtalkerTemperature:
+        next.qwen3SubtalkerTemperature !== undefined ? next.qwen3SubtalkerTemperature : current.qwen3SubtalkerTemperature,
+      coquiTemperature: next.coquiTemperature !== undefined ? next.coquiTemperature : current.coquiTemperature,
+      coquiLengthPenalty: next.coquiLengthPenalty !== undefined ? next.coquiLengthPenalty : current.coquiLengthPenalty,
+      coquiRepetitionPenalty:
+        next.coquiRepetitionPenalty !== undefined ? next.coquiRepetitionPenalty : current.coquiRepetitionPenalty,
+      coquiTopK: next.coquiTopK !== undefined ? next.coquiTopK : current.coquiTopK,
+      coquiTopP: next.coquiTopP !== undefined ? next.coquiTopP : current.coquiTopP,
+      coquiSpeed: next.coquiSpeed !== undefined ? next.coquiSpeed : current.coquiSpeed,
+      coquiSplitSentences:
+        next.coquiSplitSentences !== undefined ? next.coquiSplitSentences : current.coquiSplitSentences,
       chatterboxVariant: next.chatterboxVariant ?? current.chatterboxVariant,
       defaultVoiceMode: next.defaultVoiceMode ?? current.defaultVoiceMode,
       clonedVoice: next.clonedVoice !== undefined
