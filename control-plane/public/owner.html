@@ -509,6 +509,7 @@
           <div id="owner-tts-panel-url" style="margin-top: 10px">
             <label for="owner-ttsUrl" id="owner-tts-url-label">TTS server URL</label>
             <input id="owner-ttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-tts-url-hint" class="help" style="margin-top: 6px; display: none"></p>
           </div>
 
           <div id="owner-tts-panel-chatterbox" style="display: none; margin-top: 14px">
@@ -1487,8 +1488,19 @@
               : mode === "chatterbox_http"
                 ? "http://127.0.0.1:7005"
                 : mode === "qwen3_tts_http"
-                  ? "http://127.0.0.1:7010"
+                  ? "http://qwen3-tts:7010"
                   : "http://127.0.0.1:7002/tts";
+        }
+        const oUrlHint = $("owner-tts-url-hint");
+        if (oUrlHint) {
+          if (mode === "qwen3_tts_http") {
+            oUrlHint.style.display = "block";
+            oUrlHint.textContent =
+              "Preview runs on the control-plane host. In Docker use the service URL (e.g. http://qwen3-tts:7010), not localhost.";
+          } else {
+            oUrlHint.style.display = "none";
+            oUrlHint.textContent = "";
+          }
         }
 
         const vLabel = $("owner-tts-voice-id-label");

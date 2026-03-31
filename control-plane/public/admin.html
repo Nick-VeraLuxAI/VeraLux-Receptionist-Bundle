@@ -437,6 +437,7 @@
                   <div id="tts-panel-url" style="margin-top: 12px">
                     <label for="ttsUrl" id="tts-url-label">TTS server URL</label>
                     <input id="ttsUrl" name="xttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; max-width: 480px" />
+                    <p id="tts-url-hint" class="small muted" style="margin-top: 6px; display: none"></p>
                   </div>
 
                   <div id="tts-panel-chatterbox" style="display: none; margin-top: 14px">
@@ -2763,8 +2764,19 @@
               : mode === "chatterbox_http"
                 ? "http://127.0.0.1:7005"
                 : mode === "qwen3_tts_http"
-                  ? "http://127.0.0.1:7010"
+                  ? "http://qwen3-tts:7010"
                   : "http://127.0.0.1:7002/tts";
+        }
+        const urlHintEl = $("tts-url-hint");
+        if (urlHintEl) {
+          if (mode === "qwen3_tts_http") {
+            urlHintEl.style.display = "block";
+            urlHintEl.textContent =
+              "Voice preview runs on the control-plane server. In Docker, use the compose service hostname (e.g. http://qwen3-tts:7010), not localhost — localhost would point at the control container, not your Qwen3 service.";
+          } else {
+            urlHintEl.style.display = "none";
+            urlHintEl.textContent = "";
+          }
         }
 
         const vLabel = $("tts-voice-id-label");

@@ -27,6 +27,47 @@ function ttsPostUrl(base: string | undefined): string {
   return u.endsWith("/tts") ? u : `${u}/tts`;
 }
 
+/** Node fetch often throws `fetch failed` with no context — add URL + Docker hint for operators. */
+function getFetchErrCause(err: unknown): string {
+  if (!err || typeof err !== "object") return "";
+  const c = (err as { cause?: unknown }).cause;
+  if (c === undefined) return "";
+  return c instanceof Error ? c.message : String(c);
+}
+
+function wrapPreviewFetchError(err: unknown, humanName: string, postUrl: string): Error {
+  const base = err instanceof Error ? err.message : String(err);
+  const cause = getFetchErrCause(err);
+  const core = cause && cause !== base ? `${base} — ${cause}` : base;
+
+  let hostPart = postUrl;
+  try {
+    const u = new URL(postUrl);
+    hostPart = `${u.protocol}//${u.host}`;
+  } catch {
+    /* keep postUrl */
+  }
+
+  const dockerHint =
+    /localhost|127\.0\.0\.1/i.test(postUrl) || /localhost|127\.0\.0\.1/i.test(hostPart)
+      ? " If the API runs inside Docker, localhost here is the control-plane container itself — use the Qwen3/Kokoro/etc. service name on the compose network (e.g. http://qwen3-tts:7010)."
+      : " Confirm the TTS service is running and reachable from the control-plane host.";
+
+  return new Error(`${humanName} unreachable at ${hostPart}: ${core}.${dockerHint}`);
+}
+
+async function fetchTtsPreview(
+  humanName: string,
+  postUrl: string,
+  init: RequestInit
+): Promise<Response> {
+  try {
+    return await fetch(postUrl, init);
+  } catch (err: unknown) {
+    throw wrapPreviewFetchError(err, humanName, postUrl);
+  }
+}
+
 async function ensureAudioResponse(res: Response): Promise<{ body: Buffer; contentType: string }> {
   const ct = res.headers.get("content-type") || "";
   const body = Buffer.from(await res.arrayBuffer());
@@ -70,7 +111,7 @@ export async function synthesizeTtsPreview(
 
   if (mode === "kokoro_http") {
     const url = ttsPostUrl(cfg.kokoroUrl || cfg.xttsUrl);
-    const res = await fetch(url, {
+    const res = await fetchTtsPreview("Kokoro TTS", url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -90,7 +131,7 @@ export async function synthesizeTtsPreview(
       cfg.defaultVoiceMode === "cloned" && cfg.clonedVoice?.speakerWavUrl?.trim()
         ? cfg.clonedVoice.speakerWavUrl.trim()
         : undefined;
-    const res = await fetch(url, {
+    const res = await fetchTtsPreview("Chatterbox TTS", url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -152,7 +193,7 @@ export async function synthesizeTtsPreview(
   if (cfg.coquiTopP != null) body.top_p = cfg.coquiTopP;
   if (cfg.coquiSplitSentences != null) body.split_sentences = cfg.coquiSplitSentences;
 
-  const res = await fetch(url, {
+  const res = await fetchTtsPreview("Coqui XTTS", url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
