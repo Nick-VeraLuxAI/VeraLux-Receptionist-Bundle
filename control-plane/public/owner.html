@@ -481,6 +481,7 @@
             <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
             <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
             <option value="kokoro_http">Kokoro HTTP</option>
+            <option value="qwen3_tts_http">Qwen3 TTS (1.7B CustomVoice)</option>
           </select>
           <p id="owner-tts-provider-blurb" class="help" style="margin-top: 4px; margin-bottom: 12px;"></p>
 
@@ -499,6 +500,12 @@
             <p class="help" style="margin-top: 8px;">
               Set <code>CHATTERBOX_VARIANT</code> on the Chatterbox service to the same value. <strong>Turbo</strong> needs a reference: cloned audio below, or the VeraLux Chatterbox image’s bundled default prompt WAV. Override with <code>CHATTERBOX_DEFAULT_AUDIO_PROMPT</code> if needed.
             </p>
+          </div>
+
+          <div id="owner-tts-panel-qwen3" style="display: none; margin-top: 14px">
+            <label for="owner-qwen3Instruct">Style instruction (optional)</label>
+            <textarea id="owner-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;"></textarea>
+            <p class="help" style="margin-top: 8px;">Natural-language hint for Qwen3 CustomVoice. Server base URL is set above (e.g. port 7010).</p>
           </div>
 
           <div id="owner-tts-panel-voice-id" style="display: none; margin-top: 14px">
@@ -1264,6 +1271,13 @@
         }
       }
 
+      function ownerApplyQwen3Defaults() {
+        const voiceEl = $("owner-ttsVoiceId");
+        const langEl = $("owner-ttsLanguage");
+        if (voiceEl && !voiceEl.value.trim()) voiceEl.value = "Ryan";
+        if (langEl && !langEl.value.trim()) langEl.value = "English";
+      }
+
       function updateOwnerTtsProviderPanels() {
         const modeEl = $("owner-ttsMode");
         if (!modeEl) return;
@@ -1285,14 +1299,17 @@
               "Coqui XTTS: preset voice ID or reference WAV cloning. Language, character preset, and speed apply to this engine.",
             chatterbox_http:
               "Chatterbox: variant must match the server. Language is sent as language_id (needed for Multilingual). Reference WAV is used for cloned mode and often for Turbo.",
+            qwen3_tts_http:
+              "Qwen3-TTS 1.7B CustomVoice: HTTP base URL (e.g. :7010). Speaker and language use model preset names (Ryan, English). Optional style instruction.",
           };
           blurb.textContent = blurbs[mode] || "";
         }
 
         showBlock("owner-tts-panel-chatterbox", mode === "chatterbox_http");
+        showBlock("owner-tts-panel-qwen3", mode === "qwen3_tts_http");
         showBlock("owner-tts-panel-cloning", showClone);
-        showBlock("owner-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts");
-        showBlock("owner-tts-panel-language", showClone);
+        showBlock("owner-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts" || mode === "qwen3_tts_http");
+        showBlock("owner-tts-panel-language", showClone || mode === "qwen3_tts_http");
         showBlock("owner-tts-panel-xtts-preset", mode === "coqui_xtts");
         showBlock("owner-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
 
@@ -1317,7 +1334,9 @@
               ? "Kokoro server URL"
               : mode === "chatterbox_http"
                 ? "Chatterbox server URL"
-                : "Coqui XTTS server URL";
+                : mode === "qwen3_tts_http"
+                  ? "Qwen3-TTS server URL"
+                  : "Coqui XTTS server URL";
         }
         const urlInput = $("owner-ttsUrl");
         if (urlInput) {
@@ -1326,7 +1345,9 @@
               ? "http://127.0.0.1:7001/tts"
               : mode === "chatterbox_http"
                 ? "http://127.0.0.1:7005"
-                : "http://127.0.0.1:7002/tts";
+                : mode === "qwen3_tts_http"
+                  ? "http://127.0.0.1:7010"
+                  : "http://127.0.0.1:7002/tts";
         }
 
         const vLabel = $("owner-tts-voice-id-label");
@@ -1338,6 +1359,10 @@
             if (vInput) vInput.placeholder = "e.g. af_bella, bf_emma, am_echo";
             vHint.textContent =
               "Preset name sent to your Kokoro server (maps to voice_id on the sample server).";
+          } else if (mode === "qwen3_tts_http") {
+            vLabel.textContent = "Speaker (preset)";
+            if (vInput) vInput.placeholder = "e.g. Ryan, Aiden";
+            vHint.textContent = "CustomVoice speaker id sent to your Qwen3-TTS server.";
           } else {
             vLabel.textContent = "Preset voice ID (XTTS)";
             if (vInput) vInput.placeholder = "e.g. en_sample";
@@ -1351,7 +1376,9 @@
           langHint.textContent =
             mode === "chatterbox_http"
               ? "Sent as language_id to Chatterbox (use ISO codes: en, fr, de, …; required for Multilingual)."
-              : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
+              : mode === "qwen3_tts_http"
+                ? "Language name for CustomVoice (e.g. English)."
+                : "ISO 639-1 code sent to XTTS (e.g. en, es, fr).";
         }
 
         if (mode === "coqui_xtts") {
@@ -1360,6 +1387,8 @@
           ownerApplyChatterboxLanguageDefault();
         } else if (mode === "kokoro_http") {
           ownerApplyKokoroDefaults();
+        } else if (mode === "qwen3_tts_http") {
+          ownerApplyQwen3Defaults();
         }
 
         const warningEl = $("owner-voice-cloning-warning");
@@ -1374,7 +1403,7 @@
         }
       }
 
-      const ownerTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "" };
+      const ownerTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "", qwen3_tts_http: "" };
       let ownerTtsUrlBoundMode = "coqui_xtts";
 
       function ownerRefreshTtsUrlCacheFromCfg(cfg) {
@@ -1388,6 +1417,7 @@
           ownerTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
         }
         ownerTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+        ownerTtsUrlByMode.qwen3_tts_http = (cfg.qwen3TtsUrl || "").trim();
       }
 
       function ownerApplyTtsUrlForMode(mode) {
@@ -1447,6 +1477,9 @@
         if (clonedVoiceLabelEl) {
           clonedVoiceLabelEl.value = cfg.clonedVoice?.label || "";
         }
+
+        const ownerQi = $("owner-qwen3Instruct");
+        if (ownerQi) ownerQi.value = cfg.qwen3Instruct || "";
 
         ownerUpdateTtsLabels();
         updateOwnerTtsProviderPanels();
@@ -1686,6 +1719,10 @@
             if (clonedUrl) {
               payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
             }
+          } else if (ttsMode === "qwen3_tts_http") {
+            payload.qwen3TtsUrl = url || undefined;
+            const oqi = $("owner-qwen3Instruct");
+            if (oqi && oqi.value.trim()) payload.qwen3Instruct = oqi.value.trim();
           } else {
             payload.kokoroUrl = url || undefined;
             payload.xttsUrl = url || undefined;
