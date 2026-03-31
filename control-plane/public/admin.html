@@ -11,6 +11,33 @@
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
     />
     <link rel="stylesheet" href="/admin-neural.css?v=__ADMIN_UI_BUILD_STAMP__" />
+    <style>
+      /* Qwen3 / TTS tuning: range sliders (no spinner arrows) */
+      .tts-param-range {
+        width: 100%;
+        accent-color: var(--primary, #c9a04e);
+        height: 8px;
+        margin-top: 8px;
+        cursor: pointer;
+      }
+      .tts-param-range:focus-visible {
+        outline: 2px solid rgba(201, 160, 78, 0.45);
+        outline-offset: 3px;
+        border-radius: 4px;
+      }
+      .tts-slider-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .tts-slider-label .tts-slider-value {
+        font-variant-numeric: tabular-nums;
+        color: var(--muted, rgba(255, 255, 255, 0.55));
+        font-size: 0.88em;
+      }
+    </style>
   </head>
   <body class="neural-console">
     <div class="atmo-layer" aria-hidden="true"></div>
@@ -438,8 +465,8 @@
                     <details style="margin-top: 12px; max-width: 560px">
                       <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
                       <p class="small muted" style="margin: 8px 0">
-                        These control how the model picks the next sounds (sampling). Leave everything empty to use the model’s defaults.
-                        Only needed if you are tuning quality or fixing artifacts. Secondary-voice options apply on some tokenizer setups only.
+                        Sliders start at values that work well for natural phone speech; drag to tune. Boolean options stay as menus.
+                        Secondary-voice sliders apply only on some tokenizer setups.
                       </p>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 8px">
                         <div>
@@ -452,29 +479,29 @@
                           </select>
                         </div>
                         <div>
-                          <label for="qwen3Temperature" style="font-weight: 600">Creativity (temperature)</label>
-                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Higher = more varied delivery; lower = steadier. Typical ~0.7–1.0. <code>temperature</code></p>
-                          <input id="qwen3Temperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <label class="tts-slider-label" for="qwen3Temperature"><span style="font-weight: 600">Creativity (temperature)</span><span id="qwen3TemperatureVal" class="tts-slider-value">0.75</span></label>
+                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Higher = more varied; lower = steadier. <code>temperature</code></p>
+                          <input id="qwen3Temperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.75" />
                         </div>
                         <div>
-                          <label for="qwen3TopP" style="font-weight: 600">Focus diversity (top‑p)</label>
-                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Keeps only the most likely sound choices up to this probability mass (0–1). Lower = safer. <code>top_p</code></p>
-                          <input id="qwen3TopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <label class="tts-slider-label" for="qwen3TopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="qwen3TopPVal" class="tts-slider-value">0.92</span></label>
+                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Nucleus sampling mass (0–1). Lower = safer. <code>top_p</code></p>
+                          <input id="qwen3TopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
                         </div>
                         <div>
-                          <label for="qwen3TopK" style="font-weight: 600">Choice limit (top‑k)</label>
-                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Only consider the K most likely next options. Smaller = more conservative. <code>top_k</code></p>
-                          <input id="qwen3TopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <label class="tts-slider-label" for="qwen3TopK"><span style="font-weight: 600">Choice limit (top‑k)</span><span id="qwen3TopKVal" class="tts-slider-value">50</span></label>
+                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Max candidates per step; 0 = unset behavior on some servers. <code>top_k</code></p>
+                          <input id="qwen3TopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="50" />
                         </div>
                         <div>
-                          <label for="qwen3RepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
-                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Above 1.0 reduces stutter or looping; typical 1.0–1.2. <code>repetition_penalty</code></p>
-                          <input id="qwen3RepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <label class="tts-slider-label" for="qwen3RepetitionPenalty"><span style="font-weight: 600">Discourage repeats</span><span id="qwen3RepetitionPenaltyVal" class="tts-slider-value">1.05</span></label>
+                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Above 1.0 reduces stutter or looping. <code>repetition_penalty</code></p>
+                          <input id="qwen3RepetitionPenalty" class="tts-param-range" type="range" min="0.5" max="2" step="0.05" value="1.05" />
                         </div>
                         <div>
-                          <label for="qwen3MaxNewTokens" style="font-weight: 600">Max generation length</label>
+                          <label class="tts-slider-label" for="qwen3MaxNewTokens"><span style="font-weight: 600">Max generation length</span><span id="qwen3MaxNewTokensVal" class="tts-slider-value">2048</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">Upper bound on generated audio tokens for this phrase. <code>max_new_tokens</code></p>
-                          <input id="qwen3MaxNewTokens" type="number" step="1" min="1" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="qwen3MaxNewTokens" class="tts-param-range" type="range" min="256" max="8192" step="64" value="2048" />
                         </div>
                         <div>
                           <label for="qwen3NonStreamingMode" style="font-weight: 600">Process full text at once</label>
@@ -487,7 +514,7 @@
                         </div>
                       </div>
                       <p class="small muted" style="margin: 14px 0 6px; font-weight: 600">Secondary voice (advanced; some models only)</p>
-                      <p class="small muted" style="margin: 0 0 8px">Secondary stage of the model—only relevant on certain tokenizer versions. Leave default unless your provider asked you to tune these.</p>
+                      <p class="small muted" style="margin: 0 0 8px">Secondary stage of the model—only relevant on certain tokenizer versions.</p>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px">
                         <div>
                           <label for="qwen3SubtalkerDoSample" style="font-weight: 600">Secondary voice: random sampling</label>
@@ -499,19 +526,19 @@
                           </select>
                         </div>
                         <div>
-                          <label for="qwen3SubtalkerTopK" style="font-weight: 600">Secondary voice: choice limit (top‑k)</label>
+                          <label class="tts-slider-label" for="qwen3SubtalkerTopK"><span style="font-weight: 600">Secondary voice: choice limit (top‑k)</span><span id="qwen3SubtalkerTopKVal" class="tts-slider-value">40</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>subtalker_top_k</code></p>
-                          <input id="qwen3SubtalkerTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="qwen3SubtalkerTopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="40" />
                         </div>
                         <div>
-                          <label for="qwen3SubtalkerTopP" style="font-weight: 600">Secondary voice: focus diversity (top‑p)</label>
+                          <label class="tts-slider-label" for="qwen3SubtalkerTopP"><span style="font-weight: 600">Secondary voice: focus diversity (top‑p)</span><span id="qwen3SubtalkerTopPVal" class="tts-slider-value">0.90</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>subtalker_top_p</code></p>
-                          <input id="qwen3SubtalkerTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="qwen3SubtalkerTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.9" />
                         </div>
                         <div>
-                          <label for="qwen3SubtalkerTemperature" style="font-weight: 600">Secondary voice: creativity (temperature)</label>
+                          <label class="tts-slider-label" for="qwen3SubtalkerTemperature"><span style="font-weight: 600">Secondary voice: creativity (temperature)</span><span id="qwen3SubtalkerTemperatureVal" class="tts-slider-value">0.72</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>subtalker_temperature</code></p>
-                          <input id="qwen3SubtalkerTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="qwen3SubtalkerTemperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.72" />
                         </div>
                       </div>
                     </details>
@@ -546,38 +573,38 @@
                     <details>
                       <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech decoding (optional)</summary>
                       <p class="small muted" style="margin: 8px 0">
-                        Same ideas as Qwen3: creativity, diversity, repeats. Empty = server defaults. Your XTTS HTTP server must accept these JSON keys.
+                        Same ideas as Qwen3: creativity, diversity, repeats. Sliders start at sensible defaults. Your XTTS HTTP server must accept these JSON keys.
                       </p>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 8px">
                         <div>
-                          <label for="coquiTemperature" style="font-weight: 600">Creativity (temperature)</label>
+                          <label class="tts-slider-label" for="coquiTemperature"><span style="font-weight: 600">Creativity (temperature)</span><span id="coquiTemperatureVal" class="tts-slider-value">0.75</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>temperature</code></p>
-                          <input id="coquiTemperature" type="number" step="0.05" min="0" max="2" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiTemperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.75" />
                         </div>
                         <div>
-                          <label for="coquiTopP" style="font-weight: 600">Focus diversity (top‑p)</label>
+                          <label class="tts-slider-label" for="coquiTopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="coquiTopPVal" class="tts-slider-value">0.92</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>top_p</code></p>
-                          <input id="coquiTopP" type="number" step="0.05" min="0" max="1" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
                         </div>
                         <div>
-                          <label for="coquiTopK" style="font-weight: 600">Choice limit (top‑k)</label>
+                          <label class="tts-slider-label" for="coquiTopK"><span style="font-weight: 600">Choice limit (top‑k)</span><span id="coquiTopKVal" class="tts-slider-value">50</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>top_k</code></p>
-                          <input id="coquiTopK" type="number" step="1" min="0" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiTopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="50" />
                         </div>
                         <div>
-                          <label for="coquiRepetitionPenalty" style="font-weight: 600">Discourage repeats</label>
+                          <label class="tts-slider-label" for="coquiRepetitionPenalty"><span style="font-weight: 600">Discourage repeats</span><span id="coquiRepetitionPenaltyVal" class="tts-slider-value">1.05</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>repetition_penalty</code></p>
-                          <input id="coquiRepetitionPenalty" type="number" step="0.05" min="0.5" max="2" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiRepetitionPenalty" class="tts-param-range" type="range" min="0.5" max="2" step="0.05" value="1.05" />
                         </div>
                         <div>
-                          <label for="coquiLengthPenalty" style="font-weight: 600">Phrase length bias</label>
+                          <label class="tts-slider-label" for="coquiLengthPenalty"><span style="font-weight: 600">Phrase length bias</span><span id="coquiLengthPenaltyVal" class="tts-slider-value">1.00</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35"><code>length_penalty</code></p>
-                          <input id="coquiLengthPenalty" type="number" step="0.1" placeholder="Default" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiLengthPenalty" class="tts-param-range" type="range" min="-2" max="2" step="0.1" value="1" />
                         </div>
                         <div>
-                          <label for="coquiSpeed" style="font-weight: 600">Speaking speed (override)</label>
+                          <label class="tts-slider-label" for="coquiSpeed"><span style="font-weight: 600">Speaking speed (override)</span><span id="coquiSpeedVal" class="tts-slider-value">0.95</span></label>
                           <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">If set, replaces the slider below for XTTS <code>speed</code> only.</p>
-                          <input id="coquiSpeed" type="number" step="0.05" min="0.25" max="4" placeholder="Use slider" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)" />
+                          <input id="coquiSpeed" class="tts-param-range" type="range" min="0.25" max="4" step="0.05" value="0.95" />
                         </div>
                         <div>
                           <label for="coquiSplitSentences" style="font-weight: 600">Split into sentences</label>
@@ -2408,6 +2435,124 @@
         updateTtsProviderPanels();
       }
 
+      /** Qwen3 numeric controls: slider presets when API returns no value (natural phone defaults). */
+      const QWEN3_RANGE_DEFAULTS = {
+        qwen3Temperature: 0.75,
+        qwen3TopP: 0.92,
+        qwen3TopK: 50,
+        qwen3RepetitionPenalty: 1.05,
+        qwen3MaxNewTokens: 2048,
+        qwen3SubtalkerTopK: 40,
+        qwen3SubtalkerTopP: 0.9,
+        qwen3SubtalkerTemperature: 0.72,
+      };
+
+      function formatQwen3SliderDisplay(fullId, n) {
+        const id = fullId.replace(/^(?:portal-|owner-)?/, "");
+        if (!Number.isFinite(n)) return "—";
+        if (id === "qwen3TopK" || id === "qwen3SubtalkerTopK" || id === "qwen3MaxNewTokens") return String(Math.round(n));
+        return n.toFixed(2);
+      }
+
+      function qwen3DefaultForFullId(fullId) {
+        for (const k of Object.keys(QWEN3_RANGE_DEFAULTS)) {
+          if (fullId === k || fullId.endsWith(k)) return QWEN3_RANGE_DEFAULTS[k];
+        }
+        return undefined;
+      }
+
+      function setQwen3SliderFromCfg(fullId, cfgVal) {
+        const el = $(fullId);
+        const span = $(fullId + "Val");
+        const d = qwen3DefaultForFullId(fullId);
+        const raw =
+          cfgVal !== undefined && cfgVal !== null && String(cfgVal).trim() !== ""
+            ? Number(cfgVal)
+            : d;
+        if (!el || el.type !== "range") return;
+        if (raw === undefined || !Number.isFinite(raw)) return;
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        const clamped = Math.min(max, Math.max(min, raw));
+        el.value = String(clamped);
+        if (span) span.textContent = formatQwen3SliderDisplay(fullId, clamped);
+      }
+
+      function wireQwen3RangeSliders(idPrefix) {
+        const pre = idPrefix || "";
+        Object.keys(QWEN3_RANGE_DEFAULTS).forEach((suffix) => {
+          const id = pre + suffix;
+          const el = $(id);
+          if (!el || el.type !== "range" || el.dataset.rangeWired === "1") return;
+          el.dataset.rangeWired = "1";
+          const span = $(id + "Val");
+          const sync = () => {
+            if (span) span.textContent = formatQwen3SliderDisplay(id, parseFloat(el.value));
+          };
+          el.addEventListener("input", sync);
+          el.addEventListener("change", sync);
+          sync();
+        });
+      }
+
+      /** Coqui XTTS fine-tune: slider presets when API returns no value. */
+      const COQUI_RANGE_DEFAULTS = {
+        coquiTemperature: 0.75,
+        coquiTopP: 0.92,
+        coquiTopK: 50,
+        coquiRepetitionPenalty: 1.05,
+        coquiLengthPenalty: 1.0,
+        coquiSpeed: 0.95,
+      };
+
+      function formatCoquiSliderDisplay(fullId, n) {
+        const id = fullId.replace(/^(?:portal-|owner-)?/, "");
+        if (!Number.isFinite(n)) return "—";
+        if (id === "coquiTopK") return String(Math.round(n));
+        return n.toFixed(2);
+      }
+
+      function coquiDefaultForFullId(fullId) {
+        for (const k of Object.keys(COQUI_RANGE_DEFAULTS)) {
+          if (fullId === k || fullId.endsWith(k)) return COQUI_RANGE_DEFAULTS[k];
+        }
+        return undefined;
+      }
+
+      function setCoquiSliderFromCfg(fullId, cfgVal) {
+        const el = $(fullId);
+        const span = $(fullId + "Val");
+        const d = coquiDefaultForFullId(fullId);
+        const raw =
+          cfgVal !== undefined && cfgVal !== null && String(cfgVal).trim() !== ""
+            ? Number(cfgVal)
+            : d;
+        if (!el || el.type !== "range") return;
+        if (raw === undefined || !Number.isFinite(raw)) return;
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        const clamped = Math.min(max, Math.max(min, raw));
+        el.value = String(clamped);
+        if (span) span.textContent = formatCoquiSliderDisplay(fullId, clamped);
+      }
+
+      function wireCoquiRangeSliders(idPrefix) {
+        const pre = idPrefix || "";
+        Object.keys(COQUI_RANGE_DEFAULTS).forEach((suffix) => {
+          const id = pre + suffix;
+          const el = $(id);
+          if (!el || el.type !== "range" || el.dataset.coquiRangeWired === "1") return;
+          el.dataset.coquiRangeWired = "1";
+          const span = $(id + "Val");
+          const sync = () => {
+            if (span) span.textContent = formatCoquiSliderDisplay(id, parseFloat(el.value));
+          };
+          el.addEventListener("input", sync);
+          el.addEventListener("change", sync);
+          sync();
+        });
+      }
+
       function renderTtsConfig(cfg) {
         const modeEl = $("ttsMode");
         const urlEl = $("ttsUrl");
@@ -2457,22 +2602,17 @@
             if (v === undefined || v === null) el.value = "";
             else el.value = v ? "true" : "false";
           };
-          const num = (id, v) => {
-            const el = $(id);
-            if (!el) return;
-            el.value = v === undefined || v === null ? "" : String(v);
-          };
           tri("qwen3DoSample", c.qwen3DoSample);
-          num("qwen3Temperature", c.qwen3Temperature);
-          num("qwen3TopP", c.qwen3TopP);
-          num("qwen3TopK", c.qwen3TopK);
-          num("qwen3RepetitionPenalty", c.qwen3RepetitionPenalty);
-          num("qwen3MaxNewTokens", c.qwen3MaxNewTokens);
+          setQwen3SliderFromCfg("qwen3Temperature", c.qwen3Temperature);
+          setQwen3SliderFromCfg("qwen3TopP", c.qwen3TopP);
+          setQwen3SliderFromCfg("qwen3TopK", c.qwen3TopK);
+          setQwen3SliderFromCfg("qwen3RepetitionPenalty", c.qwen3RepetitionPenalty);
+          setQwen3SliderFromCfg("qwen3MaxNewTokens", c.qwen3MaxNewTokens);
           tri("qwen3NonStreamingMode", c.qwen3NonStreamingMode);
           tri("qwen3SubtalkerDoSample", c.qwen3SubtalkerDoSample);
-          num("qwen3SubtalkerTopK", c.qwen3SubtalkerTopK);
-          num("qwen3SubtalkerTopP", c.qwen3SubtalkerTopP);
-          num("qwen3SubtalkerTemperature", c.qwen3SubtalkerTemperature);
+          setQwen3SliderFromCfg("qwen3SubtalkerTopK", c.qwen3SubtalkerTopK);
+          setQwen3SliderFromCfg("qwen3SubtalkerTopP", c.qwen3SubtalkerTopP);
+          setQwen3SliderFromCfg("qwen3SubtalkerTemperature", c.qwen3SubtalkerTemperature);
         })(cfg);
         (function fillCoquiGenFromCfg(c) {
           const tri = (id, v) => {
@@ -2481,21 +2621,18 @@
             if (v === undefined || v === null) el.value = "";
             else el.value = v ? "true" : "false";
           };
-          const num = (id, v) => {
-            const el = $(id);
-            if (!el) return;
-            el.value = v === undefined || v === null ? "" : String(v);
-          };
-          num("coquiTemperature", c.coquiTemperature);
-          num("coquiTopP", c.coquiTopP);
-          num("coquiTopK", c.coquiTopK);
-          num("coquiRepetitionPenalty", c.coquiRepetitionPenalty);
-          num("coquiLengthPenalty", c.coquiLengthPenalty);
-          num("coquiSpeed", c.coquiSpeed);
+          setCoquiSliderFromCfg("coquiTemperature", c.coquiTemperature);
+          setCoquiSliderFromCfg("coquiTopP", c.coquiTopP);
+          setCoquiSliderFromCfg("coquiTopK", c.coquiTopK);
+          setCoquiSliderFromCfg("coquiRepetitionPenalty", c.coquiRepetitionPenalty);
+          setCoquiSliderFromCfg("coquiLengthPenalty", c.coquiLengthPenalty);
+          setCoquiSliderFromCfg("coquiSpeed", c.coquiSpeed);
           tri("coquiSplitSentences", c.coquiSplitSentences);
         })(cfg);
 
         updateTtsLabels();
+        wireQwen3RangeSliders();
+        wireCoquiRangeSliders();
         updateTtsProviderPanels();
         $("tts-status").textContent = "TTS config loaded.";
       }
@@ -4735,6 +4872,8 @@
         // TTS form
         const ttsForm = $("tts-form");
         if (ttsForm) ttsForm.addEventListener("submit", saveTtsConfig);
+        wireQwen3RangeSliders();
+        wireCoquiRangeSliders();
 
         // Workflow automation
         const wfNewBtn = $("wf-new-btn");
