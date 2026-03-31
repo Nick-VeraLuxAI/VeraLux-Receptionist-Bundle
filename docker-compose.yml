@@ -3,6 +3,7 @@
 # Build locally:  docker compose build
 # Run:            docker compose up -d
 # Local LLM:      docker compose --profile llm up -d vllm-qwen brain  (set BRAIN_URL=http://brain:3001 on runtime)
+# Qwen3 TTS:      set TTS_MODE=qwen3_tts_http in .env — ./deploy.sh up enables gpu or cpu profile so qwen3-tts-* starts (not started on plain `compose up` without profile).
 # Pull pre-built: docker compose pull && docker compose up -d
 #
 # When both `image` and `build` are set, `docker compose build` builds locally
@@ -619,6 +620,45 @@ services:
       veralux-network:
         aliases:
           - xtts
+
+  qwen3-tts-cpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/qwen3-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.qwen3tts
+    container_name: veralux-qwen3-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - cpu
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7010/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 900s
+    deploy:
+      resources:
+        limits:
+          cpus: "8.0"
+          memory: 24G
+        reservations:
+          cpus: "2.0"
+          memory: 4G
+    environment:
+      - CUDA_VISIBLE_DEVICES=""
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - QWEN3_TTS_DEVICE=cpu
+      - QWEN3_TTS_MODEL=${QWEN3_TTS_MODEL:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice}
+      - RATE_LIMIT_PER_MINUTE=${QWEN3_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - QWEN3_TTS_MAX_CONCURRENT=${QWEN3_TTS_MAX_CONCURRENT:-1}
+    ports:
+      - "${QWEN3_TTS_PORT:-7010}:7010"
+    networks:
+      veralux-network:
+        aliases:
+          - qwen3-tts
 
   # ---------------------------------------------------------------------------
   # Local LLM (optional profile: llm) — vLLM Qwen2.5-7B-Instruct-AWQ + brain gateway

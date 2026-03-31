@@ -88,10 +88,11 @@ check_env() {
 }
 
 # Helper: detect audio profile based on TTS_MODE and hardware
+# Qwen3 TTS is only in the gpu/cpu profiles; without this, `docker compose up` never starts qwen3-tts-*.
 detect_audio_profile() {
     local tts_mode
-    tts_mode=$(grep "^TTS_MODE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2)
-    if [[ "$tts_mode" == "coqui_xtts" || "$tts_mode" == "kokoro_http" ]]; then
+    tts_mode=$(grep "^TTS_MODE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | xargs)
+    if [[ "$tts_mode" == "coqui_xtts" || "$tts_mode" == "kokoro_http" || "$tts_mode" == "qwen3_tts_http" || "$tts_mode" == "chatterbox_http" ]]; then
         if docker info 2>/dev/null | grep -qi nvidia || command -v nvidia-smi &>/dev/null; then
             echo "--profile gpu"
             return
@@ -119,7 +120,7 @@ cmd_up() {
     
     # Remove any leftover containers to avoid name conflicts
     docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
-        veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-ngrok 2>/dev/null || true
+        veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
     
     # Best-effort pull (don't fail if offline)
     info "Pulling latest images (if available)..."
@@ -263,7 +264,7 @@ cmd_update() {
     
     # 6. Update audio services (if active)
     local audio_services
-    audio_services=$(docker ps --filter "name=veralux-whisper" --filter "name=veralux-kokoro" --filter "name=veralux-xtts" --format '{{.Names}}' 2>/dev/null || echo "")
+    audio_services=$(docker ps --filter "name=veralux-whisper" --filter "name=veralux-kokoro" --filter "name=veralux-xtts" --filter "name=veralux-qwen3-tts" --format '{{.Names}}' 2>/dev/null || echo "")
     if [[ -n "$audio_services" ]]; then
         info "Updating audio services..."
         for svc in $audio_services; do
@@ -276,7 +277,7 @@ cmd_update() {
             else
                 compose_svc="${short_name}-gpu"
             fi
-            $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps "$compose_svc" 2>/dev/null || \
+            $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d --no-deps "$compose_svc" 2>/dev/null || \
                 warn "  Could not update $short_name (may need profile flag)."
         done
     fi
@@ -327,7 +328,7 @@ cmd_tunnel() {
             info "Starting with Cloudflare Tunnel..."
             # Remove any leftover containers to avoid name conflicts
             docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
-                veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-ngrok 2>/dev/null || true
+                veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
             $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d
             success "Cloudflare Tunnel started!"
             echo ""
