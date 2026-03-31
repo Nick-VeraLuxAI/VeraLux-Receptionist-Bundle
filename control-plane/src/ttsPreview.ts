@@ -103,6 +103,22 @@ export async function synthesizeTtsPreview(
     return ensureAudioResponse(res);
   }
 
+  if (mode === "qwen3_tts_http") {
+    const url = ttsPostUrl(cfg.qwen3TtsUrl || cfg.xttsUrl);
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        speaker: (cfg.voiceId || "Ryan").trim() || "Ryan",
+        language: (cfg.language || "English").trim() || "English",
+        instruct: cfg.qwen3Instruct?.trim() || "",
+      }),
+      signal: AbortSignal.timeout(previewFetchTimeoutMs()),
+    });
+    return ensureAudioResponse(res);
+  }
+
   // coqui_xtts
   const url = ttsPostUrl(cfg.coquiXttsUrl || cfg.xttsUrl);
   const body: Record<string, string | number> = {

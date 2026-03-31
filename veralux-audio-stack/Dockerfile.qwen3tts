@@ -1,0 +1,35 @@
+# Qwen3-TTS 1.7B CustomVoice HTTP server (port 7010). GPU recommended.
+# Requires HF_TOKEN for gated weights if applicable.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsndfile1 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip wheel \
+    && pip install --no-cache-dir "numpy>=1.24,<2"
+
+COPY qwen3_tts_server.py ./
+
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.32.0" \
+    "gunicorn>=23.0.0" \
+    "slowapi>=0.1.9" \
+    "pydantic>=2.0" \
+    "soundfile>=0.12.0" \
+    "qwen-tts"
+
+ENV QWEN3_TTS_DEVICE=cuda
+ENV QWEN3_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+ENV QWEN3_TTS_DTYPE=bfloat16
+ENV QWEN3_TTS_ATTN=sdpa
+EXPOSE 7010
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=420s --retries=5 \
+  CMD curl -sf http://127.0.0.1:7010/health || exit 1
+
+CMD ["uvicorn", "qwen3_tts_server:app", "--host", "0.0.0.0", "--port", "7010"]

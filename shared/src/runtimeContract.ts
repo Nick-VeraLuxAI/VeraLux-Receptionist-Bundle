@@ -145,11 +145,27 @@ const ttsChatterboxSchema = z.object({
 
 export type RuntimeTtsChatterbox = z.infer<typeof ttsChatterboxSchema>;
 
+/** Qwen3-TTS 1.7B CustomVoice HTTP server (veralux-audio-stack/qwen3_tts_server.py). */
+const ttsQwen3Schema = z.object({
+  mode: z.literal("qwen3_tts_http"),
+  qwen3TtsUrl: z.string().min(1),
+  /** Preset speaker id (e.g. Ryan, Aiden for English). */
+  speaker: z.string().min(1).optional(),
+  language: z.string().min(1).optional(),
+  /** Natural-language style hint (optional). */
+  instruct: z.string().optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+});
+
+export type RuntimeTtsQwen3 = z.infer<typeof ttsQwen3Schema>;
+
 /** Combined TTS schema (discriminated union of all modes). */
 const ttsSchema = z.discriminatedUnion("mode", [
   ttsKokoroSchema,
   ttsCoquiXttsSchema,
   ttsChatterboxSchema,
+  ttsQwen3Schema,
 ]);
 
 export type RuntimeTtsConfig = z.infer<typeof ttsSchema>;

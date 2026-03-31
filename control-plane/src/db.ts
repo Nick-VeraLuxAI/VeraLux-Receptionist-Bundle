@@ -754,6 +754,64 @@ export async function getOwnerPasscodeHash(tenantId: string): Promise<string | n
   }
 }
 
+// ── Owner portal email + password ─────────────────
+
+export async function getTenantIdByPortalEmail(
+  emailNorm: string
+): Promise<string | null> {
+  const e = String(emailNorm || "").trim();
+  if (!e) return null;
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ tenant_id: string }>(
+      "SELECT tenant_id FROM owner_portal_credentials WHERE email_norm = $1",
+      [e]
+    );
+    return res.rows[0]?.tenant_id ?? null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getOwnerPortalCredentialRow(tenantId: string): Promise<{
+  emailNorm: string;
+  passwordHash: string;
+} | null> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ email_norm: string; password_hash: string }>(
+      "SELECT email_norm, password_hash FROM owner_portal_credentials WHERE tenant_id = $1",
+      [tenantId]
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    return { emailNorm: row.email_norm, passwordHash: row.password_hash };
+  } finally {
+    client.release();
+  }
+}
+
+export async function upsertOwnerPortalCredentials(params: {
+  tenantId: string;
+  emailNorm: string;
+  passwordHash: string;
+}): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO owner_portal_credentials (tenant_id, email_norm, password_hash, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (tenant_id) DO UPDATE
+         SET email_norm = excluded.email_norm,
+             password_hash = excluded.password_hash,
+             updated_at = now()`,
+      [params.tenantId, params.emailNorm, params.passwordHash]
+    );
+  } finally {
+    client.release();
+  }
+}
+
 export async function upsertTenantMembership(params: {
   tenantId: string;
   userId: string;

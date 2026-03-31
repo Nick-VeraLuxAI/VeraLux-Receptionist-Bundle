@@ -82,16 +82,17 @@ services:
       - SMTP_FROM=${SMTP_FROM:-noreply@veralux.ai}
       # ── Redis sync env vars (used by redisSync.ts) ──
       - TTS_MODE=${TTS_MODE:-coqui_xtts}
-      - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001}
+      - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
+      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://qwen3-tts:7010}
       - WHISPER_URL=${WHISPER_URL:-http://whisper:9000/transcribe}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
       - STT_CHUNK_MS=${STT_CHUNK_MS:-100}
       - STT_LANGUAGE=${STT_LANGUAGE:-en}
-      - GLOBAL_CONCURRENCY_CAP=${GLOBAL_CONCURRENCY_CAP:-100}
-      - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-10}
+      - GLOBAL_CONCURRENCY_CAP=${GLOBAL_CONCURRENCY_CAP:-16}
+      - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-4}
       - TENANT_CALLS_PER_MIN_CAP_DEFAULT=${TENANT_CALLS_PER_MIN_CAP_DEFAULT:-60}
     ports:
       - "${CONTROL_PORT:-4000}:4000"
@@ -148,13 +149,16 @@ services:
       # URLs
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
-      # TTS Mode (coqui_xtts | kokoro_http | chatterbox_http)
+      # TTS Mode (coqui_xtts | kokoro_http | chatterbox_http | qwen3_tts_http)
       - TTS_MODE=${TTS_MODE:-coqui_xtts}
-      - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001}
+      - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
       - XTTS_URL=${XTTS_URL:-http://xtts:7002}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
+      - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://qwen3-tts:7010}
+      - QWEN3_TTS_SPEAKER=${QWEN3_TTS_SPEAKER:-Ryan}
+      - QWEN3_TTS_LANGUAGE=${QWEN3_TTS_LANGUAGE:-English}
       # Media/Audio
       - MEDIA_STREAM_TOKEN=${MEDIA_STREAM_TOKEN}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -163,9 +167,9 @@ services:
       - STT_CHUNK_MS=${STT_CHUNK_MS:-100}
       - STT_SILENCE_MS=${STT_SILENCE_MS:-700}
       - DEAD_AIR_MS=${DEAD_AIR_MS:-10000}
-      # Rate Limiting
-      - GLOBAL_CONCURRENCY_CAP=${GLOBAL_CONCURRENCY_CAP:-100}
-      - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-10}
+      # Rate Limiting (defaults: protect single-GPU STT/TTS; raise only after profiling)
+      - GLOBAL_CONCURRENCY_CAP=${GLOBAL_CONCURRENCY_CAP:-16}
+      - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-4}
       - TENANT_CALLS_PER_MIN_CAP_DEFAULT=${TENANT_CALLS_PER_MIN_CAP_DEFAULT:-60}
       - CAPACITY_TTL_SECONDS=${CAPACITY_TTL_SECONDS:-3600}
       # Brain / LLM (optional — set BRAIN_URL when running profile `llm`, see .env.example)
@@ -328,6 +332,9 @@ services:
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cuda}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-float16}
       - NVIDIA_VISIBLE_DEVICES=${WHISPER_GPU_IDS:-0}
+      # Load tests / multi-call: raise defaults (was 30/min and 2 concurrent — caused 429 and STT queuing).
+      - RATE_LIMIT_PER_MINUTE=${WHISPER_RATE_LIMIT_PER_MINUTE:-10000}
+      - WHISPER_MAX_CONCURRENT=${WHISPER_MAX_CONCURRENT:-24}
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
@@ -363,6 +370,8 @@ services:
               capabilities: [gpu]
     environment:
       - VOICE_ID=${KOKORO_VOICE_ID:-default}
+      - KOKORO_MAX_CONCURRENT=${KOKORO_MAX_CONCURRENT:-16}
+      - RATE_LIMIT_PER_MINUTE=${KOKORO_RATE_LIMIT_PER_MINUTE:-10000}
     ports:
       - "${KOKORO_PORT:-7001}:7001"
     networks:
@@ -420,13 +429,13 @@ services:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:7005/health"]
       interval: 30s
       timeout: 15s
-      retries: 3
-      start_period: 180s
+      retries: 5
+      start_period: 300s
     deploy:
       resources:
         limits:
-          cpus: "4.0"
-          memory: 8G
+          cpus: "8.0"
+          memory: 16G
         reservations:
           devices:
             - driver: nvidia
@@ -436,18 +445,64 @@ services:
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
       - CHATTERBOX_DEVICE=${CHATTERBOX_DEVICE:-cuda}
       - NVIDIA_VISIBLE_DEVICES=${CHATTERBOX_GPU_IDS:-0}
+      # N workers = N full model loads on this GPU. Default 1 if vLLM shares the same GPU (see CHATTERBOX_GPU_IDS vs VLLM_GPU_IDS).
+      - CHATTERBOX_GUNICORN_WORKERS=${CHATTERBOX_GUNICORN_WORKERS:-1}
       # Chatterbox downloads weights from Hugging Face; Turbo (and some repos) require auth.
       # Create a token at https://huggingface.co/settings/tokens and accept the model license on the model card.
       - HF_TOKEN=${HF_TOKEN:-}
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
       # Reduces CUDA fragmentation; helps large-model loads when VRAM is tight.
       - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+      - RATE_LIMIT_PER_MINUTE=${CHATTERBOX_RATE_LIMIT_PER_MINUTE:-10000}
+      - CHATTERBOX_MAX_CONCURRENT=${CHATTERBOX_MAX_CONCURRENT:-1}
     ports:
       - "${CHATTERBOX_PORT:-7005}:7005"
     networks:
       veralux-network:
         aliases:
           - chatterbox
+
+  qwen3-tts-gpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/qwen3-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.qwen3tts
+    container_name: veralux-qwen3-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - gpu
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7010/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 420s
+    deploy:
+      resources:
+        limits:
+          cpus: "8.0"
+          memory: 24G
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${QWEN3_TTS_GPU_IDS:-0}"]
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${QWEN3_TTS_GPU_IDS:-0}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - QWEN3_TTS_DEVICE=${QWEN3_TTS_DEVICE:-cuda}
+      - QWEN3_TTS_MODEL=${QWEN3_TTS_MODEL:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice}
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+      - RATE_LIMIT_PER_MINUTE=${QWEN3_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - QWEN3_TTS_MAX_CONCURRENT=${QWEN3_TTS_MAX_CONCURRENT:-1}
+    ports:
+      - "${QWEN3_TTS_PORT:-7010}:7010"
+    networks:
+      veralux-network:
+        aliases:
+          - qwen3-tts
 
   # =============================================================================
   # CPU Services (No GPU required - auto-selected by deploy.sh)
@@ -482,6 +537,8 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-${WHISPER_MODEL_SIZE:-small}}
       - WHISPER_DEVICE=cpu
       - CUDA_VISIBLE_DEVICES=""
+      - RATE_LIMIT_PER_MINUTE=${WHISPER_RATE_LIMIT_PER_MINUTE:-10000}
+      - WHISPER_MAX_CONCURRENT=${WHISPER_MAX_CONCURRENT:-24}
     ports:
       - "${WHISPER_PORT:-9000}:9000"
     networks:
@@ -516,6 +573,8 @@ services:
     environment:
       - VOICE_ID=${KOKORO_VOICE_ID:-default}
       - CUDA_VISIBLE_DEVICES=""
+      - KOKORO_MAX_CONCURRENT=${KOKORO_MAX_CONCURRENT:-16}
+      - RATE_LIMIT_PER_MINUTE=${KOKORO_RATE_LIMIT_PER_MINUTE:-10000}
     ports:
       - "${KOKORO_PORT:-7001}:7001"
     networks:
@@ -596,6 +655,9 @@ services:
       - ${VLLM_MAX_MODEL_LEN:-8192}
       - --gpu-memory-utilization
       - ${VLLM_GPU_MEMORY_UTILIZATION:-0.75}
+      # Optional: raise concurrent sequences if you have headroom (watch VRAM at startup).
+      - --max-num-seqs
+      - ${VLLM_MAX_NUM_SEQS:-256}
     ports:
       - "${VLLM_PORT:-8000}:8000"
     networks:

@@ -37,7 +37,7 @@ const DEFAULT_TTS_VOICE =
 // ───────────────────────────────────────────────
 
 export type VoicePreset = "neutral" | "warm" | "energetic" | "calm";
-export type TtsMode = "kokoro_http" | "coqui_xtts" | "chatterbox_http";
+export type TtsMode = "kokoro_http" | "coqui_xtts" | "chatterbox_http" | "qwen3_tts_http";
 export type ChatterboxVariant = "turbo" | "standard" | "multilingual";
 export type VoiceMode = "preset" | "cloned";
 
@@ -54,11 +54,15 @@ export interface TTSConfig {
   preset?: VoicePreset;
   
   // Extended fields for XTTS voice cloning
-  ttsMode?: TtsMode;                      // kokoro_http | coqui_xtts | chatterbox_http
+  ttsMode?: TtsMode;                      // kokoro_http | coqui_xtts | chatterbox_http | qwen3_tts_http
   coquiXttsUrl?: string;                  // URL for XTTS server
   kokoroUrl?: string;                     // URL for Kokoro server
   /** Chatterbox TTS HTTP base (e.g. http://host:7005 — /tts is appended by runtime). */
   chatterboxUrl?: string;
+  /** Qwen3-TTS HTTP base (e.g. http://host:7010 — /tts is appended by preview/runtime). */
+  qwen3TtsUrl?: string;
+  /** Optional style hint for Qwen3 CustomVoice preview. */
+  qwen3Instruct?: string;
   /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
   chatterboxVariant?: ChatterboxVariant;
   clonedVoice?: ClonedVoiceConfig;        // Cloned voice profile
@@ -94,6 +98,10 @@ function getEnvTtsUrl(): string | undefined {
 
 function getEnvChatterboxUrl(): string | undefined {
   return sanitizeUrl(process.env.CHATTERBOX_URL);
+}
+
+function getEnvQwen3TtsUrl(): string | undefined {
+  return sanitizeUrl(process.env.QWEN3_TTS_URL);
 }
 
 /** Host is loopback — not reachable from the control-plane container in Docker. */
@@ -347,6 +355,8 @@ export class LLMConfigStore {
       coquiXttsUrl: base.coquiXttsUrl,
       kokoroUrl: base.kokoroUrl,
       chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
+      qwen3TtsUrl: sanitizeUrl(base.qwen3TtsUrl) || getEnvQwen3TtsUrl(),
+      qwen3Instruct: base.qwen3Instruct,
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",
@@ -400,6 +410,13 @@ export class LLMConfigStore {
           : next.chatterboxUrl === undefined
           ? current.chatterboxUrl
           : undefined,
+      qwen3TtsUrl:
+        typeof next.qwen3TtsUrl === "string" && next.qwen3TtsUrl.trim().length
+          ? next.qwen3TtsUrl.trim()
+          : next.qwen3TtsUrl === undefined
+          ? current.qwen3TtsUrl
+          : undefined,
+      qwen3Instruct: next.qwen3Instruct !== undefined ? next.qwen3Instruct : current.qwen3Instruct,
       chatterboxVariant: next.chatterboxVariant ?? current.chatterboxVariant,
       defaultVoiceMode: next.defaultVoiceMode ?? current.defaultVoiceMode,
       clonedVoice: next.clonedVoice !== undefined

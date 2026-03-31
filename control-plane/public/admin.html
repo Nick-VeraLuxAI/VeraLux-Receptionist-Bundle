@@ -76,6 +76,42 @@
           <button type="button" id="tenant-create">Save business</button>
         </div>
         <div id="tenant-meta" class="small" style="width: 100%"></div>
+
+        <div id="owner-portal-handoff" class="owner-portal-handoff" aria-labelledby="owner-portal-handoff-title">
+          <div>
+            <h3 id="owner-portal-handoff-title" class="owner-portal-handoff__title">Client portal handoff</h3>
+            <p class="small muted" style="margin: 6px 0 0; max-width: 72ch; line-height: 1.45">
+              The business owner signs in at the client portal (not this console). Add inbound line(s) above, then set their email and password here. Send them the portal link and let them know their password through a secure channel.
+            </p>
+          </div>
+          <div id="owner-portal-steps" class="owner-portal-handoff__steps" aria-live="polite"></div>
+          <div class="owner-portal-handoff__grid">
+            <div style="grid-column: 1 / -1">
+              <label class="micro-label" for="owner-portal-url">Client portal URL</label>
+              <div class="owner-portal-handoff__url-row">
+                <input id="owner-portal-url" type="text" readonly autocomplete="off" />
+                <button type="button" class="secondary" id="owner-portal-copy-url">Copy</button>
+                <button type="button" class="secondary" id="owner-portal-open">Open</button>
+              </div>
+            </div>
+            <div style="grid-column: 1 / -1">
+              <label class="micro-label" for="owner-portal-email">Owner email (used to sign in)</label>
+              <input id="owner-portal-email" type="email" autocomplete="off" placeholder="owner@business.com" />
+            </div>
+            <div>
+              <label class="micro-label" for="owner-portal-pass-new">Password</label>
+              <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" />
+            </div>
+            <div>
+              <label class="micro-label" for="owner-portal-pass-confirm">Confirm password</label>
+              <input id="owner-portal-pass-confirm" type="password" autocomplete="new-password" minlength="8" placeholder="Repeat password" />
+            </div>
+            <div style="grid-column: 1 / -1">
+              <button type="button" id="owner-portal-pass-save">Save portal login</button>
+              <p id="owner-portal-handoff-msg" class="owner-portal-handoff__msg" role="status"></p>
+            </div>
+          </div>
+        </div>
       </div>
       <div id="status-bar" class="ops-status-line ok">Ready</div>
 
@@ -1405,6 +1441,48 @@
         $("tenant-meta").textContent = `${meta.name || meta.id} • ${numbers}`;
       }
 
+      function clientPortalUrl() {
+        return `${location.origin}/portal.html`;
+      }
+
+      async function refreshOwnerPortalHandoff() {
+        const urlEl = $("owner-portal-url");
+        const stepsEl = $("owner-portal-steps");
+        const msgEl = $("owner-portal-handoff-msg");
+        if (!urlEl || !stepsEl) return;
+        urlEl.value = clientPortalUrl();
+        const meta = tenantsList.find((t) => t.id === currentTenantId);
+        const hasNumbers = Boolean(meta?.numbers?.length);
+        let emailLoginSet = false;
+        if (currentTenantId && adminAuthToken) {
+          try {
+            const headers = new Headers();
+            headers.set("X-Admin-Key", adminAuthToken);
+            headers.set("X-Tenant-ID", currentTenantId);
+            const res = await fetch(
+              `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/owner-portal-status`,
+              { headers }
+            );
+            if (res.ok) {
+              const st = await res.json();
+              emailLoginSet = st.emailLoginSet === true;
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        const nLabel = hasNumbers ? "Inbound line(s) on file" : "Add inbound number(s) for this business";
+        const pLabel = emailLoginSet ? "Email & password set" : "Set owner email and password below";
+        stepsEl.innerHTML = [
+          `<span class="${hasNumbers ? "owner-portal-handoff__ok" : "owner-portal-handoff__pending"}">${hasNumbers ? "✓" : "○"} ${nLabel}</span>`,
+          `<span class="${emailLoginSet ? "owner-portal-handoff__ok" : "owner-portal-handoff__pending"}">${emailLoginSet ? "✓" : "○"} ${pLabel}</span>`,
+          hasNumbers && emailLoginSet
+            ? `<span class="owner-portal-handoff__ok">✓ Ready — copy the URL and share it with the owner (send the password securely)</span>`
+            : `<span class="owner-portal-handoff__pending">Then send the client portal link to the business owner</span>`,
+        ].join("");
+        if (msgEl && msgEl.dataset.pinned !== "1") msgEl.textContent = "";
+      }
+
       async function loadTenants(preferId) {
         try {
           const data = await fetchJSON("/api/admin/tenants", { skipTenantHeader: true });
@@ -1429,6 +1507,7 @@
           currentTenantId = preferred;
           if (select) select.value = preferred;
           renderTenantMeta();
+          await refreshOwnerPortalHandoff();
           setStatus(`Now editing: ${currentTenantId}`, "ok");
         } catch (err) {
           setStatus("Couldn't load businesses: " + err.message, "err");
@@ -4034,7 +4113,94 @@
           tenantSelect.addEventListener("change", () => {
             currentTenantId = tenantSelect.value;
             renderTenantMeta();
+            refreshOwnerPortalHandoff();
             refreshAll();
+          });
+        }
+
+        const ownerPortalCopy = $("owner-portal-copy-url");
+        if (ownerPortalCopy) {
+          ownerPortalCopy.addEventListener("click", async () => {
+            const v = ($("owner-portal-url")?.value || "").trim();
+            try {
+              await navigator.clipboard.writeText(v);
+              setStatus("Client portal URL copied to clipboard", "ok");
+            } catch (_) {
+              try {
+                $("owner-portal-url")?.select();
+                document.execCommand("copy");
+                setStatus("Client portal URL copied", "ok");
+              } catch (__) {
+                setStatus("Copy failed — select the URL and copy manually", "err");
+              }
+            }
+          });
+        }
+        const ownerPortalOpen = $("owner-portal-open");
+        if (ownerPortalOpen) {
+          ownerPortalOpen.addEventListener("click", () => {
+            const u = new URL(clientPortalUrl(), location.href);
+            u.searchParams.set("from", "admin");
+            window.open(u.toString(), "_blank", "noopener,noreferrer");
+          });
+        }
+        const ownerPortalSavePass = $("owner-portal-pass-save");
+        if (ownerPortalSavePass) {
+          ownerPortalSavePass.addEventListener("click", async () => {
+            const msgEl = $("owner-portal-handoff-msg");
+            const email = ($("owner-portal-email")?.value || "").trim();
+            const p1 = ($("owner-portal-pass-new")?.value || "").trim();
+            const p2 = ($("owner-portal-pass-confirm")?.value || "").trim();
+            if (!currentTenantId) {
+              if (msgEl) msgEl.textContent = "Select a business first.";
+              return;
+            }
+            if (!email || !email.includes("@")) {
+              if (msgEl) msgEl.textContent = "Enter a valid owner email.";
+              return;
+            }
+            if (p1.length < 8) {
+              if (msgEl) msgEl.textContent = "Password must be at least 8 characters.";
+              return;
+            }
+            if (p1 !== p2) {
+              if (msgEl) msgEl.textContent = "Passwords do not match.";
+              return;
+            }
+            try {
+              await fetchJSON("/api/owner/set-portal-credentials", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  tenantId: currentTenantId,
+                  email,
+                  password: p1,
+                }),
+                skipTenantHeader: true,
+              });
+              const n = $("owner-portal-pass-new");
+              const c = $("owner-portal-pass-confirm");
+              if (n) n.value = "";
+              if (c) c.value = "";
+              if (msgEl) {
+                msgEl.textContent =
+                  "Saved. The owner signs in at the portal with this email and password.";
+                msgEl.dataset.pinned = "1";
+                setTimeout(() => {
+                  delete msgEl.dataset.pinned;
+                }, 8000);
+              }
+              setStatus(`Portal login saved for ${currentTenantId}`, "ok");
+              await refreshOwnerPortalHandoff();
+            } catch (err) {
+              let t = String(err.message || err);
+              if (t.includes("email_already_registered")) {
+                t = "That email is already used for another business. Choose a different email.";
+              } else if (t.includes("invalid_email")) {
+                t = "Invalid email address.";
+              }
+              if (msgEl) msgEl.textContent = t;
+            }
           });
         }
 

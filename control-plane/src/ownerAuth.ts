@@ -12,10 +12,18 @@
 import { createHash } from "crypto";
 import {
   getOwnerPasscodeHash,
+  getOwnerPortalCredentialRow,
   upsertOwnerPasscode,
+  upsertOwnerPortalCredentials,
   upsertUserBySub,
   upsertTenantMembership,
 } from "./db";
+import {
+  hashPortalPassword,
+  verifyPortalPassword,
+  PORTAL_PASSWORD_MIN_LEN,
+  PORTAL_PASSWORD_MAX_LEN,
+} from "./portalPassword";
 
 // ── Passcode hashing ────────────────────────────────
 
@@ -62,14 +70,20 @@ function getSigningSecret(): Uint8Array {
 export async function issueOwnerJwt(params: {
   tenantId: string;
   tenantName: string;
+  /** Real email when using portal email+password login */
+  ownerEmail?: string | null;
 }): Promise<string> {
   const { SignJWT } = await getJose();
   const sub = `owner:${params.tenantId}`;
+  const emailForUser =
+    typeof params.ownerEmail === "string" && params.ownerEmail.trim()
+      ? params.ownerEmail.trim()
+      : `owner@${params.tenantId}`;
 
   // Ensure user + membership exist so adminGuard's JWT path works
   const user = await upsertUserBySub({
     idpSub: sub,
-    email: `owner@${params.tenantId}`,
+    email: emailForUser,
   });
   await upsertTenantMembership({
     tenantId: params.tenantId,
@@ -81,7 +95,7 @@ export async function issueOwnerJwt(params: {
     sub,
     role: "admin",
     name: params.tenantName,
-    email: `owner@${params.tenantId}`,
+    email: emailForUser,
     tenant_id: params.tenantId,
   })
     .setProtectedHeader({ alg: "HS256" })
@@ -135,6 +149,42 @@ export type ChangeOwnerPasscodeError =
 /**
  * Updates owner portal passcode after verifying the current one.
  */
+export type ChangeOwnerPortalPasswordError =
+  | "invalid_current"
+  | "password_too_short"
+  | "password_too_long"
+  | "no_email_login";
+
+/**
+ * Updates portal password (email login) after verifying the current password.
+ */
+export async function changeOwnerPortalPasswordIfValid(
+  tenantId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<
+  { ok: true } | { ok: false; error: ChangeOwnerPortalPasswordError }
+> {
+  const row = await getOwnerPortalCredentialRow(tenantId);
+  if (!row) return { ok: false, error: "no_email_login" };
+  const next = (newPassword || "").trim();
+  if (next.length < PORTAL_PASSWORD_MIN_LEN) {
+    return { ok: false, error: "password_too_short" };
+  }
+  if (next.length > PORTAL_PASSWORD_MAX_LEN) {
+    return { ok: false, error: "password_too_long" };
+  }
+  if (!verifyPortalPassword((currentPassword || "").trim(), row.passwordHash)) {
+    return { ok: false, error: "invalid_current" };
+  }
+  await upsertOwnerPortalCredentials({
+    tenantId,
+    emailNorm: row.emailNorm,
+    passwordHash: hashPortalPassword(next),
+  });
+  return { ok: true };
+}
+
 export async function changeOwnerPasscodeIfValid(
   tenantId: string,
   currentPasscode: string,

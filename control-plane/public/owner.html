@@ -387,15 +387,15 @@
       </section>
 
       <section class="owner-panel">
-        <h2>Client portal passcode</h2>
-        <p class="help">Passcode for the <strong>client portal</strong> (sign in with your business phone + this passcode). Separate from the admin access token you use to unlock this page.</p>
-        <label for="owner-portal-pass-current">Current portal passcode</label>
+        <h2>Client portal password</h2>
+        <p class="help">Password for the <strong>client portal</strong> (sign in with email + password at <code>/portal.html</code>). Separate from the admin access token you use to unlock this page.</p>
+        <label for="owner-portal-pass-current">Current portal password</label>
         <input id="owner-portal-pass-current" type="password" autocomplete="current-password" />
-        <label for="owner-portal-pass-new">New passcode</label>
-        <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="4" />
-        <label for="owner-portal-pass-new2">Confirm new passcode</label>
-        <input id="owner-portal-pass-new2" type="password" autocomplete="new-password" minlength="4" />
-        <button type="button" id="owner-portal-pass-save" style="margin-top: 10px;">Update portal passcode</button>
+        <label for="owner-portal-pass-new">New password</label>
+        <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="8" />
+        <label for="owner-portal-pass-new2">Confirm new password</label>
+        <input id="owner-portal-pass-new2" type="password" autocomplete="new-password" minlength="8" />
+        <button type="button" id="owner-portal-pass-save" style="margin-top: 10px;">Update portal password</button>
         <div id="owner-portal-pass-status" class="help" style="margin-top: 8px; min-height: 20px;"></div>
       </section>
 
@@ -772,35 +772,37 @@
           st.textContent = "Fill in all fields.";
           return;
         }
-        if (n1.length < 4) {
-          st.textContent = "New passcode must be at least 4 characters.";
+        if (n1.length < 8) {
+          st.textContent = "New password must be at least 8 characters.";
           return;
         }
         if (n1 !== n2) {
-          st.textContent = "New passcodes do not match.";
+          st.textContent = "New passwords do not match.";
           return;
         }
         $("owner-portal-pass-save").disabled = true;
         try {
           await ownerFetch(
-            `/api/admin/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/owner-passcode/change`,
+            `/api/admin/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/owner-portal-password/change`,
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ currentPasscode: cur, newPasscode: n1 }),
+              body: JSON.stringify({ currentPassword: cur, newPassword: n1 }),
             }
           );
           $("owner-portal-pass-current").value = "";
           $("owner-portal-pass-new").value = "";
           $("owner-portal-pass-new2").value = "";
           st.style.color = "var(--success)";
-          st.textContent = "Portal passcode updated.";
+          st.textContent = "Portal password updated.";
         } catch (e) {
           const t = String(e && e.message ? e.message : e);
-          if (t.includes("invalid_current_passcode")) {
-            st.textContent = "Current portal passcode is incorrect.";
-          } else if (t.includes("passcode_too_short")) {
-            st.textContent = "New passcode must be at least 4 characters.";
+          if (t.includes("invalid_current_password")) {
+            st.textContent = "Current portal password is incorrect.";
+          } else if (t.includes("password_too_short")) {
+            st.textContent = "New password must be at least 8 characters.";
+          } else if (t.includes("no_email_login")) {
+            st.textContent = "Email login is not set up yet. Use the operations console to add an owner email and password.";
           } else {
             st.textContent = "Could not update. Check your access and try again.";
           }

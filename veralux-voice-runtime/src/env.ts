@@ -213,13 +213,19 @@ const EnvSchema = z.object({
   /** TTS backend when no tenant tts config is set. */
   TTS_MODE: z.preprocess(
     emptyToUndefined,
-    z.enum(['kokoro_http', 'coqui_xtts', 'chatterbox_http']).default('kokoro_http'),
+    z.enum(['kokoro_http', 'coqui_xtts', 'chatterbox_http', 'qwen3_tts_http']).default('kokoro_http'),
   ),
   KOKORO_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Coqui XTTS API base URL (e.g. http://host:7002/tts). Required when TTS_MODE=coqui_xtts. */
   COQUI_XTTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Chatterbox HTTP TTS (Resemble). Required when TTS_MODE=chatterbox_http. */
   CHATTERBOX_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Qwen3-TTS HTTP (veralux-audio-stack/qwen3_tts_server.py). Required when TTS_MODE=qwen3_tts_http. */
+  QWEN3_TTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Preset speaker id (e.g. Ryan). Matches Qwen3 CustomVoice presets. */
+  QWEN3_TTS_SPEAKER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  QWEN3_TTS_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  QWEN3_TTS_INSTRUCT: z.preprocess(emptyToUndefined, z.string().optional()),
   /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
   CHATTERBOX_VARIANT: z.preprocess(
     emptyToUndefined,
@@ -309,6 +315,21 @@ const EnvSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: 'CHATTERBOX_URL is required when TTS_MODE=chatterbox_http',
       path: ['CHATTERBOX_URL'],
+    });
+  }
+  if (data.TTS_MODE === 'qwen3_tts_http' && (!data.QWEN3_TTS_URL || data.QWEN3_TTS_URL.trim() === '')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'QWEN3_TTS_URL is required when TTS_MODE=qwen3_tts_http',
+      path: ['QWEN3_TTS_URL'],
+    });
+  }
+  if (data.TENANT_CONCURRENCY_CAP_DEFAULT > data.GLOBAL_CONCURRENCY_CAP) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'TENANT_CONCURRENCY_CAP_DEFAULT must be <= GLOBAL_CONCURRENCY_CAP (per-tenant limit cannot exceed the global pool)',
+      path: ['TENANT_CONCURRENCY_CAP_DEFAULT'],
     });
   }
 });

@@ -30,6 +30,7 @@ COPY constraints-chatterbox.txt requirements-chatterbox-upstream.txt chatterbox_
 RUN pip install --no-cache-dir \
     "fastapi>=0.115.0" \
     "uvicorn[standard]>=0.32.0" \
+    "gunicorn>=23.0.0" \
     "slowapi>=0.1.9" \
     "pydantic>=2.0" \
     "soundfile>=0.12.0" \
@@ -42,7 +43,9 @@ ENV CHATTERBOX_VARIANT=turbo
 ENV CHATTERBOX_DEFAULT_AUDIO_PROMPT=/app/chatterbox_default_prompt.wav
 EXPOSE 7005
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=120s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=15s --start-period=300s --retries=5 \
   CMD curl -sf http://127.0.0.1:7005/health || exit 1
 
-CMD ["uvicorn", "chatterbox_server:app", "--host", "0.0.0.0", "--port", "7005"]
+# Each worker = full model copy on GPU. Use 2+ only on a GPU with enough free VRAM (do not share the same GPU with vLLM/Whisper unless you profile headroom).
+ENV CHATTERBOX_GUNICORN_WORKERS=1
+CMD ["sh", "-c", "exec gunicorn chatterbox_server:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:7005 --workers ${CHATTERBOX_GUNICORN_WORKERS:-1} --timeout 300 --graceful-timeout 60"]

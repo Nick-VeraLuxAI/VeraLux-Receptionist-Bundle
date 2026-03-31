@@ -166,6 +166,30 @@
         text-align: center;
       }
 
+      .login-handoff-banner {
+        margin: -8px 0 20px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid rgba(201, 160, 78, 0.28);
+        background: rgba(201, 160, 78, 0.08);
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--text-soft);
+      }
+      .login-handoff-banner strong { color: var(--text); }
+      .login-handoff-banner__dismiss {
+        margin-top: 12px !important;
+        width: auto !important;
+        padding: 8px 16px !important;
+        font-size: 13px !important;
+        background: rgba(255,255,255,0.08) !important;
+        box-shadow: none !important;
+        color: var(--text) !important;
+      }
+      .login-handoff-banner__dismiss:hover {
+        background: rgba(255,255,255,0.12) !important;
+      }
+
       /* ── Dashboard (hidden until login) ── */
       .dashboard { display: none; }
       .dashboard.active { display: block; }
@@ -546,14 +570,22 @@
     <div id="login-screen" class="login-wrap">
       <div class="login-card">
         <div class="login-logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
-        <h2>Welcome back</h2>
-        <p class="subtitle">Sign in to manage your AI receptionist</p>
+        <h2 id="login-heading">Welcome back</h2>
+        <p class="subtitle">Sign in with the email and password your operations team set up for this portal.</p>
 
-        <label for="login-phone">Your business phone number</label>
-        <input id="login-phone" type="tel" placeholder="+1 (208) 555-1234" autocomplete="tel" />
+        <div id="login-handoff-banner" class="login-handoff-banner" hidden>
+          <p style="margin:0">
+            <strong>Invited from the operations console?</strong>
+            Use the same email address they saved for your business. Your password should have been shared with you through a secure channel—not the same as your phone system PIN.
+          </p>
+          <button type="button" class="login-handoff-banner__dismiss" id="login-handoff-dismiss">Dismiss</button>
+        </div>
 
-        <label for="login-passcode">Passcode</label>
-        <input id="login-passcode" type="password" placeholder="Your passcode" autocomplete="current-password" />
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" placeholder="you@yourbusiness.com" autocomplete="email" />
+
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" placeholder="Your portal password" autocomplete="current-password" />
 
         <div id="login-error" class="login-error"></div>
         <button id="login-btn" type="button">Sign in</button>
@@ -608,16 +640,16 @@
           </div>
 
           <details class="portal-acc" style="margin-top: 24px;">
-            <summary class="portal-acc__summary">Change sign-in passcode</summary>
+            <summary class="portal-acc__summary">Change password</summary>
             <div class="portal-acc__body">
-              <p class="portal-acc__intro">Use your current passcode, then choose a new one (at least 4 characters). This only affects how you sign in to this portal.</p>
-              <label for="portal-pass-current">Current passcode</label>
+              <p class="portal-acc__intro">Use your current portal password, then choose a new one (at least 8 characters). This only affects how you sign in to this portal.</p>
+              <label for="portal-pass-current">Current password</label>
               <input id="portal-pass-current" type="password" autocomplete="current-password" />
-              <label for="portal-pass-new">New passcode</label>
-              <input id="portal-pass-new" type="password" autocomplete="new-password" minlength="4" />
-              <label for="portal-pass-new2">Confirm new passcode</label>
-              <input id="portal-pass-new2" type="password" autocomplete="new-password" minlength="4" />
-              <button type="button" id="portal-pass-submit" style="margin-top: 8px;">Update passcode</button>
+              <label for="portal-pass-new">New password</label>
+              <input id="portal-pass-new" type="password" autocomplete="new-password" minlength="8" />
+              <label for="portal-pass-new2">Confirm new password</label>
+              <input id="portal-pass-new2" type="password" autocomplete="new-password" minlength="8" />
+              <button type="button" id="portal-pass-submit" style="margin-top: 8px;">Update password</button>
               <p id="portal-pass-msg" class="portal-acc__intro" style="margin-top: 12px; margin-bottom: 0; min-height: 1.25em;"></p>
             </div>
           </details>
@@ -1082,12 +1114,12 @@
           msg.textContent = "Fill in all fields.";
           return;
         }
-        if (n1.length < 4) {
-          msg.textContent = "New passcode must be at least 4 characters.";
+        if (n1.length < 8) {
+          msg.textContent = "New password must be at least 8 characters.";
           return;
         }
         if (n1 !== n2) {
-          msg.textContent = "New passcodes do not match.";
+          msg.textContent = "New passwords do not match.";
           return;
         }
         $("portal-pass-submit").disabled = true;
@@ -1095,25 +1127,27 @@
           const headers = new Headers({ "Content-Type": "application/json" });
           if (tenantId) headers.set("X-Tenant-ID", tenantId);
           setPortalAuthHeaders(headers);
-          const res = await fetch("/api/owner/change-passcode", {
+          const res = await fetch("/api/owner/change-password", {
             method: "POST",
             headers,
             body: JSON.stringify({
-              currentPasscode: cur,
-              newPasscode: n1,
+              currentPassword: cur,
+              newPassword: n1,
             }),
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
-            if (data.error === "invalid_current_passcode") {
-              msg.textContent = "Current passcode is incorrect.";
-            } else if (data.error === "passcode_too_short") {
-              msg.textContent = "New passcode must be at least 4 characters.";
+            if (data.error === "invalid_current_password") {
+              msg.textContent = "Current password is incorrect.";
+            } else if (data.error === "password_too_short") {
+              msg.textContent = "New password must be at least 8 characters.";
+            } else if (data.error === "no_email_login") {
+              msg.textContent = "This account was not set up with email login. Ask your operations team to update your portal access.";
             } else {
               msg.textContent =
                 typeof data.error === "string"
                   ? data.error.replace(/_/g, " ")
-                  : "Could not update passcode.";
+                  : "Could not update password.";
             }
             return;
           }
@@ -1121,7 +1155,7 @@
           $("portal-pass-new").value = "";
           $("portal-pass-new2").value = "";
           msg.style.color = "var(--success, #34d399)";
-          msg.textContent = "Passcode updated. Use it the next time you sign in.";
+          msg.textContent = "Password updated. Use it the next time you sign in.";
         } catch {
           msg.textContent = "Connection error. Try again.";
         } finally {
@@ -1130,13 +1164,22 @@
       }
 
       // ── Login ──
+      function loginErrorMessage(data) {
+        const err = typeof data?.error === "string" ? data.error : "";
+        if (err === "email_and_password_required") return "Enter your email and password.";
+        if (err === "invalid_email") return "Enter a valid email address.";
+        if (err === "credentials_required") return "Enter your email and password.";
+        if (err === "Invalid credentials" || err === "") return "Invalid email or password.";
+        return err.replace(/_/g, " ");
+      }
+
       async function doLogin() {
-        const phone = $("login-phone").value.trim();
-        const passcode = $("login-passcode").value.trim();
+        const email = $("login-email").value.trim();
+        const password = $("login-password").value;
         $("login-error").textContent = "";
 
-        if (!phone) { $("login-error").textContent = "Enter your phone number"; return; }
-        if (!passcode) { $("login-error").textContent = "Enter your passcode"; return; }
+        if (!email) { $("login-error").textContent = "Enter your email address"; return; }
+        if (!password) { $("login-error").textContent = "Enter your password"; return; }
 
         $("login-btn").disabled = true;
         $("login-btn").textContent = "Signing in…";
@@ -1145,12 +1188,12 @@
           const res = await fetch("/api/owner/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ phone, passcode }),
+            body: JSON.stringify({ email, password }),
           });
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
 
           if (!res.ok || !data.success) {
-            $("login-error").textContent = data.error || "Invalid credentials";
+            $("login-error").textContent = loginErrorMessage(data);
             return;
           }
 
@@ -1188,8 +1231,8 @@
         localStorage.removeItem("portal_tenant_name");
         $("dashboard").classList.remove("active");
         $("login-screen").style.display = "flex";
-        $("login-phone").value = "";
-        $("login-passcode").value = "";
+        $("login-email").value = "";
+        $("login-password").value = "";
         $("login-error").textContent = "";
       }
 
@@ -2133,9 +2176,21 @@
 
       // ── Init ──
       document.addEventListener("DOMContentLoaded", () => {
+        const params = new URLSearchParams(location.search);
+        if (params.get("from") === "admin" || params.get("welcome") === "1") {
+          const banner = $("login-handoff-banner");
+          const head = $("login-heading");
+          if (banner) banner.hidden = false;
+          if (head) head.textContent = "Welcome to your portal";
+        }
+        $("login-handoff-dismiss")?.addEventListener("click", () => {
+          const banner = $("login-handoff-banner");
+          if (banner) banner.hidden = true;
+        });
+
         $("login-btn").addEventListener("click", doLogin);
-        $("login-passcode").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
-        $("login-phone").addEventListener("keydown", (e) => { if (e.key === "Enter") $("login-passcode").focus(); });
+        $("login-email").addEventListener("keydown", (e) => { if (e.key === "Enter") $("login-password").focus(); });
+        $("login-password").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
         $("logout-btn").addEventListener("click", logout);
         $("portal-pass-submit").addEventListener("click", submitPortalPasscodeChange);
         $("fp-add").addEventListener("click", addForwarding);

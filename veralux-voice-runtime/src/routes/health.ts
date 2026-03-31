@@ -68,6 +68,10 @@ function ttsHealthUrl(): string | undefined {
     const u = env.CHATTERBOX_URL.replace(/\/tts\/?$/, '');
     return `${u}/health`;
   }
+  if (env.TTS_MODE === 'qwen3_tts_http' && env.QWEN3_TTS_URL) {
+    const u = env.QWEN3_TTS_URL.replace(/\/tts\/?$/, '');
+    return `${u}/health`;
+  }
   return undefined;
 }
 

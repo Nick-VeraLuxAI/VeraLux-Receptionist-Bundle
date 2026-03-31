@@ -58,6 +58,17 @@ export function buildTtsCacheDescriptor(
       ss: env.COQUI_SINGLE_SPEAKER,
     };
   }
+  if (config.mode === 'qwen3_tts_http') {
+    return {
+      s: CACHE_SCHEMA,
+      m: 'qwen3_tts_http',
+      t: text,
+      u: request.qwen3TtsUrl ?? config.qwen3TtsUrl,
+      spk: request.voice ?? config.speaker ?? null,
+      l: request.language ?? config.language ?? null,
+      i: request.instruct ?? config.instruct ?? null,
+    };
+  }
   const kokoro = config.mode === 'kokoro_http' ? config : undefined;
   return {
     s: CACHE_SCHEMA,

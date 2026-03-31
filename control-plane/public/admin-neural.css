@@ -892,6 +892,103 @@ body.neural-console {
   font-size: 13px;
 }
 
+/* Full-width row: hand off client portal access after provisioning */
+.owner-portal-handoff {
+  flex: 1 1 100%;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(201, 160, 78, 0.2);
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.owner-portal-handoff__title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(201, 160, 78, 0.95);
+}
+
+.owner-portal-handoff__steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  font-size: 12px;
+  color: rgba(246, 243, 236, 0.75);
+}
+
+.owner-portal-handoff__steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.owner-portal-handoff__ok {
+  color: rgba(52, 211, 153, 0.95);
+  font-weight: 600;
+}
+
+.owner-portal-handoff__pending {
+  color: rgba(246, 200, 120, 0.9);
+}
+
+.owner-portal-handoff__grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px 12px;
+  align-items: end;
+}
+
+@media (max-width: 900px) {
+  .owner-portal-handoff__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.owner-portal-handoff label.micro-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: rgba(246, 243, 236, 0.55);
+}
+
+.owner-portal-handoff input[type="password"],
+.owner-portal-handoff input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.35);
+  color: #f6f3ec;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.owner-portal-handoff .owner-portal-handoff__url-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.owner-portal-handoff .owner-portal-handoff__url-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.owner-portal-handoff__msg {
+  margin: 0;
+  font-size: 12px;
+  min-height: 1.25em;
+  color: rgba(246, 243, 236, 0.65);
+}
+
 .ops-status-line {
   box-sizing: border-box;
   margin: 12px auto 0;

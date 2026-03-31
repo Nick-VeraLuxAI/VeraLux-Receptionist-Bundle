@@ -49,6 +49,7 @@ tts_semaphore = asyncio.Semaphore(KOKORO_MAX_CONCURRENT)
 class TTSRequest(BaseModel):
     text: str
     voice_id: str | None = KOKORO_DEFAULT_VOICE  # default voice if client doesn't send one
+    voice: str | None = None  # Node runtime sends `voice`; prefer voice_id when both set
 
     # new tuning fields (match what your Node code sends)
     rate: float | None = 1.0       # maps to Kokoro "speed"
@@ -87,8 +88,8 @@ async def synthesize(request: Request, req: TTSRequest):
         if len(text) > KOKORO_MAX_TEXT_CHARS:
             return JSONResponse({"error": "text too long"}, status_code=413)
 
-        # voice: use what the client sends, fall back to default
-        voice = req.voice_id or KOKORO_DEFAULT_VOICE
+        # voice: Node sends `voice`; server also accepts voice_id
+        voice = (req.voice or req.voice_id or KOKORO_DEFAULT_VOICE).strip()
 
         # map rate -> speed for Kokoro
         speed = req.rate if req.rate is not None else 1.0

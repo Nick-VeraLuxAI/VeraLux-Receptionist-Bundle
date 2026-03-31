@@ -9,6 +9,10 @@ export interface TTSRequest {
   coquiXttsUrl?: string;
   /** Chatterbox: base URL (e.g. http://host:7005 or http://host:7005/tts). */
   chatterboxUrl?: string;
+  /** Qwen3-TTS: base URL (e.g. http://host:7010 or http://host:7010/tts). */
+  qwen3TtsUrl?: string;
+  /** Qwen3-TTS: optional style instruction. */
+  instruct?: string;
   /** Coqui XTTS: reference audio for voice cloning (URL or path). XTTS uses this, not preset voice IDs. */
   speakerWavUrl?: string;
   /** Coqui XTTS: language code (default "en"). */

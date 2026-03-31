@@ -18,6 +18,9 @@
     "test:integration": "tsx --test tests/callFlow.integration.test.ts",
     "load-test": "tsx scripts/load-test.ts",
     "load-test:calls": "tsx scripts/concurrent-calls-test.ts",
+    "load-test:pipeline": "tsx scripts/pipeline-load-test.ts",
+    "load-test:e2e-ai": "tsx scripts/pipeline-load-test.ts --mode full",
+    "load-test:e2e-chatterbox": "tsx scripts/pipeline-load-test.ts --mode full --tts-backend chatterbox",
     "build": "tsc -p tsconfig.json && npm run copy-audio-assets",
     "copy-audio-assets": "mkdir -p dist/audio/vendor/amrwb && cp -R src/audio/vendor/amrwb/amrwb.js src/audio/vendor/amrwb/amrwb.wasm dist/audio/vendor/amrwb/"
   },

@@ -62,6 +62,10 @@ import {
   findTenantIdByInboundNumberE164,
   getTenantNumbers,
   setTenantNumbers,
+  getOwnerPasscodeHash,
+  getTenantIdByPortalEmail,
+  getOwnerPortalCredentialRow,
+  upsertOwnerPortalCredentials,
 } from "./db";
 import { rateLimit } from "./rateLimit";
 import { closeRedis as closeRateLimitRedis } from "./redis";
@@ -74,7 +78,16 @@ import {
   issueOwnerJwt,
   verifyOwnerPortalToken,
   changeOwnerPasscodeIfValid,
+  changeOwnerPortalPasswordIfValid,
 } from "./ownerAuth";
+import {
+  hashPortalPassword,
+  verifyPortalPassword,
+  normalizePortalEmail,
+  isValidPortalEmailShape,
+  PORTAL_PASSWORD_MIN_LEN,
+  PORTAL_PASSWORD_MAX_LEN,
+} from "./portalPassword";
 import {
   isStripeConfigured,
   getOrCreateStripeCustomer,
@@ -922,58 +935,90 @@ app.post("/admin-auth", (req, res) => {
 
 app.post("/api/owner/login", async (req, res) => {
   try {
-    const { phone, passcode } = req.body || {};
+    const body = req.body || {};
+    const emailRaw = typeof body.email === "string" ? body.email : "";
+    const password = typeof body.password === "string" ? body.password : "";
+    const phone = typeof body.phone === "string" ? body.phone : "";
+    const passcode = typeof body.passcode === "string" ? body.passcode : "";
 
-    if (!phone || typeof phone !== "string") {
-      return res.status(400).json({ error: "Phone number is required" });
+    if (emailRaw.trim() || password) {
+      const emailNorm = normalizePortalEmail(emailRaw);
+      if (!emailNorm || !password) {
+        return res.status(400).json({ error: "email_and_password_required" });
+      }
+      if (!isValidPortalEmailShape(emailNorm)) {
+        return res.status(400).json({ error: "invalid_email" });
+      }
+      const tenantId = await getTenantIdByPortalEmail(emailNorm);
+      if (!tenantId) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      const row = await getOwnerPortalCredentialRow(tenantId);
+      if (!row || row.emailNorm !== emailNorm) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      const valid = verifyPortalPassword(password, row.passwordHash);
+      if (!valid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+      const tenant = tenants.getOrCreate(tenantId);
+      const token = await issueOwnerJwt({
+        tenantId: tenant.id,
+        tenantName: tenant.meta.name,
+        ownerEmail: emailNorm,
+      });
+      return res.json({
+        success: true,
+        token,
+        tenant: {
+          id: tenant.id,
+          name: tenant.meta.name,
+          numbers: tenant.meta.numbers,
+        },
+      });
     }
-    if (!passcode || typeof passcode !== "string") {
-      return res.status(400).json({ error: "Passcode is required" });
+
+    if (phone.trim() && passcode) {
+      const normalized = normalizePhoneNumber(phone);
+      const stripped = phone.replace(/[\s\-\(\)\.]/g, "");
+      const digits = stripped.replace(/^\+/, "");
+
+      const tenant =
+        (normalized ? tenants.getByNumber(normalized) : undefined) ||
+        tenants.getByNumber(stripped) ||
+        tenants.getByNumber(digits) ||
+        tenants.getByNumber("+" + digits) ||
+        (digits.length === 10
+          ? tenants.getByNumber("1" + digits) ||
+            tenants.getByNumber("+1" + digits)
+          : undefined);
+
+      if (!tenant) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const valid = await verifyOwnerPasscode(tenant.id, passcode);
+      if (!valid) {
+        return res.status(401).json({ error: "Invalid credentials" });
+      }
+
+      const token = await issueOwnerJwt({
+        tenantId: tenant.id,
+        tenantName: tenant.meta.name,
+      });
+
+      return res.json({
+        success: true,
+        token,
+        tenant: {
+          id: tenant.id,
+          name: tenant.meta.name,
+          numbers: tenant.meta.numbers,
+        },
+      });
     }
 
-    // Try multiple normalizations to be forgiving with format
-    const normalized = normalizePhoneNumber(phone);
-    const stripped = phone.replace(/[\s\-\(\)\.]/g, "");
-    const digits = stripped.replace(/^\+/, "");
-
-    // Look up tenant by phone number — try all reasonable formats
-    const tenant =
-      (normalized ? tenants.getByNumber(normalized) : undefined) ||
-      tenants.getByNumber(stripped) ||
-      tenants.getByNumber(digits) ||
-      tenants.getByNumber("+" + digits) ||
-      // US number fallback: 10-digit → prepend 1 or +1
-      (digits.length === 10 ? (
-        tenants.getByNumber("1" + digits) ||
-        tenants.getByNumber("+1" + digits)
-      ) : undefined);
-
-    if (!tenant) {
-      // Don't reveal whether the number exists
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // Verify passcode
-    const valid = await verifyOwnerPasscode(tenant.id, passcode);
-    if (!valid) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // Issue tenant-scoped JWT
-    const token = await issueOwnerJwt({
-      tenantId: tenant.id,
-      tenantName: tenant.meta.name,
-    });
-
-    return res.json({
-      success: true,
-      token,
-      tenant: {
-        id: tenant.id,
-        name: tenant.meta.name,
-        numbers: tenant.meta.numbers,
-      },
-    });
+    return res.status(400).json({ error: "credentials_required" });
   } catch (err) {
     console.error("POST /api/owner/login error:", err);
     return res.status(500).json({ error: "Login failed" });
@@ -1011,6 +1056,68 @@ app.post("/api/owner/set-passcode", async (req, res) => {
   } catch (err) {
     console.error("POST /api/owner/set-passcode error:", err);
     return res.status(500).json({ error: "Failed to set passcode" });
+  }
+});
+
+// Admin-only: set email + password for client portal (preferred over passcode-only)
+app.post("/api/owner/set-portal-credentials", async (req, res) => {
+  try {
+    const adminToken = getAdminToken(req);
+    if (!adminToken) {
+      return res.status(401).json({ error: "Admin auth required" });
+    }
+    const principal = await authenticateAdminKey(adminToken);
+    if (!principal || principal.source === "oidc") {
+      return res.status(401).json({ error: "Admin auth required" });
+    }
+
+    const { tenantId, email, password } = req.body || {};
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenantId is required" });
+    }
+    const emailNorm = normalizePortalEmail(
+      typeof email === "string" ? email : ""
+    );
+    if (!emailNorm || !isValidPortalEmailShape(emailNorm)) {
+      return res.status(400).json({ error: "invalid_email" });
+    }
+    const pw = typeof password === "string" ? password : "";
+    if (pw.length < PORTAL_PASSWORD_MIN_LEN) {
+      return res.status(400).json({
+        error: "password_too_short",
+        minLength: PORTAL_PASSWORD_MIN_LEN,
+      });
+    }
+    if (pw.length > PORTAL_PASSWORD_MAX_LEN) {
+      return res.status(400).json({ error: "password_too_long" });
+    }
+
+    const tenant = tenants.getOrCreate(tenantId);
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    const passwordHash = hashPortalPassword(pw);
+    try {
+      await upsertOwnerPortalCredentials({
+        tenantId,
+        emailNorm,
+        passwordHash,
+      });
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      if (code === "23505") {
+        return res.status(409).json({
+          error: "email_already_registered",
+          message: "That email is already used for another business.",
+        });
+      }
+      throw e;
+    }
+    return res.json({ success: true, tenantId, email: emailNorm });
+  } catch (err) {
+    console.error("POST /api/owner/set-portal-credentials error:", err);
+    return res.status(500).json({ error: "Failed to set portal credentials" });
   }
 });
 
@@ -1063,6 +1170,56 @@ app.post("/api/owner/change-passcode", async (req, res) => {
   }
 });
 
+/** Logged-in portal session: change password (email login). */
+app.post("/api/owner/change-password", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) {
+      return res.status(401).json({ error: "invalid_or_expired_session" });
+    }
+
+    const body = req.body || {};
+    const currentPassword =
+      typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const newPassword =
+      typeof body.newPassword === "string" ? body.newPassword : "";
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      return res.status(400).json({
+        error: "current_and_new_password_required",
+      });
+    }
+
+    const result = await changeOwnerPortalPasswordIfValid(
+      session.tenantId,
+      currentPassword,
+      newPassword
+    );
+    if (!result.ok) {
+      if (result.error === "invalid_current") {
+        return res.status(403).json({ error: "invalid_current_password" });
+      }
+      if (result.error === "password_too_short") {
+        return res.status(400).json({
+          error: "password_too_short",
+          minLength: PORTAL_PASSWORD_MIN_LEN,
+        });
+      }
+      if (result.error === "no_email_login") {
+        return res.status(400).json({ error: "no_email_login" });
+      }
+      return res.status(400).json({ error: "password_too_long" });
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/owner/change-password error:", err);
+    return res.status(500).json({ error: "change_password_failed" });
+  }
+});
+
 app.post(
   "/api/admin/tenants/:tenantId/owner-passcode/change",
   adminGuard("admin"),
@@ -1108,6 +1265,59 @@ app.post(
         err
       );
       return res.status(500).json({ error: "change_passcode_failed" });
+    }
+  }
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/owner-portal-password/change",
+  adminGuard("admin"),
+  async (req, res) => {
+    try {
+      const tenantId = req.params.tenantId?.trim();
+      if (!tenantId) {
+        return res.status(400).json({ error: "tenant_id_required" });
+      }
+      if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
+
+      const body = req.body || {};
+      const currentPassword =
+        typeof body.currentPassword === "string" ? body.currentPassword : "";
+      const newPassword =
+        typeof body.newPassword === "string" ? body.newPassword : "";
+      if (!currentPassword.trim() || !newPassword.trim()) {
+        return res.status(400).json({
+          error: "current_and_new_password_required",
+        });
+      }
+
+      const result = await changeOwnerPortalPasswordIfValid(
+        tenantId,
+        currentPassword,
+        newPassword
+      );
+      if (!result.ok) {
+        if (result.error === "invalid_current") {
+          return res.status(403).json({ error: "invalid_current_password" });
+        }
+        if (result.error === "password_too_short") {
+          return res.status(400).json({
+            error: "password_too_short",
+            minLength: PORTAL_PASSWORD_MIN_LEN,
+          });
+        }
+        if (result.error === "no_email_login") {
+          return res.status(400).json({ error: "no_email_login" });
+        }
+        return res.status(400).json({ error: "password_too_long" });
+      }
+      return res.json({ success: true });
+    } catch (err) {
+      console.error(
+        "POST /api/admin/tenants/:tenantId/owner-portal-password/change error:",
+        err
+      );
+      return res.status(500).json({ error: "change_password_failed" });
     }
   }
 );
@@ -1587,6 +1797,8 @@ type ExtendedTtsConfig = TTSConfig & {
   coquiSpeed?: number;
   chatterboxUrl?: string;
   chatterboxVariant?: string;
+  qwen3TtsUrl?: string;
+  qwen3Instruct?: string;
 };
 
 app.get("/api/tts/config", (req, res) => {
@@ -1621,6 +1833,12 @@ app.get("/api/tts/config", (req, res) => {
   if ((baseCfg as any).chatterboxVariant) {
     extendedCfg.chatterboxVariant = (baseCfg as any).chatterboxVariant;
   }
+  if ((baseCfg as any).qwen3TtsUrl) {
+    extendedCfg.qwen3TtsUrl = (baseCfg as any).qwen3TtsUrl;
+  }
+  if ((baseCfg as any).qwen3Instruct) {
+    extendedCfg.qwen3Instruct = (baseCfg as any).qwen3Instruct;
+  }
 
   res.json(extendedCfg);
 });
@@ -1635,6 +1853,8 @@ app.post("/api/tts/config", (req, res) => {
     kokoroUrl,
     chatterboxUrl,
     chatterboxVariant,
+    qwen3TtsUrl,
+    qwen3Instruct,
     voiceId,
     language,
     rate,
@@ -1645,7 +1865,7 @@ app.post("/api/tts/config", (req, res) => {
   } = req.body as Partial<ExtendedTtsConfig>;
 
   // Determine the TTS URL based on mode
-  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl;
+  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl || qwen3TtsUrl;
   let ttsUrlValue: string | undefined;
   if (typeof urlCandidate === "string" && urlCandidate.trim().length > 0) {
     const u = urlCandidate.trim();
@@ -1704,6 +1924,8 @@ app.post("/api/tts/config", (req, res) => {
     configUpdate.coquiXttsUrl = ttsUrlValue;
     configUpdate.chatterboxUrl = undefined;
     configUpdate.chatterboxVariant = undefined;
+    configUpdate.qwen3TtsUrl = undefined;
+    configUpdate.qwen3Instruct = undefined;
     if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
       configUpdate.defaultVoiceMode = defaultVoiceMode;
     }
@@ -1721,6 +1943,8 @@ app.post("/api/tts/config", (req, res) => {
       : "turbo";
     configUpdate.coquiXttsUrl = undefined;
     configUpdate.kokoroUrl = undefined;
+    configUpdate.qwen3TtsUrl = undefined;
+    configUpdate.qwen3Instruct = undefined;
     if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
       configUpdate.defaultVoiceMode = defaultVoiceMode;
     }
@@ -1730,11 +1954,24 @@ app.post("/api/tts/config", (req, res) => {
         label: clonedVoice.label?.trim() || undefined,
       };
     }
+  } else if (ttsMode === "qwen3_tts_http") {
+    configUpdate.ttsMode = "qwen3_tts_http";
+    configUpdate.qwen3TtsUrl = ttsUrlValue;
+    configUpdate.qwen3Instruct =
+      typeof qwen3Instruct === "string" && qwen3Instruct.trim() ? qwen3Instruct.trim() : undefined;
+    configUpdate.coquiXttsUrl = undefined;
+    configUpdate.kokoroUrl = undefined;
+    configUpdate.chatterboxUrl = undefined;
+    configUpdate.chatterboxVariant = undefined;
+    configUpdate.defaultVoiceMode = undefined;
+    configUpdate.clonedVoice = undefined;
   } else {
     configUpdate.ttsMode = "kokoro_http";
     configUpdate.kokoroUrl = ttsUrlValue;
     configUpdate.chatterboxUrl = undefined;
     configUpdate.chatterboxVariant = undefined;
+    configUpdate.qwen3TtsUrl = undefined;
+    configUpdate.qwen3Instruct = undefined;
     // Clear voice cloning fields for Kokoro
     configUpdate.defaultVoiceMode = undefined;
     configUpdate.clonedVoice = undefined;
@@ -1755,6 +1992,8 @@ app.post("/api/tts/config", (req, res) => {
     kokoroUrl: configUpdate.kokoroUrl,
     chatterboxUrl: configUpdate.chatterboxUrl,
     chatterboxVariant: configUpdate.chatterboxVariant,
+    qwen3TtsUrl: configUpdate.qwen3TtsUrl,
+    qwen3Instruct: configUpdate.qwen3Instruct,
   };
   
   res.json(response);
@@ -2042,13 +2281,14 @@ app.get("/api/admin/health", (req, res) => {
     },
     tts: {
       status:
-        tts.xttsUrl || tts.coquiXttsUrl || tts.kokoroUrl || tts.chatterboxUrl
+        tts.xttsUrl || tts.coquiXttsUrl || tts.kokoroUrl || tts.chatterboxUrl || tts.qwen3TtsUrl
           ? "configured"
           : "missing",
       xttsUrl: tts.xttsUrl,
       coquiXttsUrl: tts.coquiXttsUrl,
       kokoroUrl: tts.kokoroUrl,
       chatterboxUrl: tts.chatterboxUrl,
+      qwen3TtsUrl: tts.qwen3TtsUrl,
       chatterboxVariant: tts.chatterboxVariant,
       ttsMode: tts.ttsMode,
       voiceId: tts.voiceId,
@@ -2185,6 +2425,26 @@ app.post("/api/runtime/calls", adminGuard("admin"), (req, res) => {
 app.get("/api/admin/tenants", (_req, res) => {
   res.json({ tenants: tenants.listMetas() });
 });
+
+/** Client portal readiness: legacy passcode and/or email login. */
+app.get(
+  "/api/admin/tenants/:tenantId/owner-portal-status",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const [hash, cred] = await Promise.all([
+      getOwnerPasscodeHash(tenantId),
+      getOwnerPortalCredentialRow(tenantId),
+    ]);
+    res.json({
+      passcodeSet: Boolean(hash),
+      emailLoginSet: Boolean(cred),
+    });
+  })
+);
 
 app.post("/api/admin/tenants", (req, res) => {
   const { id, name, numbers, businessNumber } = req.body as {

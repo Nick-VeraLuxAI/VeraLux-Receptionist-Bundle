@@ -7,6 +7,8 @@ Env:
   CHATTERBOX_DEFAULT_AUDIO_PROMPT  Optional path to a reference WAV on disk when no speaker_wav_url is sent (Turbo).
   CHATTERBOX_MAX_TEXT_CHARS        Default 1500
   RATE_LIMIT_PER_MINUTE            Default 30
+  CHATTERBOX_MAX_CONCURRENT        Per-process cap (default 1). One model per process; do not raise within a worker.
+  Run multiple parallel syntheses via gunicorn workers (CHATTERBOX_GUNICORN_WORKERS in compose), not shared threads on one model.
 
 POST /tts JSON:
   { "text": "...", "speaker_wav_url": "https://.../ref.wav" (optional), "language_id": "en" (multilingual only) }
@@ -16,9 +18,11 @@ Returns audio/wav (PCM).
 
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 import os
+from contextlib import asynccontextmanager
 import tempfile
 import urllib.request
 from typing import Any, Optional
@@ -38,15 +42,14 @@ logger = logging.getLogger("chatterbox_server")
 RATE_LIMIT = os.getenv("RATE_LIMIT_PER_MINUTE", "30")
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI()
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 VARIANT = os.getenv("CHATTERBOX_VARIANT", "turbo").strip().lower()
 DEVICE = os.getenv("CHATTERBOX_DEVICE", "cuda").strip().lower()
 DEFAULT_PROMPT_PATH = os.getenv("CHATTERBOX_DEFAULT_AUDIO_PROMPT", "").strip() or None
 MAX_TEXT = int(os.getenv("CHATTERBOX_MAX_TEXT_CHARS", "1500"))
 MAX_CONCURRENT = int(os.getenv("CHATTERBOX_MAX_CONCURRENT", "1"))
+
+# Within one worker process, only one synthesis at a time (shared MODEL is not thread-safe).
+tts_semaphore = asyncio.Semaphore(max(1, MAX_CONCURRENT))
 
 MODEL: Any = None
 
@@ -153,6 +156,20 @@ def _synthesize(text: str, speaker_path: Optional[str], language_id: Optional[st
     return _tensor_to_wav_bytes(wav, sr)
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Each gunicorn worker loads its own MODEL — enables N parallel syntheses with N workers."""
+    logger.info("chatterbox worker startup: loading model variant=%s", VARIANT)
+    await run_in_threadpool(_load_model)
+    logger.info("chatterbox worker startup: model ready")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
 class TtsBody(BaseModel):
     text: str = Field(default="")
     speaker_wav_url: Optional[str] = None
@@ -167,6 +184,7 @@ def health() -> dict[str, Any]:
         "variant": VARIANT,
         "device": DEVICE,
         "model_loaded": ok,
+        "parallel_channels_hint": os.getenv("CHATTERBOX_GUNICORN_WORKERS", "1"),
     }
     if VARIANT == "turbo" and DEFAULT_PROMPT_PATH:
         out["default_prompt_path"] = DEFAULT_PROMPT_PATH
@@ -194,9 +212,10 @@ async def tts(request: Request, body: TtsBody) -> Response:
             return JSONResponse({"error": "speaker_wav_download_failed"}, status_code=400)
 
     try:
-        wav_bytes = await run_in_threadpool(
-            _synthesize, text, speaker_path, body.language_id
-        )
+        async with tts_semaphore:
+            wav_bytes = await run_in_threadpool(
+                _synthesize, text, speaker_path, body.language_id
+            )
         return Response(content=wav_bytes, media_type="audio/wav")
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)

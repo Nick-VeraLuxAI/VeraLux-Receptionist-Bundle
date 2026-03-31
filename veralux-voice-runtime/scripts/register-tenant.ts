@@ -64,7 +64,17 @@ function buildConfig(tenantId: string, did: string): RuntimeTenantConfig {
             format: 'wav',
             sampleRate: env.TTS_SAMPLE_RATE,
           }
-        : {
+        : env.TTS_MODE === 'qwen3_tts_http'
+          ? {
+              mode: 'qwen3_tts_http',
+              qwen3TtsUrl: env.QWEN3_TTS_URL!,
+              speaker: env.QWEN3_TTS_SPEAKER ?? 'Ryan',
+              language: env.QWEN3_TTS_LANGUAGE ?? 'English',
+              instruct: env.QWEN3_TTS_INSTRUCT,
+              format: 'wav',
+              sampleRate: env.TTS_SAMPLE_RATE,
+            }
+          : {
             mode: 'kokoro_http',
             kokoroUrl: env.KOKORO_URL!,
             voice: env.KOKORO_VOICE_ID ?? 'af_bella',

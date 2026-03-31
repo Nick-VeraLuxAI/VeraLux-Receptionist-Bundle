@@ -1278,12 +1278,14 @@ export class CallSession {
         ? 'coqui_xtts'
         : ttsMode === 'chatterbox_http'
           ? 'chatterbox'
-          : 'kokoro';
+          : ttsMode === 'qwen3_tts_http'
+            ? 'qwen3_tts_http'
+            : 'kokoro';
     this.logWavInfo(wavSrc, id, audio);
   }
 
   private logWavInfo(
-    source: 'kokoro' | 'coqui_xtts' | 'chatterbox' | 'pipeline_output',
+    source: 'kokoro' | 'coqui_xtts' | 'chatterbox' | 'qwen3_tts_http' | 'pipeline_output',
     id: string,
     audio: Buffer,
   ): void {
@@ -2282,7 +2284,10 @@ export class CallSession {
         result = await synthesizeSpeech(
           {
             text,
-            voice: this.ttsConfig?.voice,
+            voice:
+              this.ttsConfig?.mode === 'qwen3_tts_http'
+                ? this.ttsConfig.speaker
+                : this.ttsConfig?.voice,
             format: this.ttsConfig?.format,
             sampleRate: this.ttsConfig?.sampleRate,
             speakerWavUrl: currentSpeakerWavUrl,
@@ -2535,7 +2540,10 @@ export class CallSession {
       result = await synthesizeSpeech(
         {
           text: segmentText,
-          voice: this.ttsConfig?.voice,
+          voice:
+            this.ttsConfig?.mode === 'qwen3_tts_http'
+              ? this.ttsConfig.speaker
+              : this.ttsConfig?.voice,
           format: this.ttsConfig?.format,
           sampleRate: this.ttsConfig?.sampleRate,
           speakerWavUrl: currentSpeakerWavUrl,

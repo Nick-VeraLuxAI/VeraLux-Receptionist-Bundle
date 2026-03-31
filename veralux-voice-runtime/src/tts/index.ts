@@ -12,6 +12,7 @@ import {
 import { synthesizeSpeech as synthesizeKokoro } from './kokoroTTS';
 import { synthesizeSpeechCoquiXtts } from './coquiXtts';
 import { synthesizeSpeechChatterbox } from './chatterboxTTS';
+import { synthesizeSpeechQwen3 } from './qwen3Tts';
 import type { TTSRequest, TTSResult } from './types';
 
 /** Build TTS config from .env when no tenant config is set. Kokoro and Coqui use separate voice defaults. */
@@ -38,6 +39,17 @@ function ttsConfigFromEnv(): RuntimeTenantConfig['tts'] {
       chatterboxVariant: env.CHATTERBOX_VARIANT,
       voice: env.CHATTERBOX_VOICE_ID,
       language: env.CHATTERBOX_LANGUAGE ?? 'en',
+      format: 'wav',
+      sampleRate: env.TTS_SAMPLE_RATE,
+    };
+  }
+  if (env.TTS_MODE === 'qwen3_tts_http') {
+    return {
+      mode: 'qwen3_tts_http',
+      qwen3TtsUrl: env.QWEN3_TTS_URL!,
+      speaker: env.QWEN3_TTS_SPEAKER ?? 'Ryan',
+      language: env.QWEN3_TTS_LANGUAGE ?? 'English',
+      instruct: env.QWEN3_TTS_INSTRUCT,
       format: 'wav',
       sampleRate: env.TTS_SAMPLE_RATE,
     };
@@ -97,6 +109,14 @@ export async function synthesizeSpeech(
       coquiTopP: request.coquiTopP ?? config.coquiTopP,
       coquiSpeed: request.coquiSpeed ?? config.coquiSpeed,
       coquiSplitSentences: request.coquiSplitSentences ?? config.coquiSplitSentences,
+    });
+  } else if (config.mode === 'qwen3_tts_http') {
+    result = await synthesizeSpeechQwen3({
+      text: request.text,
+      qwen3TtsUrl: request.qwen3TtsUrl ?? config.qwen3TtsUrl,
+      speaker: request.voice ?? config.speaker,
+      language: request.language ?? config.language,
+      instruct: request.instruct ?? config.instruct,
     });
   } else {
     const kokoroConfig = config.mode === 'kokoro_http' ? config : undefined;

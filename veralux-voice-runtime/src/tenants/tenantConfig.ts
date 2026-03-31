@@ -21,6 +21,7 @@ export {
   type RuntimeTtsConfig,
   type RuntimeTtsCoquiXtts,
   type RuntimeTtsChatterbox,
+  type RuntimeTtsQwen3,
   type RuntimeClonedVoice,
   type RuntimeVoiceMode,
   type RuntimeForwardingProfile,

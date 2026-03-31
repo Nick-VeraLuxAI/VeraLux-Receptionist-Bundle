@@ -50,6 +50,21 @@ test("runtimeContract accepts chatterbox_http tts", () => {
   assert.equal(parsed.tts.chatterboxUrl, "http://localhost:7005");
 });
 
+test("runtimeContract accepts qwen3_tts_http tts", () => {
+  const parsed = parseRuntimeTenantConfig(
+    baseConfig({
+      tts: {
+        mode: "qwen3_tts_http",
+        qwen3TtsUrl: "http://localhost:7010",
+        speaker: "Ryan",
+        language: "English",
+      },
+    }),
+  );
+  assert.equal(parsed.tts.mode, "qwen3_tts_http");
+  assert.equal(parsed.tts.qwen3TtsUrl, "http://localhost:7010");
+});
+
 test("runtimeContract rejects missing webhook secret", () => {
   const cfg = baseConfig({ webhookSecretRef: undefined });
   delete cfg.webhookSecretRef;

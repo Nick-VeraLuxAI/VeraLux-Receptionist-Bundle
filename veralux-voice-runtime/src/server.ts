@@ -208,7 +208,7 @@ function logTtsBytesReady(
   audio: Buffer,
   contentType: string | undefined,
   context: Record<string, unknown>,
-  source: 'kokoro' | 'coqui_xtts' | 'chatterbox' = 'kokoro',
+  source: 'kokoro' | 'coqui_xtts' | 'chatterbox' | 'qwen3_tts' = 'kokoro',
 ): void {
   const header = describeWavHeader(audio);
   log.info(
@@ -875,7 +875,9 @@ async function ensureGreetingAsset(): Promise<void> {
       ? (env.COQUI_VOICE_ID ?? 'en_sample')
       : env.TTS_MODE === 'chatterbox_http'
         ? (env.CHATTERBOX_VOICE_ID ?? 'chatterbox')
-        : (env.KOKORO_VOICE_ID ?? 'af_bella');
+        : env.TTS_MODE === 'qwen3_tts_http'
+          ? (env.QWEN3_TTS_SPEAKER ?? 'Ryan')
+          : (env.KOKORO_VOICE_ID ?? 'af_bella');
   try {
     const greetingText = env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?';
     const result = await synthesizeSpeech({
@@ -889,7 +891,9 @@ async function ensureGreetingAsset(): Promise<void> {
         ? 'coqui_xtts'
         : env.TTS_MODE === 'chatterbox_http'
           ? 'chatterbox'
-          : 'kokoro';
+          : env.TTS_MODE === 'qwen3_tts_http'
+            ? 'qwen3_tts'
+            : 'kokoro';
     logTtsBytesReady('greeting.wav', result.audio, result.contentType, { path: greetingPath }, ttsSource);
 
     // Always resample greeting to PSTN rate so Telnyx playback is correct (avoids slowed/distorted
