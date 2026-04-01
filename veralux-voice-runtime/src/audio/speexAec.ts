@@ -39,7 +39,14 @@ function tryLoadSpeexDsp(): boolean {
     ...(process.platform === 'darwin'
       ? ['/opt/homebrew/lib/libspeexdsp.dylib', '/usr/local/lib/libspeexdsp.dylib']
       : []),
-    ...(process.platform === 'linux' ? ['/usr/lib/x86_64-linux-gnu/libspeexdsp.so', '/usr/lib/libspeexdsp.so'] : []),
+    ...(process.platform === 'linux'
+      ? [
+          '/usr/lib/x86_64-linux-gnu/libspeexdsp.so.1',
+          '/usr/lib/x86_64-linux-gnu/libspeexdsp.so',
+          '/usr/lib/libspeexdsp.so.1',
+          '/usr/lib/libspeexdsp.so',
+        ]
+      : []),
   ];
   for (const name of names) {
     try {
