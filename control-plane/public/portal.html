@@ -801,7 +801,7 @@
                       <input type="checkbox" id="portal-qwen3Streaming" style="margin-top: 3px" />
                       <span>
                         <strong>Chunked synthesis (faster first words)</strong><br />
-                        <span class="help" style="font-size: 13px; line-height: 1.4">Splits long replies into sentences so the first line can play sooner. Each part is still a full Qwen3 request; publish to Redis after saving.</span>
+                        <span class="help" style="font-size: 13px; line-height: 1.4">Splits long replies into sentences so the first line can play sooner. Each part is still a full Qwen3 request. Random sampling makes chunks sound inconsistent; default is off for a steady voice. Publish to Redis after saving.</span>
                       </span>
                     </label>
                     <details style="margin-top: 12px">
@@ -810,9 +810,9 @@
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
                         <div>
                           <label for="portal-qwen3DoSample" style="font-weight: 600">Use random sampling</label>
-                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. <code>do_sample</code></p>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. Default (unset): runtime uses off. <code>do_sample</code></p>
                           <select id="portal-qwen3DoSample" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
-                            <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                            <option value="">Default (deterministic)</option><option value="true">On</option><option value="false">Off</option>
                           </select>
                         </div>
                         <div>

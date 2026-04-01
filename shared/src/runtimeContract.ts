@@ -160,7 +160,11 @@ const ttsQwen3Schema = z.object({
   instruct: z.string().optional(),
   format: z.string().min(1).optional(),
   sampleRate: z.number().int().positive().optional(),
-  /** Generation kwargs — see Qwen3-TTS generate_custom_voice. Omitted = server/model defaults. */
+  /**
+   * Generation kwargs — see Qwen3-TTS generate_custom_voice.
+   * Omitted: voice runtime sends `do_sample: false` for consistent voice (especially with
+   * `qwen3Streaming`, where each chunk is a separate synthesis). Set `true` for stochastic variety.
+   */
   qwen3DoSample: z.boolean().optional(),
   qwen3Temperature: z.number().min(0).max(2).optional(),
   qwen3TopP: z.number().min(0).max(1).optional(),

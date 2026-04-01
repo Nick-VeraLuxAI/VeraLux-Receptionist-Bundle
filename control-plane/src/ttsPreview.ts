@@ -259,6 +259,7 @@ export async function synthesizeTtsPreview(
       gen[key] = Math.min(max, Math.max(min, Math.round(v)));
     };
     if (cfg.qwen3DoSample !== undefined) gen.do_sample = cfg.qwen3DoSample;
+    else gen.do_sample = false;
     putNum("temperature", cfg.qwen3Temperature, 0, 2);
     putNum("top_p", cfg.qwen3TopP, 0, 1);
     putInt("top_k", cfg.qwen3TopK, 0, 1_000_000);

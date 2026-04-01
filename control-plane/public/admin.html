@@ -474,7 +474,7 @@
                       <input type="checkbox" id="qwen3Streaming" name="qwen3Streaming" style="margin-top: 3px" />
                       <span>
                         <strong>Chunked synthesis (lower delay before first words)</strong><br />
-                        <span class="small muted">Splits long replies into sentences so the first chunk can play sooner. Each chunk is still a full Qwen3 HTTP call — not raw PCM streaming from the model.</span>
+                        <span class="small muted">Splits long replies into sentences so the first chunk can play sooner. Each chunk is still a full Qwen3 HTTP call — not raw PCM streaming from the model. Random sampling makes each chunk sound like a different take; the stack defaults “Use random sampling” to off for a steady voice, or turn off chunked synthesis for one WAV per reply.</span>
                       </span>
                     </label>
                     <details style="margin-top: 12px; max-width: 560px">
@@ -486,9 +486,9 @@
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 8px">
                         <div>
                           <label for="qwen3DoSample" style="font-weight: 600">Use random sampling</label>
-                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">On: slightly different audio each run. Off: more repeatable. <code>do_sample</code></p>
+                          <p class="small muted" style="margin: 2px 0 4px; line-height: 1.35">On: different audio each run. Off: deterministic. Default (unset): runtime uses off for voice consistency. <code>do_sample</code></p>
                           <select id="qwen3DoSample" style="width: 100%; padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
-                            <option value="">Default</option>
+                            <option value="">Default (deterministic)</option>
                             <option value="true">On</option>
                             <option value="false">Off</option>
                           </select>

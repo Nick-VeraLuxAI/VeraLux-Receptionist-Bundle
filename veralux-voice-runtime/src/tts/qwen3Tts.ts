@@ -46,6 +46,21 @@ export function mergeQwen3TenantAndRequest(
   return o;
 }
 
+/**
+ * Qwen3 CustomVoice uses sampling when `do_sample` is true (typical model defaults). Each HTTP
+ * `/tts` call re-rolls independently. With chunked synthesis (`qwen3Streaming`), that is once per
+ * sentence chunk — so stochastic decoding sounds like a different speaker per sentence.
+ * Default to deterministic decoding when the tenant did not choose (consistent voice; set
+ * `qwen3DoSample: true` for variety).
+ */
+export function applyQwen3VoiceConsistencyDefaults(gen: Qwen3GenParams): Qwen3GenParams {
+  const o: Qwen3GenParams = { ...gen };
+  if (o.qwen3DoSample === undefined) {
+    o.qwen3DoSample = false;
+  }
+  return o;
+}
+
 function qwen3GenToJsonBody(g: Qwen3GenParams): Record<string, boolean | number> {
   const out: Record<string, boolean | number> = {};
   if (g.qwen3DoSample !== undefined) out.do_sample = g.qwen3DoSample;

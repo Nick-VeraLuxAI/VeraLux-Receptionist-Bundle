@@ -11,12 +11,13 @@ Env:
 
 POST /tts JSON:
   { "text": "...", "speaker": "Ryan", "language": "English", "instruct": "",
-    "do_sample": true, "temperature": 0.8, "top_p": 0.9, "top_k": 50,
+    "do_sample": false, "temperature": 0.8, "top_p": 0.9, "top_k": 50,
     "repetition_penalty": 1.1, "max_new_tokens": 1024, "non_streaming_mode": true,
     "subtalker_dosample": null, "subtalker_top_k": null, "subtalker_top_p": null,
     "subtalker_temperature": null }
 
 Optional generation kwargs match Qwen3TTSModel.generate_custom_voice (omit or null to use model defaults).
+The VeraLux voice runtime sends do_sample=false when unset so chunked synthesis does not sound like a different speaker each sentence.
 
 Returns audio/wav (PCM16).
 """

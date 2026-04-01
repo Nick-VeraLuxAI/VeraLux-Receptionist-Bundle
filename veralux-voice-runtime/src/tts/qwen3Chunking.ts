@@ -1,7 +1,12 @@
 /**
  * Split assistant text into smaller chunks so Qwen3-TTS can return the first WAV sooner
- * (lower time-to-first-audio) when {@link RuntimeTenantConfig.tts.qwen3Streaming} is enabled.
+ * (lower time-to-first-audio) when tenant `qwen3Streaming` is enabled.
  * This is not model-level streaming; it is multiple HTTP /tts calls in sequence.
+ *
+ * Voice consistency: each chunk is an independent synthesis. Stochastic decoding (`do_sample`)
+ * makes every chunk sound like a new random take. The runtime defaults `do_sample` to false when
+ * unset (see `applyQwen3VoiceConsistencyDefaults`). For maximum consistency, disable chunked
+ * synthesis so the whole reply is one WAV.
  */
 
 const MAX_SINGLE_CHUNK_CHARS = 140;

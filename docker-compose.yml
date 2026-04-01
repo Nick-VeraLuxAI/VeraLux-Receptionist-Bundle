@@ -173,6 +173,15 @@ services:
       - STT_CHUNK_MS=${STT_CHUNK_MS:-100}
       - STT_SILENCE_MS=${STT_SILENCE_MS:-700}
       - DEAD_AIR_MS=${DEAD_AIR_MS:-10000}
+      # STT WAV debug (listen to ingest vs Whisper-bound audio). See .env.example
+      - STT_DEBUG_DIR=${STT_DEBUG_DIR:-/app/audio/stt-debug}
+      - STT_DEBUG_DUMP_RX_WAV=${STT_DEBUG_DUMP_RX_WAV:-false}
+      - STT_DEBUG_DUMP_WHISPER_WAVS=${STT_DEBUG_DUMP_WHISPER_WAVS:-false}
+      - STT_DEBUG_DUMP_PCM16=${STT_DEBUG_DUMP_PCM16:-false}
+      - STT_DEBUG_DUMP_FAR_END_REF=${STT_DEBUG_DUMP_FAR_END_REF:-false}
+      - STT_PREWHISPER_GATE=${STT_PREWHISPER_GATE:-false}
+      - STT_PREWHISPER_DUMP_DIR=${STT_PREWHISPER_DUMP_DIR:-/app/audio/stt-debug}
+      - STT_PREWHISPER_DUMP_FIRST_N=${STT_PREWHISPER_DUMP_FIRST_N:-10}
       # Rate Limiting (defaults: protect single-GPU STT/TTS; raise only after profiling)
       - GLOBAL_CONCURRENCY_CAP=${GLOBAL_CONCURRENCY_CAP:-16}
       - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-4}

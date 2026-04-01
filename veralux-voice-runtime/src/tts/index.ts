@@ -12,7 +12,11 @@ import {
 import { synthesizeSpeech as synthesizeKokoro } from './kokoroTTS';
 import { synthesizeSpeechCoquiXtts } from './coquiXtts';
 import { synthesizeSpeechChatterbox } from './chatterboxTTS';
-import { mergeQwen3TenantAndRequest, synthesizeSpeechQwen3 } from './qwen3Tts';
+import {
+  applyQwen3VoiceConsistencyDefaults,
+  mergeQwen3TenantAndRequest,
+  synthesizeSpeechQwen3,
+} from './qwen3Tts';
 import type { TTSRequest, TTSResult } from './types';
 
 /** Build TTS config from .env when no tenant config is set. Kokoro and Coqui use separate voice defaults. */
@@ -115,7 +119,7 @@ export async function synthesizeSpeech(
       coquiSplitSentences: request.coquiSplitSentences ?? config.coquiSplitSentences,
     });
   } else if (config.mode === 'qwen3_tts_http') {
-    const gen = mergeQwen3TenantAndRequest(request, config);
+    const gen = applyQwen3VoiceConsistencyDefaults(mergeQwen3TenantAndRequest(request, config));
     result = await synthesizeSpeechQwen3({
       text: request.text,
       qwen3TtsUrl: request.qwen3TtsUrl ?? config.qwen3TtsUrl,
