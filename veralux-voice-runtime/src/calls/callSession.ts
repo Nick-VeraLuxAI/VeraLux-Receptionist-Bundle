@@ -2206,41 +2206,28 @@ export class CallSession {
 
       this.onAnswered();
 
+      const greetingText = env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?';
+
       if (this.transport.mode === 'webrtc_hd') {
-        await this.playText(env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?', 'greeting');
+        await this.playText(greetingText, 'greeting');
         return;
       }
 
-      const trimmedBaseUrl = env.AUDIO_PUBLIC_BASE_URL.replace(/\/$/, '');
-      const greetingUrl = `${trimmedBaseUrl}/greeting.wav`;
-
-      if (this.shouldSkipTelnyxAction('playback_start')) {
-        return;
-      }
-      this.beginPlayback('greeting');
-      try {
-        const playbackStart = Date.now();
-        this.audioCoordinator.onTtsStart(playbackStart, 'greeting_playback_start');
-        await this.transport.playback.play({ kind: 'url', url: greetingUrl });
-        // For PSTN, wait for Telnyx playback.ended webhook to end playback.
-        if (this.transport.mode !== 'pstn') {
-          this.onPlaybackEnded();
+      // PSTN: use live TTS for the greeting so it respects per-tenant Redis TTS (mode, speaker, URL).
+      // Pre-baked `{AUDIO_PUBLIC_BASE_URL}/greeting.wav` is generated once at process startup from
+      // env TTS_MODE / env voice only — it does not follow tenantcfg, so the opening line could
+      // stay on the default (e.g. Kokoro female) after switching to Qwen3 or another voice.
+      if (this.transport.mode === 'pstn') {
+        if (this.shouldSkipTelnyxAction('playback_start')) {
+          return;
         }
-      } catch (error) {
-        if (this.transport.mode === 'pstn') {
-          this.endPlaybackAuthoritatively('watchdog');
-        } else {
-          this.onPlaybackEnded();
-        }
-        // Fallback: greeting.wav may be missing (XTTS down at startup). Use live TTS.
-        log.warn({ err: error, ...this.logContext }, 'greeting URL playback failed, using live TTS');
-        await this.playText(env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?', 'greeting');
+        await this.playText(greetingText, 'greeting');
         return;
       }
 
-      log.info(
-        { event: 'call_playback_started', audio_url: greetingUrl, ...this.logContext },
-        'playback started',
+      log.warn(
+        { transport_mode: this.transport.mode, ...this.logContext },
+        'unexpected transport mode for greeting (expected pstn or webrtc_hd)',
       );
     } catch (error) {
       log.error({ err: error, ...this.logContext }, 'call start greeting failed');
