@@ -428,6 +428,16 @@ export class CallSession {
 
       // Tier 2: measured listen-after-playback delay (300–900ms based on last segment length)
       getPostPlaybackGraceMs: () => this.computePostPlaybackGraceMs(),
+      getPipelineDiagContext: () => ({
+        session_state: this.state,
+        stt_in_flight: this.sttInFlightCount,
+        is_handling_transcript: this.isHandlingTranscript,
+        reprompt_in_flight: this.repromptInFlight,
+        ms_since_last_inbound_media:
+          this.lastInboundMediaAtMs > 0 ? Date.now() - this.lastInboundMediaAtMs : null,
+        tts_segment_queue_depth: this.ttsSegmentQueueDepth,
+        playback_flag_active: this.playbackState.active,
+      }),
     });
   }
 

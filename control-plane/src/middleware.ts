@@ -64,6 +64,7 @@ function formatLog(level: LogLevel, message: string, context?: LogContext): stri
     level,
     message,
     ...context,
+    svc: "control",
   };
   return JSON.stringify(logObj);
 }

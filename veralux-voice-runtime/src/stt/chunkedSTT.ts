@@ -102,6 +102,8 @@ export interface ChunkedSTTOptions {
   // When provided, overrides postPlaybackGraceMs (fixed fallback).
   getPostPlaybackGraceMs?: () => number;
 
+  /** Extra fields merged into `stt_pipeline_diag` (session state, inbound media age, etc.). */
+  getPipelineDiagContext?: () => Record<string, unknown>;
 
   // Input coming into ingest()
   inputCodec?: 'pcmu' | 'pcm16le';
@@ -287,6 +289,16 @@ function computeRmsAndPeak(pcm16le: Buffer): { rms: number; peak: number } {
   return { rms: Math.sqrt(sumSquares / samples), peak };
 }
 
+/** Short-time energy (mean square of normalized samples); equals RMS². */
+function steFromRms(rms: number): number {
+  return rms * rms;
+}
+
+/** 20·log10(x) for normalized RMS or peak (0…1); fuller scale ≈ 0 dBFS at peak 1. */
+function amplitudeToDbfs(x: number): number {
+  return 20 * Math.log10(Math.max(x, 1e-12));
+}
+
 function clampInt16(n: number): number {
   if (n > 32767) return 32767;
   if (n < -32768) return -32768;
@@ -453,7 +465,12 @@ export class ChunkedSTT {
 
   private rollingRms = 0;
   private rollingPeak = 0;
+  private lastRawFrameStats: { rms: number; peak: number } = { rms: 0, peak: 0 };
   private lastGateLogAtMs = 0;
+
+  private readonly getPipelineDiagContext?: () => Record<string, unknown>;
+  private readonly pipelineDiagOnPlayback: boolean;
+  private pipelineDiagTimer: NodeJS.Timeout | undefined;
 
   private finalFlushAt = 0;
   private finalTranscriptAccepted = false;
@@ -519,7 +536,8 @@ export class ChunkedSTT {
     this.getCodec = opts.getCodec;
     this.isCallActive = opts.isCallActive;
     this.getPostPlaybackGraceMs = opts.getPostPlaybackGraceMs;
-
+    this.getPipelineDiagContext = opts.getPipelineDiagContext;
+    this.pipelineDiagOnPlayback = env.STT_PIPELINE_DIAG_ON_PLAYBACK;
 
     this.inputCodec = opts.inputCodec ?? 'pcmu';
 
@@ -658,11 +676,25 @@ export class ChunkedSTT {
           noise_floor_enabled: T5_NOISE_FLOOR_ENABLED,
           late_final_watchdog_enabled: T5_LATE_FINAL_WATCHDOG_ENABLED,
           late_final_watchdog_ms: T5_LATE_FINAL_WATCHDOG_MS,
+          pipeline_diag_interval_ms: env.STT_PIPELINE_DIAG_INTERVAL_MS,
+          pipeline_diag_on_playback: env.STT_PIPELINE_DIAG_ON_PLAYBACK,
         },
         ...(this.logContext ?? {}),
       },
       'stt tuning',
     );
+
+    const diagMs = env.STT_PIPELINE_DIAG_INTERVAL_MS;
+    if (diagMs > 0) {
+      this.pipelineDiagTimer = setInterval(() => {
+        try {
+          this.emitPipelineDiag('interval');
+        } catch (err) {
+          log.error({ event: 'stt_pipeline_diag_error', err, ...(this.logContext ?? {}) }, 'stt pipeline diag failed');
+        }
+      }, diagMs);
+      this.pipelineDiagTimer.unref?.();
+    }
 
     // Partial tick is OPTIONAL now.
     // With CallSession running a final-only turn policy, partials just add load and can delay finals.
@@ -920,6 +952,10 @@ export class ChunkedSTT {
       if (this.vad) this.vad.reset();
 
       this.recentRxHashes.length = 0;
+
+      if (this.pipelineDiagOnPlayback) {
+        this.emitPipelineDiag('playback_start');
+      }
     }
 
     // PLAYBACK ENDED
@@ -971,6 +1007,10 @@ export class ChunkedSTT {
       this.bargeInSpeechStreak = 0;
       this.bargeInLastStats = { rms: 0, peak: 0 };
       this.bargeInLastFrameMs = 0;
+
+      if (this.pipelineDiagOnPlayback) {
+        this.emitPipelineDiag('playback_end');
+      }
     }
   }
 
@@ -1062,6 +1102,7 @@ export class ChunkedSTT {
 
 
     const stats = computeRmsAndPeak(pcm16);
+    this.lastRawFrameStats = { rms: stats.rms, peak: stats.peak };
     this.updateRollingStats(stats);
 
     // Tier 5: Update noise floor from pre-speech frames (ambient, not gated)
@@ -1212,6 +1253,9 @@ export class ChunkedSTT {
           gate_peak: gatePeak,
           rms: stats.rms,
           peak: stats.peak,
+          energy_ste: Number(steFromRms(stats.rms).toFixed(10)),
+          rms_dbfs: Number(amplitudeToDbfs(stats.rms).toFixed(2)),
+          peak_dbfs: Number(amplitudeToDbfs(stats.peak).toFixed(2)),
           ...(this.logContext ?? {}),
         },
         'stt speech decision',
@@ -1373,6 +1417,10 @@ export class ChunkedSTT {
     if (this.noFrameCheckTimer) {
       clearInterval(this.noFrameCheckTimer);
       this.noFrameCheckTimer = undefined;
+    }
+    if (this.pipelineDiagTimer) {
+      clearInterval(this.pipelineDiagTimer);
+      this.pipelineDiagTimer = undefined;
     }
 
     try { await chain; } catch { /* ignore */ }
@@ -2005,6 +2053,8 @@ export class ChunkedSTT {
     const listening = this.isListening?.();
     const codec = this.getCodec?.() ?? this.inputCodec;
     const track = this.getTrack?.();
+    const effRmsGate = this.getEffectiveRmsFloor();
+    const effPeakGate = this.getEffectivePeakFloor();
 
     log.info(
       {
@@ -2020,6 +2070,13 @@ export class ChunkedSTT {
         rolling_peak: this.rollingPeak,
         rms_floor: this.speechRmsFloor,
         peak_floor: this.speechPeakFloor,
+        effective_rms_floor: Number(effRmsGate.toFixed(5)),
+        effective_peak_floor: Number(effPeakGate.toFixed(5)),
+        rms_vs_effective_ratio:
+          effRmsGate > 1e-9 ? Number((stats.rms / effRmsGate).toFixed(3)) : null,
+        energy_ste: Number(steFromRms(stats.rms).toFixed(10)),
+        rms_dbfs: Number(amplitudeToDbfs(stats.rms).toFixed(2)),
+        peak_dbfs: Number(amplitudeToDbfs(stats.peak).toFixed(2)),
         speech_frames_required: this.speechFramesRequired,
         speech_frame_streak: this.speechFrameStreak,
         frame_ms: Math.round(frameMs),
@@ -2028,6 +2085,138 @@ export class ChunkedSTT {
         ...(this.logContext ?? {}),
       },
       'stt gate closed',
+    );
+  }
+
+  /** Rich snapshot: levels, gates, dedupe, VAD, timing (see STT_PIPELINE_DIAG_* env). */
+  private emitPipelineDiag(reason: 'interval' | 'playback_start' | 'playback_end'): void {
+    const now = this.nowMs();
+    const playbackActive = !!this.isPlaybackActive?.();
+    const listening = !!this.isListening?.();
+    const gateActive = this.playbackGateActive();
+    const effRms = this.getEffectiveRmsFloor();
+    const effPeak = this.getEffectivePeakFloor();
+    const graceMs = this.getPostPlaybackGraceMs?.() ?? this.postPlaybackGraceMs;
+    const sincePlaybackEnd = this.playbackEndedAtMs > 0 ? now - this.playbackEndedAtMs : null;
+    const graceRemainingMs =
+      sincePlaybackEnd != null && sincePlaybackEnd >= 0 && sincePlaybackEnd < graceMs
+        ? Math.round(graceMs - sincePlaybackEnd)
+        : null;
+
+    const speechMs = Math.max(0, this.utteranceMs - this.lastPrependedMs);
+    let tier1DynamicSilenceMs: number | null = null;
+    try {
+      tier1DynamicSilenceMs = Math.round(
+        t1ComputeDynamicSilenceMs({ speechMs, avgRms: this.rollingRms, baselineMs: this.silenceEndMs }),
+      );
+    } catch {
+      tier1DynamicSilenceMs = null;
+    }
+
+    const dupDenom = Math.max(1, this.framesSeen + this.rxFramesDropped);
+    const rxDropRatio = this.rxFramesDropped / dupDenom;
+
+    const msSinceLastFrame = this.lastFrameAtMs > 0 ? Math.round(now - this.lastFrameAtMs) : null;
+    const msSinceLastSpeech =
+      this.inSpeech && this.lastSpeechAt > 0 ? Math.round(now - this.lastSpeechAt) : null;
+
+    const extras = this.getPipelineDiagContext?.() ?? {};
+
+    const ratioToRmsFloor = effRms > 1e-9 ? this.rollingRms / effRms : null;
+    const audioLikelyTooQuiet =
+      listening &&
+      !playbackActive &&
+      !gateActive &&
+      this.noiseFloorSampleCount >= 40 &&
+      ratioToRmsFloor != null &&
+      ratioToRmsFloor < 0.35;
+
+    log.info(
+      {
+        event: 'stt_pipeline_diag',
+        reason,
+        codec: this.getCodec?.() ?? this.inputCodec,
+        track: this.getTrack?.() ?? null,
+        disable_gates: this.disableGates,
+        playback_active: playbackActive,
+        listening,
+        playback_gate_active: gateActive,
+        post_playback_grace_ms: graceMs,
+        ms_since_playback_ended: sincePlaybackEnd != null ? Math.round(sincePlaybackEnd) : null,
+        post_playback_grace_remaining_ms: graceRemainingMs,
+        levels: {
+          last_frame_rms: Number(this.lastRawFrameStats.rms.toFixed(5)),
+          last_frame_peak: Number(this.lastRawFrameStats.peak.toFixed(5)),
+          rolling_rms: Number(this.rollingRms.toFixed(5)),
+          rolling_peak: Number(this.rollingPeak.toFixed(5)),
+          noise_floor_rms: this.noiseFloorRms > 0 ? Number(this.noiseFloorRms.toFixed(5)) : null,
+          noise_floor_peak: this.noiseFloorPeak > 0 ? Number(this.noiseFloorPeak.toFixed(5)) : null,
+          noise_floor_samples: this.noiseFloorSampleCount,
+          fixed_rms_floor: this.speechRmsFloor,
+          fixed_peak_floor: this.speechPeakFloor,
+          effective_rms_floor: Number(effRms.toFixed(5)),
+          effective_peak_floor: Number(effPeak.toFixed(5)),
+          rolling_rms_to_effective_ratio: ratioToRmsFloor != null ? Number(ratioToRmsFloor.toFixed(3)) : null,
+          audio_likely_too_quiet: audioLikelyTooQuiet,
+          energy: {
+            last_frame_ste: Number(steFromRms(this.lastRawFrameStats.rms).toFixed(10)),
+            rolling_ste: Number(steFromRms(this.rollingRms).toFixed(10)),
+            last_frame_rms_dbfs: Number(amplitudeToDbfs(this.lastRawFrameStats.rms).toFixed(2)),
+            rolling_rms_dbfs: Number(amplitudeToDbfs(this.rollingRms).toFixed(2)),
+            last_frame_peak_dbfs: Number(amplitudeToDbfs(this.lastRawFrameStats.peak).toFixed(2)),
+            rolling_peak_dbfs: Number(amplitudeToDbfs(this.rollingPeak).toFixed(2)),
+            noise_floor_ste:
+              this.noiseFloorRms > 0 ? Number(steFromRms(this.noiseFloorRms).toFixed(10)) : null,
+            noise_floor_rms_dbfs:
+              this.noiseFloorRms > 0 ? Number(amplitudeToDbfs(this.noiseFloorRms).toFixed(2)) : null,
+            effective_rms_floor_dbfs: Number(amplitudeToDbfs(effRms).toFixed(2)),
+            effective_peak_floor_dbfs: Number(amplitudeToDbfs(effPeak).toFixed(2)),
+          },
+        },
+        dedupe: {
+          rx_guard_enabled: this.rxGuardEnabled,
+          rx_dedupe_window: this.rxDedupeWindow,
+          frames_accepted: this.framesSeen,
+          frames_dropped_as_duplicate: this.rxFramesDropped,
+          duplicate_drop_ratio: Number(rxDropRatio.toFixed(4)),
+        },
+        vad: {
+          enabled: this.vadEnabled,
+          ready: this.vadReady,
+          speech_now: this.vadSpeechNow,
+          speech_streak: this.vadSpeechStreak,
+          silence_streak: this.vadSilenceStreak,
+        },
+        speech: {
+          in_speech: this.inSpeech,
+          speech_frame_streak: this.speechFrameStreak,
+          silence_frame_streak: this.silenceFrameStreak,
+          saw_speech_ever: this.sawSpeechEver,
+          utterance_ms: Math.round(this.utteranceMs),
+          utterance_bytes: this.utteranceBytes,
+          speech_ms_net: Math.round(speechMs),
+        },
+        barge_in: {
+          armed: this.bargeInArmed,
+          speech_streak: this.bargeInSpeechStreak,
+        },
+        timing: {
+          ms_since_last_frame: msSinceLastFrame,
+          ms_since_last_speech: msSinceLastSpeech,
+          no_frame_finalize_ms: this.noFrameFinalizeMs,
+          tier1_dynamic_silence_ms: tier1DynamicSilenceMs,
+          baseline_silence_end_ms: this.silenceEndMs,
+          max_utterance_ms: this.maxUtteranceMs,
+        },
+        stt_http: {
+          in_flight: this.inFlight,
+          in_flight_kind: this.inFlightKind ?? null,
+          finalizing_stop: this.finalizingStop,
+        },
+        ...extras,
+        ...(this.logContext ?? {}),
+      },
+      'stt pipeline diagnostic',
     );
   }
 

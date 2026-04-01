@@ -13,6 +13,10 @@
     "build:runtime": "npm run build:shared && npm run build -w veralux-voice-runtime",
     "build": "npm run build:shared && npm run build -w control-plane && npm run build -w veralux-voice-runtime",
     "dev:control": "npm run build:shared && npm run dev:server -w control-plane",
-    "dev:runtime": "npm run build:shared && npm run dev -w veralux-voice-runtime"
+    "dev:runtime": "npm run build:shared && npm run dev -w veralux-voice-runtime",
+    "logs:runtime": "bash scripts/logs.sh runtime",
+    "logs:control": "bash scripts/logs.sh control",
+    "logs:core": "bash scripts/logs.sh core",
+    "logs:help": "bash scripts/logs.sh --help"
   }
 }

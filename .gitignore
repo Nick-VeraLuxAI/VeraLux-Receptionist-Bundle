@@ -29,6 +29,7 @@ images.tar.zst
 # Logs & debug output
 *.log
 *.txt.log
+logs/
 
 # Editor/IDE
 .idea/

@@ -182,6 +182,11 @@ const EnvSchema = z.object({
   STT_DEBUG_DUMP_RX_WAV: z.preprocess(stringToBoolean, z.boolean().default(false)),
   STT_DEBUG_DUMP_FAR_END_REF: z.preprocess(stringToBoolean, z.boolean().default(false)),
 
+  /** Periodic JSON snapshot of STT pipeline (levels, gates, dedupe, timing). 0 = off. Typical: 2000–3000. */
+  STT_PIPELINE_DIAG_INTERVAL_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).default(0)),
+  /** Log full pipeline snapshot when assistant playback starts/ends (recommended). */
+  STT_PIPELINE_DIAG_ON_PLAYBACK: z.preprocess(stringToBoolean, z.boolean().default(true)),
+
   /* Tier 4: SpeexDSP AEC (requires libspeexdsp: brew install speex / apt install libspeexdsp-dev) */
   STT_AEC_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
 
