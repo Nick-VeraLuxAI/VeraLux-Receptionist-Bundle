@@ -470,6 +470,13 @@
                     <p class="small muted" style="margin-top: 6px">
                       Describe how you want it to sound in plain English. Ignored on some small Qwen3 models. Leave empty for the model default. Requires your <code>qwen3_tts_server</code> reachable (e.g. port 7010).
                     </p>
+                    <label style="display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: pointer; max-width: 560px">
+                      <input type="checkbox" id="qwen3Streaming" name="qwen3Streaming" style="margin-top: 3px" />
+                      <span>
+                        <strong>Chunked synthesis (lower delay before first words)</strong><br />
+                        <span class="small muted">Splits long replies into sentences so the first chunk can play sooner. Each chunk is still a full Qwen3 HTTP call — not raw PCM streaming from the model.</span>
+                      </span>
+                    </label>
                     <details style="margin-top: 12px; max-width: 560px">
                       <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
                       <p class="small muted" style="margin: 8px 0">
@@ -2778,6 +2785,8 @@
 
         const qInstructEl = $("qwen3Instruct");
         if (qInstructEl) qInstructEl.value = cfg.qwen3Instruct || "";
+        const qStrEl = $("qwen3Streaming");
+        if (qStrEl) qStrEl.checked = cfg.qwen3Streaming === true;
         (function fillQwen3GenFromCfg(c) {
           const tri = (id, v) => {
             const el = $(id);
@@ -3307,6 +3316,8 @@
           payload.qwen3TtsUrl = url || undefined;
           const qi = $("qwen3Instruct");
           if (qi && qi.value.trim()) payload.qwen3Instruct = qi.value.trim();
+          const qs = $("qwen3Streaming");
+          if (qs) payload.qwen3Streaming = qs.checked;
           const qNum = (id) => {
             const el = $(id);
             if (!el) return null;

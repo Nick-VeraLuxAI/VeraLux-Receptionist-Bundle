@@ -159,6 +159,7 @@ function buildRuntimeTts(cfg: TTSConfig): RuntimeTenantConfig["tts"] {
       qwen3SubtalkerTopK: cfg.qwen3SubtalkerTopK,
       qwen3SubtalkerTopP: cfg.qwen3SubtalkerTopP,
       qwen3SubtalkerTemperature: cfg.qwen3SubtalkerTemperature,
+      ...(cfg.qwen3Streaming === true ? { qwen3Streaming: true as const } : {}),
     };
   }
 

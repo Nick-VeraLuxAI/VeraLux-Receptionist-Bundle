@@ -173,6 +173,12 @@ const ttsQwen3Schema = z.object({
   qwen3SubtalkerTopK: z.number().int().min(0).optional(),
   qwen3SubtalkerTopP: z.number().min(0).max(1).optional(),
   qwen3SubtalkerTemperature: z.number().min(0).max(2).optional(),
+  /**
+   * When true, the voice runtime splits long text into sentence-sized chunks and runs one
+   * HTTP /tts synthesis per chunk in sequence so the first chunk can play sooner (lower
+   * time-to-first-audio). Not model-level streaming — each chunk is still a full WAV.
+   */
+  qwen3Streaming: z.boolean().optional(),
 });
 
 export type RuntimeTtsQwen3 = z.infer<typeof ttsQwen3Schema>;

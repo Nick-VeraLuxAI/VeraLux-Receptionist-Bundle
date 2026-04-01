@@ -75,6 +75,11 @@ export interface TTSConfig {
   qwen3SubtalkerTopK?: number;
   qwen3SubtalkerTopP?: number;
   qwen3SubtalkerTemperature?: number;
+  /**
+   * When true, voice runtime splits long Qwen3 utterances into chunks (sentences) and
+   * synthesizes each via separate /tts calls so the first audio can start sooner.
+   */
+  qwen3Streaming?: boolean;
   /** Coqui XTTS decoding (optional; forwarded to your XTTS HTTP API). */
   coquiTemperature?: number;
   coquiLengthPenalty?: number;
@@ -457,6 +462,7 @@ export class LLMConfigStore {
       qwen3SubtalkerTopK: clampOptInt(base.qwen3SubtalkerTopK, 0, 1_000_000),
       qwen3SubtalkerTopP: clampOptNum(base.qwen3SubtalkerTopP, 0, 1),
       qwen3SubtalkerTemperature: clampOptNum(base.qwen3SubtalkerTemperature, 0, 2),
+      qwen3Streaming: base.qwen3Streaming === true,
       coquiTemperature: clampOptNum(base.coquiTemperature, 0, 2),
       coquiLengthPenalty: clampOptNum(base.coquiLengthPenalty, -10, 10),
       coquiRepetitionPenalty: clampOptNum(base.coquiRepetitionPenalty, 0.5, 2),
@@ -552,6 +558,7 @@ export class LLMConfigStore {
         0,
         2
       ),
+      qwen3Streaming: next.qwen3Streaming !== undefined ? next.qwen3Streaming : current.qwen3Streaming,
       coquiTemperature: mergeBoundedNum(next.coquiTemperature, current.coquiTemperature, 0, 2),
       coquiLengthPenalty: mergeBoundedNum(next.coquiLengthPenalty, current.coquiLengthPenalty, -10, 10),
       coquiRepetitionPenalty: mergeBoundedNum(

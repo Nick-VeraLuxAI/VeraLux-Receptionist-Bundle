@@ -94,6 +94,7 @@ export const ttsConfigSchema = z.object({
   qwen3SubtalkerTopK: z.number().int().min(0).optional(),
   qwen3SubtalkerTopP: z.number().min(0).max(1).optional(),
   qwen3SubtalkerTemperature: z.number().min(0).max(2).optional(),
+  qwen3Streaming: z.boolean().optional(),
   coquiTemperature: z.number().min(0).max(2).optional(),
   coquiLengthPenalty: z.number().min(-10).max(10).optional(),
   coquiRepetitionPenalty: z.number().min(0.5).max(2).optional(),

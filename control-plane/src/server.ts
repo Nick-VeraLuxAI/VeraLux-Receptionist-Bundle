@@ -680,6 +680,7 @@ function clearQwen3GenFields(u: Record<string, unknown>): void {
   u.qwen3SubtalkerTopK = undefined;
   u.qwen3SubtalkerTopP = undefined;
   u.qwen3SubtalkerTemperature = undefined;
+  u.qwen3Streaming = undefined;
 }
 
 /** Clear Coqui XTTS decoding fields when switching away from coqui_xtts. */
@@ -1901,6 +1902,7 @@ type ExtendedTtsConfig = TTSConfig & {
   qwen3SubtalkerTopK?: number;
   qwen3SubtalkerTopP?: number;
   qwen3SubtalkerTemperature?: number;
+  qwen3Streaming?: boolean;
 };
 
 app.get("/api/tts/config", (req, res) => {
@@ -1953,6 +1955,7 @@ app.get("/api/tts/config", (req, res) => {
   if (bq.qwen3SubtalkerTopK !== undefined) extendedCfg.qwen3SubtalkerTopK = bq.qwen3SubtalkerTopK;
   if (bq.qwen3SubtalkerTopP !== undefined) extendedCfg.qwen3SubtalkerTopP = bq.qwen3SubtalkerTopP;
   if (bq.qwen3SubtalkerTemperature !== undefined) extendedCfg.qwen3SubtalkerTemperature = bq.qwen3SubtalkerTemperature;
+  if (bq.qwen3Streaming !== undefined) extendedCfg.qwen3Streaming = bq.qwen3Streaming;
   if (bq.coquiTemperature !== undefined) extendedCfg.coquiTemperature = bq.coquiTemperature;
   if (bq.coquiLengthPenalty !== undefined) extendedCfg.coquiLengthPenalty = bq.coquiLengthPenalty;
   if (bq.coquiRepetitionPenalty !== undefined) extendedCfg.coquiRepetitionPenalty = bq.coquiRepetitionPenalty;
@@ -2171,6 +2174,11 @@ app.post("/api/tts/config", async (req, res) => {
       const v = body.qwen3SubtalkerTemperature;
       configUpdate.qwen3SubtalkerTemperature =
         v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
+    }
+    if ("qwen3Streaming" in body) {
+      const v = body.qwen3Streaming;
+      configUpdate.qwen3Streaming =
+        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
     }
     clearCoquiGenFields(configUpdate);
     configUpdate.coquiXttsUrl = undefined;

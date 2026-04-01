@@ -797,6 +797,13 @@
                     <label for="portal-qwen3Instruct">Speaking style (optional)</label>
                     <textarea id="portal-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;"></textarea>
                     <p class="help" style="margin-top: 8px;">Describe how you want it to sound in plain English. Ignored on some small models. Server URL is set above.</p>
+                    <label style="display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: pointer">
+                      <input type="checkbox" id="portal-qwen3Streaming" style="margin-top: 3px" />
+                      <span>
+                        <strong>Chunked synthesis (faster first words)</strong><br />
+                        <span class="help" style="font-size: 13px; line-height: 1.4">Splits long replies into sentences so the first line can play sooner. Each part is still a full Qwen3 request; publish to Redis after saving.</span>
+                      </span>
+                    </label>
                     <details style="margin-top: 12px">
                       <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
                       <p class="help" style="margin: 8px 0">Sliders start at sensible defaults; tune if needed. Sub-voice row only applies on some setups.</p>
@@ -2253,6 +2260,8 @@
         if (cl) cl.value = cfg.clonedVoice?.label || "";
         const pqi = $("portal-qwen3Instruct");
         if (pqi) pqi.value = cfg.qwen3Instruct || "";
+        const pqStr = $("portal-qwen3Streaming");
+        if (pqStr) pqStr.checked = cfg.qwen3Streaming === true;
         (function portalFillQwen3Gen(c) {
           const p = "portal-";
           const tri = (suffix, v) => {
@@ -2382,6 +2391,8 @@
             payload.qwen3TtsUrl = url || undefined;
             const pqi = $("portal-qwen3Instruct");
             if (pqi && pqi.value.trim()) payload.qwen3Instruct = pqi.value.trim();
+            const pqStr = $("portal-qwen3Streaming");
+            if (pqStr) payload.qwen3Streaming = pqStr.checked;
             const pqNum = (id) => {
               const el = $("portal-" + id);
               if (!el) return null;

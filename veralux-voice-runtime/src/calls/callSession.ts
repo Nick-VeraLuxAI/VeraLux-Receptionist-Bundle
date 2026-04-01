@@ -16,6 +16,7 @@ import { getProvider } from '../stt/registry';
 import { PstnTelnyxTransportSession } from '../transport/pstnTelnyxTransport';
 import type { TransferOptions, TransportSession } from '../transport/types';
 import { synthesizeSpeech } from '../tts';
+import { splitQwenStreamingChunks } from '../tts/qwen3Chunking';
 import { attachAudioMeta, getAudioMeta, markAudioSpan, probeWav } from '../diagnostics/audioProbe';
 import type { TTSResult } from '../tts/types';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
@@ -2255,192 +2256,198 @@ export class CallSession {
 
     try {
       const tenantLabel = this.tenantId ?? 'unknown';
-      const endTts = startStageTimer('tts', tenantLabel);
+      const useQwenChunking =
+        this.ttsConfig?.mode === 'qwen3_tts_http' && this.ttsConfig.qwen3Streaming === true;
+      const splitChunks = useQwenChunking ? splitQwenStreamingChunks(text) : [];
+      const effectiveChunks = splitChunks.length > 0 ? splitChunks : [text];
 
-      const spanMeta = {
-        callId: this.callControlId,
-        tenantId: this.tenantId,
-        logContext: { ...this.logContext, tts_id: turnId },
-        kind: turnId,
-      };
-      markAudioSpan('tts_start', spanMeta);
-      const ttsStart = Date.now();
-      let result: TTSResult;
-      try {
-        const currentSpeakerWavUrl = this.getCurrentSpeakerWavUrl();
-        result = await synthesizeSpeech(
-          {
-            text,
-            voice:
-              this.ttsConfig?.mode === 'qwen3_tts_http'
-                ? this.ttsConfig.speaker
-                : this.ttsConfig?.voice,
-            format: this.ttsConfig?.format,
-            sampleRate: this.ttsConfig?.sampleRate,
-            speakerWavUrl: currentSpeakerWavUrl,
-          },
-          this.ttsConfig,
-        );
-        if (currentSpeakerWavUrl) {
-          log.info(
-            {
-              event: 'tts_voice_cloning_used',
-              voice_mode: this.currentVoiceMode,
-              turn_id: turnId,
-              ...this.logContext,
-            },
-            'TTS using cloned voice',
-          );
-        }
-      } catch (error) {
-        incStageError('tts', tenantLabel);
-        throw error;
-      } finally {
-        endTts();
-      }
+      for (let ci = 0; ci < effectiveChunks.length; ci++) {
+        const chunkText = effectiveChunks[ci]!;
+        const chunkPlaybackId = effectiveChunks.length === 1 ? turnId : `${turnId}-q${ci}`;
+        const isLastChunk = ci === effectiveChunks.length - 1;
 
-      const ttsDuration = Date.now() - ttsStart;
-      markAudioSpan('tts_ready', spanMeta);
+        const endTts = startStageTimer('tts', tenantLabel);
 
-      log.info(
-        {
-          event: 'tts_synthesized',
-          duration_ms: ttsDuration,
-          audio_bytes: result.audio.length,
-          ...this.logContext,
-        },
-        'tts synthesized',
-      );
-
-      if (!options?.allowWhenEndedForLateFinal && (!this.active || this.playbackState.interrupted)) {
-        return;
-      }
-
-      this.logTtsBytesReady(turnId, result.audio, result.contentType);
-      let playbackAudio = result.audio;
-      const applyPstnPipeline = env.PLAYBACK_PROFILE === 'pstn' && this.transport.mode === 'pstn';
-      if (applyPstnPipeline) {
-        const endPipeline = startStageTimer('tts_pipeline_ms', tenantLabel);
-        const pipelineResult = runPlaybackPipeline(playbackAudio, {
-          targetSampleRateHz: env.PLAYBACK_PSTN_SAMPLE_RATE,
-          enableHighpass: env.PLAYBACK_ENABLE_HIGHPASS,
-          logContext: this.logContext,
-        });
-        endPipeline();
-        playbackAudio = pipelineResult.audio;
-      }
-      if (applyPstnPipeline) {
-        this.logWavInfo('pipeline_output', turnId, playbackAudio);
-        const pipelineMeta = getAudioMeta(playbackAudio) ?? {
-          format: 'wav' as const,
-          logContext: { ...this.logContext, tts_id: turnId },
-          lineage: ['pipeline:unknown'],
+        const spanMeta = {
+          callId: this.callControlId,
+          tenantId: this.tenantId,
+          logContext: { ...this.logContext, tts_id: chunkPlaybackId },
+          kind: chunkPlaybackId,
         };
-        probeWav('tts.out.telephonyOptimized', playbackAudio, pipelineMeta);
-      }
-      result.audio = playbackAudio;
-
-      const playbackInput =
-        this.transport.mode === 'pstn'
-          ? { kind: 'url' as const, url: await storeWav(this.callControlId, turnId, result.audio) }
-          : { kind: 'buffer' as const, audio: result.audio, contentType: result.contentType };
-
-      if (this.playbackState.interrupted) {
-        return;
-      }
-
-      if (this.transport.mode === 'pstn' && this.shouldSkipTelnyxAction('playback_start')) {
-        this.endPlaybackAuthoritatively('watchdog');
-        playbackEndHandled = true;
-        return;
-      }
-
-      // Tier 2: set segment duration for measured listen-after-playback grace
-      try {
-        const wavInfo = parseWavInfo(playbackAudio);
-        this.playbackState.segmentDurationMs = wavInfo.durationMs;
-      } catch {
-        this.playbackState.segmentDurationMs = undefined;
-      }
-
-      // Tier 3: push far-end reference for AEC (decode WAV → 16k frames)
-      pushFarEndFrames(this.callControlId, playbackAudio, this.logContext);
-
-      log.info(
-        {
-          event: 'tts_playback_start',
-          turn_id: turnId,
-          playback_mode: this.transport.mode,
-          audio_url:
-            this.transport.mode === 'pstn'
-              ? (playbackInput as { kind: 'url'; url: string }).url
-              : undefined,
-          audio_bytes: this.transport.mode === 'pstn' ? undefined : playbackAudio.length,
-          ...this.logContext,
-        },
-        'tts playback start',
-      );
-
-      const playbackStage = this.transport.mode === 'pstn' ? 'telnyx_playback' : 'webrtc_playback_ms';
-      const endPlayback = startStageTimer(playbackStage, tenantLabel);
-
-      const playbackStart = Date.now();
-      this.audioCoordinator.onTtsStart(playbackStart, 'tts_playback_start');
-      try {
-        if (this.transport.mode === 'pstn') {
-          const txMeta = getAudioMeta(playbackAudio) ?? {
-            format: 'wav' as const,
-            logContext: { ...this.logContext, tts_id: turnId },
-            lineage: ['tx:unknown'],
-          };
-          probeWav('tx.telnyx.payload', playbackAudio, { ...txMeta, kind: turnId });
-        }
-
-        markAudioSpan('tx_sent', spanMeta);
-        await this.transport.playback.play(playbackInput);
-
-        if (this.transport.mode === 'pstn') {
-          // PSTN playback ends on Telnyx webhook.
-          playbackEndDeferred = true;
-        } else {
-          // ✅ always clear playback state when playback completes (single-turn playback)
-          this.onPlaybackEnded();
-          playbackEndHandled = true;
-        }
-      } catch (error) {
-        incStageError(playbackStage, tenantLabel);
-
-        // ✅ also clear playback state if playback throws
-        if (!playbackEndHandled) {
-          if (this.transport.mode === 'pstn') {
-            this.endPlaybackAuthoritatively('watchdog');
-          } else {
-            this.onPlaybackEnded();
+        markAudioSpan('tts_start', spanMeta);
+        const ttsStart = Date.now();
+        let result: TTSResult;
+        try {
+          const currentSpeakerWavUrl = this.getCurrentSpeakerWavUrl();
+          result = await synthesizeSpeech(
+            {
+              text: chunkText,
+              voice:
+                this.ttsConfig?.mode === 'qwen3_tts_http'
+                  ? this.ttsConfig.speaker
+                  : this.ttsConfig?.voice,
+              format: this.ttsConfig?.format,
+              sampleRate: this.ttsConfig?.sampleRate,
+              speakerWavUrl: currentSpeakerWavUrl,
+            },
+            this.ttsConfig,
+          );
+          if (currentSpeakerWavUrl) {
+            log.info(
+              {
+                event: 'tts_voice_cloning_used',
+                voice_mode: this.currentVoiceMode,
+                turn_id: chunkPlaybackId,
+                ...this.logContext,
+              },
+              'TTS using cloned voice',
+            );
           }
-          playbackEndHandled = true;
+        } catch (error) {
+          incStageError('tts', tenantLabel);
+          throw error;
+        } finally {
+          endTts();
         }
 
+        const ttsDuration = Date.now() - ttsStart;
+        markAudioSpan('tts_ready', spanMeta);
 
-        throw error;
-      } finally {
-        endPlayback();
-      }
-
-
-      const playbackDuration = Date.now() - playbackStart;
-
-
-
-      if (this.transport.mode === 'pstn') {
         log.info(
           {
-            event: 'telnyx_playback_duration',
-            duration_ms: playbackDuration,
-            audio_url: (playbackInput as { kind: 'url'; url: string }).url,
+            event: 'tts_synthesized',
+            duration_ms: ttsDuration,
+            audio_bytes: result.audio.length,
+            qwen_chunk_index: effectiveChunks.length > 1 ? ci : undefined,
+            qwen_chunk_total: effectiveChunks.length > 1 ? effectiveChunks.length : undefined,
             ...this.logContext,
           },
-          'telnyx playback completed',
+          'tts synthesized',
         );
+
+        if (!options?.allowWhenEndedForLateFinal && (!this.active || this.playbackState.interrupted)) {
+          return;
+        }
+
+        this.logTtsBytesReady(chunkPlaybackId, result.audio, result.contentType);
+        let playbackAudio = result.audio;
+        const applyPstnPipeline = env.PLAYBACK_PROFILE === 'pstn' && this.transport.mode === 'pstn';
+        if (applyPstnPipeline) {
+          const endPipeline = startStageTimer('tts_pipeline_ms', tenantLabel);
+          const pipelineResult = runPlaybackPipeline(playbackAudio, {
+            targetSampleRateHz: env.PLAYBACK_PSTN_SAMPLE_RATE,
+            enableHighpass: env.PLAYBACK_ENABLE_HIGHPASS,
+            logContext: this.logContext,
+          });
+          endPipeline();
+          playbackAudio = pipelineResult.audio;
+        }
+        if (applyPstnPipeline) {
+          this.logWavInfo('pipeline_output', chunkPlaybackId, playbackAudio);
+          const pipelineMeta = getAudioMeta(playbackAudio) ?? {
+            format: 'wav' as const,
+            logContext: { ...this.logContext, tts_id: chunkPlaybackId },
+            lineage: ['pipeline:unknown'],
+          };
+          probeWav('tts.out.telephonyOptimized', playbackAudio, pipelineMeta);
+        }
+        result.audio = playbackAudio;
+
+        const playbackInput =
+          this.transport.mode === 'pstn'
+            ? { kind: 'url' as const, url: await storeWav(this.callControlId, chunkPlaybackId, result.audio) }
+            : { kind: 'buffer' as const, audio: result.audio, contentType: result.contentType };
+
+        if (this.playbackState.interrupted) {
+          return;
+        }
+
+        if (this.transport.mode === 'pstn' && this.shouldSkipTelnyxAction('playback_start')) {
+          this.endPlaybackAuthoritatively('watchdog');
+          playbackEndHandled = true;
+          return;
+        }
+
+        try {
+          const wavInfo = parseWavInfo(playbackAudio);
+          this.playbackState.segmentDurationMs = wavInfo.durationMs;
+        } catch {
+          this.playbackState.segmentDurationMs = undefined;
+        }
+
+        pushFarEndFrames(this.callControlId, playbackAudio, this.logContext);
+
+        log.info(
+          {
+            event: 'tts_playback_start',
+            turn_id: chunkPlaybackId,
+            playback_mode: this.transport.mode,
+            audio_url:
+              this.transport.mode === 'pstn'
+                ? (playbackInput as { kind: 'url'; url: string }).url
+                : undefined,
+            audio_bytes: this.transport.mode === 'pstn' ? undefined : playbackAudio.length,
+            ...this.logContext,
+          },
+          'tts playback start',
+        );
+
+        const playbackStage = this.transport.mode === 'pstn' ? 'telnyx_playback' : 'webrtc_playback_ms';
+        const endPlayback = startStageTimer(playbackStage, tenantLabel);
+
+        const playbackStart = Date.now();
+        this.audioCoordinator.onTtsStart(playbackStart, 'tts_playback_start');
+        try {
+          if (this.transport.mode === 'pstn') {
+            const txMeta = getAudioMeta(playbackAudio) ?? {
+              format: 'wav' as const,
+              logContext: { ...this.logContext, tts_id: chunkPlaybackId },
+              lineage: ['tx:unknown'],
+            };
+            probeWav('tx.telnyx.payload', playbackAudio, { ...txMeta, kind: chunkPlaybackId });
+          }
+
+          markAudioSpan('tx_sent', spanMeta);
+          await this.transport.playback.play(playbackInput);
+
+          if (this.transport.mode === 'pstn') {
+            if (isLastChunk) {
+              playbackEndDeferred = true;
+            }
+          } else if (isLastChunk) {
+            this.onPlaybackEnded();
+            playbackEndHandled = true;
+          }
+        } catch (error) {
+          incStageError(playbackStage, tenantLabel);
+
+          if (!playbackEndHandled) {
+            if (this.transport.mode === 'pstn') {
+              this.endPlaybackAuthoritatively('watchdog');
+            } else {
+              this.onPlaybackEnded();
+            }
+            playbackEndHandled = true;
+          }
+
+          throw error;
+        } finally {
+          endPlayback();
+        }
+
+        const playbackDuration = Date.now() - playbackStart;
+
+        if (this.transport.mode === 'pstn') {
+          log.info(
+            {
+              event: 'telnyx_playback_duration',
+              duration_ms: playbackDuration,
+              audio_url: (playbackInput as { kind: 'url'; url: string }).url,
+              ...this.logContext,
+            },
+            'telnyx playback completed',
+          );
+        }
       }
     } catch (error) {
       log.error({ err: error, ...this.logContext }, 'call session tts playback failed');

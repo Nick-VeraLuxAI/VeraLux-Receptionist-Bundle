@@ -530,6 +530,10 @@
           <div id="owner-tts-panel-qwen3" style="display: none; margin-top: 14px">
             <label for="owner-qwen3Instruct">Speaking style (optional)</label>
             <textarea id="owner-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;"></textarea>
+            <label style="display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: pointer">
+              <input type="checkbox" id="owner-qwen3Streaming" style="margin-top: 3px" />
+              <span><strong>Chunked synthesis (faster first words)</strong><br /><span class="small muted">Splits long replies into sentences for quicker first playback. Each chunk is still a full Qwen3 request.</span></span>
+            </label>
             <p class="help" style="margin-top: 8px;">Describe how you want it to sound in plain English. Server URL is set above.</p>
             <details style="margin-top: 12px">
               <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
@@ -1700,6 +1704,8 @@
 
         const ownerQi = $("owner-qwen3Instruct");
         if (ownerQi) ownerQi.value = cfg.qwen3Instruct || "";
+        const ownerQs = $("owner-qwen3Streaming");
+        if (ownerQs) ownerQs.checked = cfg.qwen3Streaming === true;
         (function ownerFillQwen3Gen(c) {
           const p = "owner-";
           const tri = (suffix, v) => {
@@ -2004,6 +2010,8 @@
             payload.qwen3TtsUrl = url || undefined;
             const oqi = $("owner-qwen3Instruct");
             if (oqi && oqi.value.trim()) payload.qwen3Instruct = oqi.value.trim();
+            const oqs = $("owner-qwen3Streaming");
+            if (oqs) payload.qwen3Streaming = oqs.checked;
             const oqNum = (id) => {
               const el = $("owner-" + id);
               if (!el) return null;
