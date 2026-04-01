@@ -679,7 +679,7 @@
                     </button>
                   </div>
                   <div id="admin-runtime-publish-status" class="small" style="margin-top: 6px; min-height: 18px; color: var(--muted)"></div>
-                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. Use Step 4 → Preview voice to hear TTS. Live calls use Redis — use <strong>Publish to voice runtime</strong> after changing voice/STT.</div>
+                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. <strong>Save voice settings</strong> pushes live PSTN voice to Redis when runtime admin is enabled. Use Step 4 → Preview to hear TTS here. Use <strong>Publish to voice runtime</strong> if you only changed prompts/STT elsewhere or if save reported a publish error.</div>
                 </form>
               </section>
             </div>
@@ -3327,8 +3327,15 @@
           });
 
           renderTtsConfig(cfg);
-          $("tts-status").textContent = "Voice settings saved.";
-          setStatus("TTS config saved", "ok");
+          const rp = cfg.runtimePublish;
+          let line = "Voice settings saved.";
+          if (rp) {
+            line = rp.ok
+              ? "Voice settings saved — live PSTN calls will use this voice (published to Redis)."
+              : `Saved here. Live calls not updated: ${rp.message || rp.error}. Add reception lines / webhook secret if needed, or use “Publish to voice runtime”.`;
+          }
+          $("tts-status").textContent = line;
+          setStatus(rp && !rp.ok ? "TTS saved; runtime publish failed" : "TTS config saved", rp && !rp.ok ? "err" : "ok");
         } catch (err) {
           console.error(err);
           $("tts-status").textContent = "Failed to save TTS config: " + err.message;

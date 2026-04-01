@@ -2409,8 +2409,17 @@
           });
           portalRenderTtsConfig(cfg);
           if (st) {
-            st.textContent = "Saved.";
-            setTimeout(() => { if (st.textContent === "Saved.") st.textContent = ""; }, 3000);
+            const rp = cfg.runtimePublish;
+            let line = "Saved.";
+            if (rp) {
+              line = rp.ok
+                ? "Saved — live calls will use this voice (Redis updated)."
+                : `Saved here. Live calls not updated: ${rp.message || rp.error}`;
+            }
+            st.textContent = line;
+            setTimeout(() => {
+              if (st.textContent === line) st.textContent = "";
+            }, 8000);
           }
         } catch (err) {
           if (st) st.textContent = "Save failed: " + err.message;

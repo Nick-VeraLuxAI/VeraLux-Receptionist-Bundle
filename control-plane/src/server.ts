@@ -1948,7 +1948,7 @@ app.get("/api/tts/config", (req, res) => {
   res.json(extendedCfg);
 });
 
-app.post("/api/tts/config", (req, res) => {
+app.post("/api/tts/config", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
@@ -2180,7 +2180,37 @@ app.post("/api/tts/config", (req, res) => {
   const updated = tenant.config.setTtsConfig(configUpdate);
 
   tenants.persistConfig(tenant.id);
-  
+
+  /** Push TTS/STT to Redis so live PSTN calls match what was just saved (same as Publish to voice runtime). */
+  let runtimePublish:
+    | { ok: true }
+    | { ok: false; error: string; message: string }
+    | undefined;
+  if (ENABLE_RUNTIME_ADMIN) {
+    try {
+      const existing = await getTenantConfig(tenant.id);
+      const parsed = buildTenantRuntimeConfig(tenant, existing);
+      await publishTenantConfig(tenant.id, parsed);
+      runtimePublish = { ok: true };
+    } catch (err: unknown) {
+      if (err instanceof BuildRuntimeConfigError) {
+        runtimePublish = {
+          ok: false,
+          error: err.code,
+          message: err.message,
+        };
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        runtimePublish = {
+          ok: false,
+          error: "runtime_publish_failed",
+          message: msg,
+        };
+      }
+      console.warn("[POST /api/tts/config] voice runtime Redis publish failed:", err);
+    }
+  }
+
   // Return extended config with all fields
   const response: ExtendedTtsConfig = {
     ...updated,
@@ -2195,8 +2225,11 @@ app.post("/api/tts/config", (req, res) => {
     qwen3TtsUrl: configUpdate.qwen3TtsUrl,
     qwen3Instruct: configUpdate.qwen3Instruct,
   };
-  
-  res.json(response);
+
+  res.json({
+    ...response,
+    ...(runtimePublish ? { runtimePublish } : {}),
+  });
 });
 
 app.post("/api/tts/preview", async (req, res) => {
