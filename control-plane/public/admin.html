@@ -1450,11 +1450,17 @@
             audioEl.removeAttribute("src");
 
             const postHeaders = { "Content-Type": "application/json" };
-            if (currentTenantId) postHeaders["X-Tenant-ID"] = currentTenantId;
+            if (currentTenantId) {
+              postHeaders["X-Tenant-ID"] = currentTenantId;
+              postHeaders["X-Active-Tenant"] = currentTenantId;
+            }
             if (adminAuthToken) postHeaders["X-Admin-Key"] = adminAuthToken;
 
             const pollHeaders = { Accept: "application/json" };
-            if (currentTenantId) pollHeaders["X-Tenant-ID"] = currentTenantId;
+            if (currentTenantId) {
+              pollHeaders["X-Tenant-ID"] = currentTenantId;
+              pollHeaders["X-Active-Tenant"] = currentTenantId;
+            }
             if (adminAuthToken) pollHeaders["X-Admin-Key"] = adminAuthToken;
 
             const startRes = await fetch("/api/tts/preview/async", {
@@ -1611,6 +1617,7 @@
 
             const headers = new Headers();
             headers.set("X-Tenant-ID", currentTenantId);
+            headers.set("X-Active-Tenant", currentTenantId);
             if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
             const res = await fetch(
               `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/publish-from-tenant`,
@@ -1658,6 +1665,7 @@
           const headers = new Headers(opts.headers || {});
           if (!opts.skipTenantHeader && currentTenantId) {
             headers.set("X-Tenant-ID", currentTenantId);
+            headers.set("X-Active-Tenant", currentTenantId);
           }
           if (adminAuthToken) {
             headers.set("X-Admin-Key", adminAuthToken);
@@ -1805,6 +1813,7 @@
             const headers = new Headers();
             headers.set("X-Admin-Key", adminAuthToken);
             headers.set("X-Tenant-ID", currentTenantId);
+            headers.set("X-Active-Tenant", currentTenantId);
             const res = await fetch(
               `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/owner-portal-status`,
               { headers }

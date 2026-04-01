@@ -1246,7 +1246,10 @@
 
       async function apiFetch(url, opts = {}) {
         const headers = new Headers(opts.headers || {});
-        if (tenantId) headers.set("X-Tenant-ID", tenantId);
+        if (tenantId) {
+          headers.set("X-Tenant-ID", tenantId);
+          headers.set("X-Active-Tenant", tenantId);
+        }
         setPortalAuthHeaders(headers);
         const res = await fetch(url, { ...opts, headers });
         if (!res.ok) throw new Error(await res.text());
@@ -1275,7 +1278,10 @@
         $("portal-pass-submit").disabled = true;
         try {
           const headers = new Headers({ "Content-Type": "application/json" });
-          if (tenantId) headers.set("X-Tenant-ID", tenantId);
+          if (tenantId) {
+            headers.set("X-Tenant-ID", tenantId);
+            headers.set("X-Active-Tenant", tenantId);
+          }
           setPortalAuthHeaders(headers);
           const res = await fetch("/api/owner/change-password", {
             method: "POST",
@@ -1395,7 +1401,10 @@
 
         // Validate token still works
         try {
-          const h = new Headers({ "X-Tenant-ID": savedTenant });
+          const h = new Headers({
+            "X-Tenant-ID": savedTenant,
+            "X-Active-Tenant": savedTenant,
+          });
           if (savedToken.split(".").length === 3) {
             h.set("Authorization", `Bearer ${savedToken}`);
           } else {
@@ -2585,6 +2594,7 @@
 
             const headers = new Headers();
             headers.set("X-Tenant-ID", tenantId);
+            headers.set("X-Active-Tenant", tenantId);
             setPortalAuthHeaders(headers);
             const res = await fetch(
               `/api/admin/runtime/tenants/${encodeURIComponent(tenantId)}/publish-from-tenant`,

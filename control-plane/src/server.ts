@@ -557,17 +557,33 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
             ? activeHeader[0]
             : undefined;
 
-        if (!active) {
-          return res
-            .status(400)
-            .json({ error: "Ambiguous tenant; set X-Active-Tenant" });
+        const tenantIdHeader = req.headers["x-tenant-id"];
+        const tenantFromHeader =
+          typeof tenantIdHeader === "string"
+            ? tenantIdHeader.trim()
+            : Array.isArray(tenantIdHeader) && tenantIdHeader[0]
+            ? String(tenantIdHeader[0]).trim()
+            : "";
+
+        // UIs (admin / portal) send X-Tenant-ID when switching businesses; historically only
+        // X-Active-Tenant was read here, so JWT multi-tenant users could not align ctx with the UI.
+        let chosen = active?.trim() || "";
+        if (!chosen && tenantFromHeader) {
+          const byHeader = memberships.find((m) => m.tenant_id === tenantFromHeader);
+          if (byHeader) chosen = byHeader.tenant_id;
         }
 
-        const match = memberships.find((m) => m.tenant_id === active);
+        if (!chosen) {
+          return res.status(400).json({
+            error: "Ambiguous tenant; set X-Active-Tenant or X-Tenant-ID",
+          });
+        }
+
+        const match = memberships.find((m) => m.tenant_id === chosen);
         if (!match) {
-          return res
-            .status(400)
-            .json({ error: "Ambiguous tenant; set X-Active-Tenant" });
+          return res.status(400).json({
+            error: "Ambiguous tenant; set X-Active-Tenant or X-Tenant-ID",
+          });
         }
 
         tenantIdForCtx = match.tenant_id;
