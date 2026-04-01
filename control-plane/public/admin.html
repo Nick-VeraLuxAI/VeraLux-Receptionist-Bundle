@@ -674,7 +674,7 @@
 
                   <div class="row models-wizard__actions" style="margin-top: 16px; flex-wrap: wrap; gap: 8px">
                     <button type="submit">Save voice settings</button>
-                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Push saved voice/STT and prompts from this control plane to Redis for live PSTN calls">
+                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Saves this Step 3 form first (voice, URL, mode), then publishes full tenant config to Redis for live calls">
                       Publish to voice runtime (Redis)
                     </button>
                   </div>
@@ -1588,11 +1588,27 @@
             setStatus("Select a tenant before publishing to Redis", "err");
             return;
           }
+          if (!adminAuthorized) {
+            requestAdminPasscode(() => $("admin-runtime-publish-from-tenant")?.click());
+            return;
+          }
+          if (!validateVoiceCloningConfig()) return;
+
           if (st) {
-            st.textContent = "Publishing…";
+            st.textContent = "Saving Step 3 voice form, then publishing full config…";
             st.style.color = "var(--muted)";
           }
           try {
+            const cfg = await postTtsConfigFromForm();
+            renderTtsConfig(cfg);
+            const rp = cfg.runtimePublish;
+            if ($("tts-status")) {
+              $("tts-status").textContent =
+                rp && rp.ok
+                  ? "Voice/speaker from this form saved to DB and Redis. Syncing full tenant config…"
+                  : `Voice form saved (${rp && !rp.ok ? rp.message || rp.error : "ok"}). Syncing full tenant config…`;
+            }
+
             const headers = new Headers();
             headers.set("X-Tenant-ID", currentTenantId);
             if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
@@ -1615,7 +1631,7 @@
             }
             if (st) {
               st.textContent =
-                "Published to voice runtime (Redis). If inbound is new, map each DID to this tenant (POST /api/admin/runtime/dids/map).";
+                "Done: voice form was saved first, then full tenant config published to Redis. New calls should use the speaker/voice you selected. Map DIDs if inbound is new.";
               st.style.color = "var(--success)";
             }
             setStatus("Voice runtime config published to Redis", "ok");
@@ -3202,15 +3218,8 @@
         }
       }
 
-      async function saveTtsConfig(event) {
-        event.preventDefault();
-        if (!adminAuthorized) {
-          requestAdminPasscode(() => saveTtsConfig(event));
-          return;
-        }
-
-        if (!validateVoiceCloningConfig()) return;
-
+      /** Builds POST /api/tts/config body from the Step 3 Voice form (same as Save voice settings). */
+      function buildTtsPayloadFromForm() {
         const modeEl = $("ttsMode");
         const urlEl = $("ttsUrl");
         const presetEl = $("ttsPreset");
@@ -3221,7 +3230,7 @@
         const clonedVoiceUrlEl = $("clonedVoiceUrl");
         const clonedVoiceLabelEl = $("clonedVoiceLabel");
 
-        if (!presetEl || !rateEl) return;
+        if (!presetEl || !rateEl) return null;
 
         const ttsMode = modeEl ? modeEl.value : "coqui_xtts";
         const url = urlEl ? urlEl.value.trim() : undefined;
@@ -3237,7 +3246,6 @@
           rate: parseFloat(rateEl.value),
         };
 
-        // Set URL based on mode
         if (ttsMode === "coqui_xtts") {
           payload.coquiXttsUrl = url || undefined;
           if (defaultVoiceModeEl) {
@@ -3316,15 +3324,35 @@
           payload.qwen3SubtalkerTemperature = qNum("qwen3SubtalkerTemperature");
         } else {
           payload.kokoroUrl = url || undefined;
-          payload.xttsUrl = url || undefined; // Legacy compatibility
+          payload.xttsUrl = url || undefined;
         }
 
+        return payload;
+      }
+
+      async function postTtsConfigFromForm() {
+        const payload = buildTtsPayloadFromForm();
+        if (!payload) {
+          throw new Error("Voice form is not ready.");
+        }
+        return await fetchJSON("/api/tts/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+      }
+
+      async function saveTtsConfig(event) {
+        event.preventDefault();
+        if (!adminAuthorized) {
+          requestAdminPasscode(() => saveTtsConfig(event));
+          return;
+        }
+
+        if (!validateVoiceCloningConfig()) return;
+
         try {
-          const cfg = await fetchJSON("/api/tts/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
+          const cfg = await postTtsConfigFromForm();
 
           renderTtsConfig(cfg);
           const rp = cfg.runtimePublish;
