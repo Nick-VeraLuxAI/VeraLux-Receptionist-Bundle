@@ -18,6 +18,7 @@ RUN apt-get update && \
       g++ \
       pkg-config \
       libopus0 \
+      libspeexdsp1 \
       libgomp1 \
       ffmpeg \
       wget && \

@@ -167,6 +167,8 @@ services:
       - MEDIA_STREAM_TOKEN=${MEDIA_STREAM_TOKEN}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
       - WHISPER_URL=${WHISPER_URL:-http://whisper:9000/transcribe}
+      # SpeexDSP AEC (default on; set STT_AEC_ENABLED=false to disable)
+      - STT_AEC_ENABLED=${STT_AEC_ENABLED:-true}
       # Speech-to-Text Settings
       - STT_CHUNK_MS=${STT_CHUNK_MS:-100}
       - STT_SILENCE_MS=${STT_SILENCE_MS:-700}

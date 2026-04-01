@@ -31,7 +31,7 @@ Configuration is read from environment variables via `dotenv` and validated at s
 - `TELNYX_WEBHOOK_SECRET`: HMAC secret for webhook verification when using HMAC.
 - `LOG_LEVEL` (default `info`): Logging verbosity.
 - `STT_PRE_ROLL_MS` (default `1200`): Pre-roll buffer length (ms) prepended to each utterance.
-- `STT_AEC_ENABLED` (default `false`): Enable SpeexDSP acoustic echo cancellation. Requires libspeexdsp: `brew install speexdsp` (macOS) or `apt install libspeexdsp-dev` (Linux). Uses the far-end reference from Tier 3 to suppress assistant playback in mic capture. When enabled, pre-roll is taken from ChunkedSTT's internal buffer (not the coordinator ring) to avoid mixing raw + AEC-processed audio, which can cause transcript duplication ("starts over").
+- `STT_AEC_ENABLED` (default `true`): Enable SpeexDSP acoustic echo cancellation. Requires libspeexdsp: `brew install speexdsp` (macOS) or `apt install libspeexdsp-dev` (Linux); the voice-runtime Docker image installs `libspeexdsp1`. Uses the far-end reference from Tier 3 to suppress assistant playback in mic capture. When enabled, pre-roll is taken from ChunkedSTT's internal buffer (not the coordinator ring) to avoid mixing raw + AEC-processed audio, which can cause transcript duplication ("starts over").
 
 ### TTS response cache (LRU + Redis)
 

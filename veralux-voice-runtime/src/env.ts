@@ -188,7 +188,7 @@ const EnvSchema = z.object({
   STT_PIPELINE_DIAG_ON_PLAYBACK: z.preprocess(stringToBoolean, z.boolean().default(true)),
 
   /* Tier 4: SpeexDSP AEC (requires libspeexdsp: brew install speex / apt install libspeexdsp-dev) */
-  STT_AEC_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  STT_AEC_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
 
   /* Tier 5: Auto-calibration (noise floor + adaptive thresholds) */
   STT_NOISE_FLOOR_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
