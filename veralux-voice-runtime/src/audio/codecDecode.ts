@@ -196,6 +196,19 @@ const AMRWB_MAX_BUFFER_MS = Number.parseInt(process.env.AMRWB_MAX_BUFFER_MS ?? '
 
 /* ---------------------------------- utils --------------------------------- */
 
+function readAmrwbPadFadeSamples(): number {
+  const raw = process.env.STT_AMRWB_PAD_FADE_SAMPLES;
+  if (raw === undefined || raw.trim() === '') return 32;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 32;
+  return Math.min(512, n);
+}
+
+/**
+ * AMR-WB decode can return fewer PCM samples than the nominal frame duration; we used to
+ * hard-pad with zeros, which creates a large int16 discontinuity and audible clicks in STT dumps.
+ * Fade the tail from the last real sample toward zero over a short region (env-tunable).
+ */
 function normalizeAmrWbPcmLength(pcm16: Int16Array, expectedSamples: number): Int16Array {
   if (expectedSamples <= 0) return pcm16;
   if (pcm16.length === expectedSamples) return pcm16;
@@ -213,10 +226,20 @@ function normalizeAmrWbPcmLength(pcm16: Int16Array, expectedSamples: number): In
     return pcm16.subarray(0, expectedSamples);
   }
 
-  // ✅ PAD if too short (this is the real fix for "slow audio")
+  // PAD if too short (keeps timing; avoids a single-step jump to silence)
+  const fadeMax = readAmrwbPadFadeSamples();
   const out = new Int16Array(expectedSamples);
+  const nReal = pcm16.length;
   out.set(pcm16, 0);
-  // remainder stays 0 (silence)
+  if (fadeMax === 0 || nReal <= 0) return out;
+
+  const pad = expectedSamples - nReal;
+  const span = Math.min(pad, fadeMax);
+  const last = pcm16[nReal - 1] ?? 0;
+  for (let j = 0; j < span; j += 1) {
+    const t = (j + 1) / span;
+    out[nReal + j] = Math.max(-32768, Math.min(32767, Math.round(last * (1 - t))));
+  }
   return out;
 }
 
@@ -552,6 +575,13 @@ async function maybeDumpPcm16(
       ...(logContext ?? {}),
     },
     'stt post-decode pcm',
+  );
+}
+
+/** Fire-and-forget: do not block decode on debug disk I/O (RTP realtime). */
+function scheduleCodecDebugDump(name: string, work: Promise<void>): void {
+  void work.catch((err) =>
+    log.warn({ err, event: 'stt_codec_debug_dump_failed', name }, 'stt codec debug dump failed'),
   );
 }
 
@@ -1939,16 +1969,16 @@ export async function decodeTelnyxPayloadToPcm16(opts: DecodeTelnyxOptions): Pro
   if (encoding === 'PCMU') {
     const pcm = decodePcmu(opts.payload);
     const resampled = resamplePcm16(pcm, 8000, targetRate);
-    await maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext);
-    await maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
     return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };
   }
 
   if (encoding === 'PCMA') {
     const pcm = decodePcma(opts.payload);
     const resampled = resamplePcm16(pcm, 8000, targetRate);
-    await maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext);
-    await maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
     return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };
   }
 
@@ -2551,8 +2581,8 @@ export async function decodeTelnyxPayloadToPcm16(opts: DecodeTelnyxOptions): Pro
     state.amrwbFfmpegUsable = true;
     state.amrwbLastError = undefined;
 
-    await maybeDumpPostDecode(pcmOut, targetRate, encoding, state, opts.logContext);
-    await maybeDumpPcm16(pcmOut, targetRate, encoding, state, opts.logContext);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(pcmOut, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(pcmOut, targetRate, encoding, state, opts.logContext));
 
     return {
       pcm16: pcmOut,
@@ -2571,8 +2601,8 @@ export async function decodeTelnyxPayloadToPcm16(opts: DecodeTelnyxOptions): Pro
     const decoded = state.g722.decode(opts.payload);
 
     const resampled = resamplePcm16(decoded, 16000, targetRate);
-    await maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext);
-    await maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
     return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };
   }
 
@@ -2631,8 +2661,8 @@ export async function decodeTelnyxPayloadToPcm16(opts: DecodeTelnyxOptions): Pro
       );
     }
 
-    await maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext);
-    await maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
     return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };
   }
 

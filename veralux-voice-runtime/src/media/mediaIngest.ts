@@ -8,7 +8,9 @@ import { DebugAudioTap } from '../audio/debugAudioTap';
 
 import { attachAudioMeta, diagnosticsEnabled, markAudioSpan, probePcm } from '../diagnostics/audioProbe';
 import type { AudioMeta } from '../diagnostics/audioProbe';
+import { env } from '../env';
 import { log } from '../log';
+import { incMediaInboundSeqGapFrames } from '../metrics';
 import type { TransportMode } from '../transport/types';
 
 type Base64Encoding = 'base64' | 'base64url';
@@ -188,6 +190,64 @@ function resolveEmitMs(): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_EMIT_MS;
   return Math.max(MIN_EMIT_MS, Math.min(MAX_EMIT_MS, Math.round(parsed)));
+}
+
+/** Micro crossfade when appending a new decode after `pendingPcm` (reduces boundary clicks). */
+function resolveDecodeJoinCrossfadeSamples(): number {
+  const raw = process.env.STT_INGEST_DECODE_JOIN_CROSSFADE_SAMPLES;
+  if (raw === undefined || raw.trim() === '') return 24;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 24;
+  return Math.min(160, n);
+}
+
+/** Only crossfade when |Δ| between last pending and first new sample exceeds this (int16). */
+function resolveDecodeJoinMinDelta(): number {
+  const raw = process.env.STT_INGEST_DECODE_JOIN_MIN_DELTA_INT16;
+  if (raw === undefined || raw.trim() === '') return 2500;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 2500;
+  return Math.min(32000, n);
+}
+
+function mergePendingPcmWithDecoded(pending: Int16Array, pcm16: Int16Array, crossfade: number, minDelta: number): Int16Array {
+  if (crossfade <= 0 || pending.length === 0) {
+    const merged = new Int16Array(pending.length + pcm16.length);
+    merged.set(pending);
+    merged.set(pcm16, pending.length);
+    return merged;
+  }
+
+  const lastP = pending[pending.length - 1] ?? 0;
+  const firstN = pcm16[0] ?? 0;
+  if (Math.abs(firstN - lastP) < minDelta) {
+    const merged = new Int16Array(pending.length + pcm16.length);
+    merged.set(pending);
+    merged.set(pcm16, pending.length);
+    return merged;
+  }
+
+  const n = Math.min(crossfade, pending.length, pcm16.length);
+  if (n < 2) {
+    const merged = new Int16Array(pending.length + pcm16.length);
+    merged.set(pending);
+    merged.set(pcm16, pending.length);
+    return merged;
+  }
+
+  const L = pending.length;
+  const merged = new Int16Array(L + pcm16.length - n);
+  merged.set(pending.subarray(0, L - n));
+  const tail = pending.subarray(L - n, L);
+  const head = pcm16.subarray(0, n);
+  const denom = n - 1;
+  for (let i = 0; i < n; i += 1) {
+    const t = denom > 0 ? i / denom : 0.5;
+    const v = tail[i]! * (1 - t) + head[i]! * t;
+    merged[L - n + i] = Math.max(-32768, Math.min(32767, Math.round(v)));
+  }
+  merged.set(pcm16.subarray(n), L);
+  return merged;
 }
 
 function emitChunkDebugEnabled(): boolean {
@@ -869,6 +929,7 @@ export class MediaIngest {
   private mediaChannels?: number;
 
   private playbackSuppressUntilMs = 0;
+  private lastMediaSeqGapLogAtMs = 0;
   private readonly playbackGuardMs =
   Number.isFinite(Number(process.env.STT_PLAYBACK_GUARD_MS))
     ? Math.max(0, Math.floor(Number(process.env.STT_PLAYBACK_GUARD_MS)))
@@ -920,6 +981,8 @@ export class MediaIngest {
   private pendingPcm?: Int16Array;
   private pendingPcmSampleRateHz?: number;
   private readonly emitChunkMs: number;
+  private readonly decodeJoinCrossfadeSamples: number;
+  private readonly decodeJoinMinDeltaInt16: number;
 
   private lastStatsLogAt = 0;
   private lastEmitLogAt = 0;
@@ -958,6 +1021,8 @@ export class MediaIngest {
         : 1;
     this.maxRestartAttempts = Math.max(0, maxRestartAttempts);
     this.emitChunkMs = resolveEmitMs();
+    this.decodeJoinCrossfadeSamples = resolveDecodeJoinCrossfadeSamples();
+    this.decodeJoinMinDeltaInt16 = resolveDecodeJoinMinDelta();
 
     this.captureState = initCaptureState(this.callControlId) ?? undefined;
     if (this.captureState) {
@@ -1372,6 +1437,29 @@ export class MediaIngest {
 
     // ✅ Commit Telnyx seq ONLY after we fully accept the frame (post-track + post-playback gates)
     if (shouldCommitSeq && this.activeStreamId && typeof seqNum === 'number' && Number.isFinite(seqNum)) {
+      const prevSeq = this.lastSeqByStream.get(this.activeStreamId) ?? -1;
+      if (prevSeq >= 0 && seqNum > prevSeq + 1) {
+        const gap = seqNum - prevSeq - 1;
+        incMediaInboundSeqGapFrames(gap);
+        const warnMin = env.MEDIA_SEQ_GAP_LOG_MIN;
+        if (gap >= warnMin) {
+          const nowGapLog = Date.now();
+          if (nowGapLog - this.lastMediaSeqGapLogAtMs >= 3000) {
+            this.lastMediaSeqGapLogAtMs = nowGapLog;
+            log.warn(
+              {
+                event: 'inbound_media_sequence_gap',
+                gap_frames: gap,
+                seq: seqNum,
+                prev_seq: prevSeq,
+                call_control_id: this.callControlId,
+                ...(this.logContext ?? {}),
+              },
+              'inbound Telnyx media sequence gap (possible lost frames)',
+            );
+          }
+        }
+      }
       this.lastSeqByStream.set(this.activeStreamId, seqNum);
     }
 
@@ -2252,10 +2340,12 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
     let combined = pcm16;
 
     if (this.pendingPcm && this.pendingPcm.length > 0) {
-      const merged = new Int16Array(this.pendingPcm.length + pcm16.length);
-      merged.set(this.pendingPcm);
-      merged.set(pcm16, this.pendingPcm.length);
-      combined = merged;
+      combined = mergePendingPcmWithDecoded(
+        this.pendingPcm,
+        pcm16,
+        this.decodeJoinCrossfadeSamples,
+        this.decodeJoinMinDeltaInt16,
+      );
       this.pendingPcm = undefined;
       this.pendingPcmSampleRateHz = undefined;
     }

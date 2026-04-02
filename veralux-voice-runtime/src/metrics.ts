@@ -95,6 +95,47 @@ const callEmptyTranscriptPct = new client.Histogram({
   registers: [register],
 });
 
+const unclearRepromptsTotal = new client.Counter({
+  name: `${METRICS_PREFIX}unclear_reprompts_total`,
+  help: 'Reprompts played after unclear STT (empty, error, or filler transcript)',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+
+/** Sum of (seq - prev - 1) when Telnyx sequence jumps — estimates missing media packets. */
+const mediaInboundSeqGapFramesTotal = new client.Counter({
+  name: `${METRICS_PREFIX}media_inbound_seq_gap_frames_total`,
+  help: 'Estimated inbound media frames skipped by sequence gaps (Telnyx)',
+  registers: [register],
+});
+
+const transcriptNearDuplicateSuppressedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}transcript_near_duplicate_suppressed_total`,
+  help: 'Final transcripts suppressed as near-duplicates of the previous final (match_kind: identical|substring|levenshtein)',
+  labelNames: ['match_kind'] as const,
+  registers: [register],
+});
+
+/** Extra finals after one was already accepted for the utterance (double endpointing at session layer). */
+const transcriptIgnoredAfterAcceptTotal = new client.Counter({
+  name: `${METRICS_PREFIX}transcript_ignored_after_accept_total`,
+  help: 'Transcript ignored because a final was already accepted for this utterance',
+  labelNames: ['source'] as const,
+  registers: [register],
+});
+
+/**
+ * Ms from accepting a final user transcript (after dedupe gates) to first assistant playback.play.
+ * Proxy for “user text committed → first audio on the wire” (excludes earlier VAD/silence).
+ */
+const turnFinalAcceptedToFirstPlaybackMs = new client.Histogram({
+  name: `${METRICS_PREFIX}turn_final_accepted_to_first_playback_ms`,
+  help: 'Ms from final transcript accepted to first transport playback for assistant audio',
+  labelNames: ['tenant'] as const,
+  buckets: [50, 100, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 8000, 12000, 20000],
+  registers: [register],
+});
+
 const ttsCacheLookupsTotal = new client.Counter({
   name: `${METRICS_PREFIX}tts_cache_lookups_total`,
   help: 'TTS cache lookups by outcome (lru_hit, redis_hit, miss)',
@@ -196,6 +237,54 @@ export function incInboundAudioFrames(count = 1): void {
 
 export function incSttFramesFed(count = 1): void {
   sttFramesFedTotal.inc(count);
+}
+
+export function incUnclearReprompt(reason: string): void {
+  try {
+    const r = reason && reason.trim() !== '' ? reason.slice(0, 64) : 'unknown';
+    unclearRepromptsTotal.inc({ reason: r });
+  } catch {
+    // swallow
+  }
+}
+
+export function incMediaInboundSeqGapFrames(gap: number): void {
+  if (!(gap > 0)) return;
+  try {
+    mediaInboundSeqGapFramesTotal.inc(gap);
+  } catch {
+    // swallow
+  }
+}
+
+const NEAR_DUP_LABELS = new Set(['identical', 'substring', 'levenshtein']);
+
+export function incTranscriptNearDuplicateSuppressed(matchKind: string): void {
+  try {
+    const k = NEAR_DUP_LABELS.has(matchKind) ? matchKind : 'unknown';
+    transcriptNearDuplicateSuppressedTotal.inc({ match_kind: k });
+  } catch {
+    // swallow
+  }
+}
+
+export function incTranscriptIgnoredAfterAccept(source: string): void {
+  try {
+    const s =
+      source === 'final' || source === 'partial_fallback' ? source : 'unknown';
+    transcriptIgnoredAfterAcceptTotal.inc({ source: s });
+  } catch {
+    // swallow
+  }
+}
+
+export function observeTurnFinalToFirstPlaybackMs(tenant: string | undefined, ms: number): void {
+  if (!Number.isFinite(ms) || ms < 0) return;
+  try {
+    turnFinalAcceptedToFirstPlaybackMs.observe({ tenant: tenant ?? 'unknown' }, ms);
+  } catch {
+    // swallow
+  }
 }
 
 export function incInboundAudioFramesDropped(reason: string, count = 1): void {

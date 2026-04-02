@@ -3,7 +3,12 @@
 // Tier 4: AEC Processor
 // Buffers inbound PCM to 20ms frames, pulls far-end reference, runs Speex AEC,
 // and emits cleaned frames. When AEC is unavailable or no far-end, passthrough.
+//
+// Debug: STT_DEBUG_AEC_NEAR_OUT_WAV=true records aligned near vs AEC-out as stereo
+// (L=near, R=out), flushed when the call releases AEC state. See scripts/analyze_stt_wav.py.
 
+import fs from 'fs/promises';
+import path from 'path';
 import { log } from '../log';
 import { pullFarEndFrame } from './farEndReference';
 import {
@@ -25,6 +30,96 @@ interface CallState {
 
 const stateByCall = new Map<string, CallState>();
 
+/** Ring of interleaved stereo s16le chunks (L=near, R=out), 320 samples per channel per chunk. */
+const aecTapChunksByCall = new Map<string, Buffer[]>();
+
+function parseBoolEnv(value: string | undefined): boolean {
+  if (!value) return false;
+  const n = value.trim().toLowerCase();
+  return n === '1' || n === 'true' || n === 'yes';
+}
+
+function aecNearOutTapEnabled(): boolean {
+  return parseBoolEnv(process.env.STT_DEBUG_AEC_NEAR_OUT_WAV);
+}
+
+function aecTapMaxFrames(): number {
+  const raw = process.env.STT_DEBUG_AEC_TAP_MAX_MS;
+  const ms = raw ? Number.parseInt(raw, 10) : 8000;
+  const clamped = Math.min(120_000, Math.max(500, Number.isFinite(ms) ? ms : 8000));
+  return Math.max(1, Math.floor(clamped / 20));
+}
+
+function resolveSttDebugDir(): string {
+  const d = process.env.STT_DEBUG_DIR?.trim();
+  return d && d !== '' ? d : '/tmp/veralux-stt-debug';
+}
+
+function wavHeaderStereo(pcmDataBytes: number, sampleRate: number): Buffer {
+  const channels = 2;
+  const bytesPerSample = 2;
+  const blockAlign = channels * bytesPerSample;
+  const byteRate = sampleRate * blockAlign;
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + pcmDataBytes, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(16, 34);
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(pcmDataBytes, 40);
+  return header;
+}
+
+function appendAecStereoTap(callControlId: string, nearFrame: Buffer, output: Buffer): void {
+  if (!aecNearOutTapEnabled()) return;
+  if (nearFrame.length !== BYTES_PER_FRAME || output.length < BYTES_PER_FRAME) return;
+
+  const chunk = Buffer.alloc(BYTES_PER_FRAME * 2);
+  for (let i = 0; i < AEC_FRAME_SAMPLES; i += 1) {
+    const ni = nearFrame.readInt16LE(i * 2);
+    const oi = output.readInt16LE(i * 2);
+    chunk.writeInt16LE(ni, i * 4);
+    chunk.writeInt16LE(oi, i * 4 + 2);
+  }
+
+  let q = aecTapChunksByCall.get(callControlId);
+  if (!q) {
+    q = [];
+    aecTapChunksByCall.set(callControlId, q);
+  }
+  q.push(chunk);
+  const cap = aecTapMaxFrames();
+  while (q.length > cap) q.shift();
+}
+
+async function flushAecStereoTap(callControlId: string): Promise<void> {
+  const q = aecTapChunksByCall.get(callControlId);
+  aecTapChunksByCall.delete(callControlId);
+  if (!q || q.length === 0) return;
+
+  const pcm = Buffer.concat(q);
+  const dir = resolveSttDebugDir();
+  const filePath = path.join(dir, `aec_near_out_${callControlId}_${Date.now()}.wav`);
+  const wav = Buffer.concat([wavHeaderStereo(pcm.length, 16000), pcm]);
+  try {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(filePath, wav);
+    log.info(
+      { event: 'stt_debug_aec_near_out_wav_written', file_path: filePath, frames: q.length, bytes: wav.length },
+      'stt debug AEC near/out stereo wav written',
+    );
+  } catch (err) {
+    log.warn({ err, file_path: filePath }, 'stt debug AEC near/out wav write failed');
+  }
+}
+
 function getOrCreateState(callControlId: string): CallState {
   let st = stateByCall.get(callControlId);
   if (!st) {
@@ -39,6 +134,7 @@ function getOrCreateState(callControlId: string): CallState {
 }
 
 export function releaseAecProcessor(callControlId: string): void {
+  void flushAecStereoTap(callControlId);
   const st = stateByCall.get(callControlId);
   if (st) {
     if (st.aecState) destroySpeexAecState(st.aecState);
@@ -96,6 +192,8 @@ export function processAec(
     } else {
       output = nearFrame;
     }
+
+    appendAecStereoTap(callControlId, nearFrame, output);
 
     const outSamples = new Int16Array(AEC_FRAME_SAMPLES);
     outSamples.set(new Int16Array(output.buffer, output.byteOffset, AEC_FRAME_SAMPLES));

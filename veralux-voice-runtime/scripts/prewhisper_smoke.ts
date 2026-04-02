@@ -1,7 +1,20 @@
 import fs from 'fs';
 import path from 'path';
-import { preWhisperGate, analyzePcm16 } from '../src/audio/preWhisperGate';
+import { preWhisperGate } from '../src/audio/preWhisperGate';
 import { decodeWavToPcm16 } from '../src/audio/postprocess';
+
+function pcm16RmsPeak(samples: Int16Array): { rms: number; peak: number } {
+  if (samples.length === 0) return { rms: 0, peak: 0 };
+  let sumSq = 0;
+  let peak = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const s = (samples[i] ?? 0) / 32768;
+    sumSq += s * s;
+    const a = Math.abs(s);
+    if (a > peak) peak = a;
+  }
+  return { rms: Math.sqrt(sumSq / samples.length), peak };
+}
 
 type Args = {
   file?: string;
@@ -89,7 +102,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const stats = analyzePcm16(decoded.samples);
+  const stats = pcm16RmsPeak(decoded.samples);
   // eslint-disable-next-line no-console
   console.info(
     JSON.stringify(
@@ -99,8 +112,6 @@ async function main(): Promise<void> {
         samples: decoded.samples.length,
         rms: Number(stats.rms.toFixed(6)),
         peak: Number(stats.peak.toFixed(6)),
-        clipped: stats.clipped,
-        dc_offset: Number(stats.dcOffsetApprox.toFixed(6)),
       },
       null,
       2,

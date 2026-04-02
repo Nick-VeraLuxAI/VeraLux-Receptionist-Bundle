@@ -2,6 +2,8 @@
 
 The runtime exposes Prometheus metrics, structured logs, and health endpoints for monitoring.
 
+For **audio / turn latency / duplicate and gap SLOs**, see [audio-quality-slos.md](./audio-quality-slos.md).
+
 ## Metrics Endpoint
 
 ```

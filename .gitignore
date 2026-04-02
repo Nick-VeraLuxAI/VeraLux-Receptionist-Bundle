@@ -51,3 +51,6 @@ backups/
 
 # Misc dev artifacts
 oldenv.txt
+docker-compose.override.yml
+stt-debug-call/
+stt-debug-export/

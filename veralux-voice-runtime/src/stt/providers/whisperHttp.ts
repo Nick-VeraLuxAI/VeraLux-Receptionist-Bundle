@@ -2,7 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { fetch } from 'undici';
+import { Agent, fetch } from 'undici';
 
 import { env } from '../../env';
 import { log } from '../../log';
@@ -25,6 +25,20 @@ const wavDebugLogged = new Set<string>();
 let wavDebugLoggedAnonymous = false;
 
 const whisperDumpCounters = new Map<string, number>();
+
+let whisperHttpAgent: Agent | undefined;
+
+function getWhisperHttpDispatcher(): Agent | undefined {
+  if (!env.WHISPER_HTTP_KEEPALIVE) return undefined;
+  if (!whisperHttpAgent) {
+    whisperHttpAgent = new Agent({
+      connections: env.WHISPER_HTTP_MAX_CONNECTIONS,
+      keepAliveTimeout: 60_000,
+      keepAliveMaxTimeout: 600_000,
+    });
+  }
+  return whisperHttpAgent;
+}
 
 // Dedupe state: same call + partial + same payload => skip sending
 const lastPartialSha1ByCall = new Map<string, string>();
@@ -57,10 +71,13 @@ function shouldTrace(callId: string): boolean {
   return n <= limit;
 }
 
-function debugDir(): string {
-  return process.env.STT_DEBUG_DIR && process.env.STT_DEBUG_DIR.trim() !== ''
-    ? process.env.STT_DEBUG_DIR.trim()
-    : '/tmp/veralux-stt-debug';
+/** Same artifacts folder as preWhisper dumps: prefer STT_DEBUG_DIR, else STT_PREWHISPER_DUMP_DIR. */
+function sttWavDumpDir(): string {
+  const a = process.env.STT_DEBUG_DIR?.trim();
+  const b = process.env.STT_PREWHISPER_DUMP_DIR?.trim();
+  if (a) return a;
+  if (b) return b;
+  return '/tmp/veralux-stt-debug';
 }
 
 function sanitizeFilePart(value: string): string {
@@ -94,7 +111,7 @@ async function maybeDumpWhisperWav(
   const seq = (whisperDumpCounters.get(safeId) ?? 0) + 1;
   whisperDumpCounters.set(safeId, seq);
 
-  const dir = debugDir();
+  const dir = sttWavDumpDir();
   const h10 = sha1_10(wavPayload);
   const filePath = path.join(dir, `whisper_${safeId}_${kind}_${seq}_${h10}_${Date.now()}.wav`);
   try {
@@ -445,6 +462,19 @@ export class WhisperHttpProvider implements STTProvider {
     const wavSha1 = sha1Hex(wavPayload);
     const h10 = wavSha1.slice(0, 10);
 
+    const whisperStage: 'partial' | 'final' = opts.isPartial ? 'partial' : 'final';
+    const tenantLabel = typeof opts.logContext?.tenant_id === 'string' ? opts.logContext.tenant_id : 'unknown';
+    const stageLabel = opts.isPartial ? 'stt_whisper_http_partial' : 'stt_whisper_http_final';
+
+    const audioMs = computeAudioMs(audioForMetrics, wavPayload);
+    observeStageDuration(opts.isPartial ? 'stt_payload_ms_partial' : 'stt_payload_ms_final', tenantLabel, audioMs);
+
+    // Optional probing/dumps (before partial dedupe so WAVs are still written when HTTP is skipped)
+    probeWav('stt.submit.wav', wavPayload, { ...wavMeta, kind: whisperStage });
+    void maybeDumpWhisperWav(wavPayload, whisperStage, opts.logContext).catch((err) =>
+      log.warn({ err, event: 'stt_whisper_wav_dump_failed', ...(opts.logContext ?? {}) }, 'whisper wav dump failed'),
+    );
+
     // Deduplicate identical partial payloads per call (use full sha1)
     if (!isFinal) {
       const prev = lastPartialSha1ByCall.get(safeCallKey);
@@ -464,17 +494,6 @@ export class WhisperHttpProvider implements STTProvider {
       }
       lastPartialSha1ByCall.set(safeCallKey, wavSha1);
     }
-
-    const whisperStage: 'partial' | 'final' = opts.isPartial ? 'partial' : 'final';
-    const tenantLabel = typeof opts.logContext?.tenant_id === 'string' ? opts.logContext.tenant_id : 'unknown';
-    const stageLabel = opts.isPartial ? 'stt_whisper_http_partial' : 'stt_whisper_http_final';
-
-    const audioMs = computeAudioMs(audioForMetrics, wavPayload);
-    observeStageDuration(opts.isPartial ? 'stt_payload_ms_partial' : 'stt_payload_ms_final', tenantLabel, audioMs);
-
-    // Optional probing/dumps
-    probeWav('stt.submit.wav', wavPayload, { ...wavMeta, kind: whisperStage });
-    await maybeDumpWhisperWav(wavPayload, whisperStage, opts.logContext);
 
     // Trace + media debug summary
     if (mediaDebugEnabled()) logWavDebug(wavPayload, opts.logContext);
@@ -587,6 +606,7 @@ export class WhisperHttpProvider implements STTProvider {
 
       // IMPORTANT:
       // ✅ Do NOT pass opts.signal into fetch() (it will cancel the HTTP request).
+      const dispatcher = getWhisperHttpDispatcher();
       const response = await fetch(whisperUrl, {
         method: 'POST',
         headers: {
@@ -595,6 +615,7 @@ export class WhisperHttpProvider implements STTProvider {
           Accept: 'application/json, text/plain;q=0.9, */*;q=0.1',
         },
         body: body as any,
+        ...(dispatcher ? { dispatcher } : {}),
       });
 
       const contentType = response.headers.get('content-type') ?? '';

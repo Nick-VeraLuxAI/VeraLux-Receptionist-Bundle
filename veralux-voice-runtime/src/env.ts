@@ -181,11 +181,21 @@ const EnvSchema = z.object({
   STT_DEBUG_DUMP_PCM16: z.preprocess(stringToBoolean, z.boolean().default(false)),
   STT_DEBUG_DUMP_RX_WAV: z.preprocess(stringToBoolean, z.boolean().default(false)),
   STT_DEBUG_DUMP_FAR_END_REF: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /** When true, write stereo WAV L=near / R=AEC output (20 ms aligned) on call end under STT_DEBUG_DIR. */
+  STT_DEBUG_AEC_NEAR_OUT_WAV: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /** Max duration retained for AEC near/out tap ring buffer (ms). Older frames dropped. */
+  STT_DEBUG_AEC_TAP_MAX_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().max(120_000).default(8000)),
 
   /** Periodic JSON snapshot of STT pipeline (levels, gates, dedupe, timing). 0 = off. Typical: 2000–3000. */
   STT_PIPELINE_DIAG_INTERVAL_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).default(0)),
   /** Log full pipeline snapshot when assistant playback starts/ends (recommended). */
   STT_PIPELINE_DIAG_ON_PLAYBACK: z.preprocess(stringToBoolean, z.boolean().default(true)),
+
+  /**
+   * Attenuate inbound PCM before AEC/STT (negative dB only; 0 = off).
+   * Reduces near-full-scale PSTN/codec peaks that confuse Whisper and exaggerate clicks.
+   */
+  STT_RX_HEADROOM_DB: z.preprocess(emptyToUndefined, z.coerce.number().min(-24).max(0).default(0)),
 
   /* Tier 4: SpeexDSP AEC (requires libspeexdsp: brew install speex / apt install libspeexdsp-dev) */
   STT_AEC_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
@@ -209,10 +219,55 @@ const EnvSchema = z.object({
   DEAD_AIR_MS: z.coerce.number().int().positive(),
   DEAD_AIR_NO_FRAMES_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(1500)),
 
+  /** When STT returns empty/noise or errors (after retries), play a TTS reprompt instead of staying silent. */
+  STT_UNCLEAR_REPROMPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  /** Extra Whisper attempts after an empty final (same audio). Default 1 = one retry. */
+  STT_EMPTY_FINAL_EXTRA_TRIES: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(4).default(1)),
+  /** Extra attempts after retryable HTTP/network STT errors. */
+  STT_FINAL_ERROR_EXTRA_TRIES: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(4).default(1)),
+  /** Pause between STT retries (ms). */
+  STT_FINAL_RETRY_BACKOFF_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(2000).default(180)),
+  /** Max unclear reprompts per call (empty / error / filler); 0 = unlimited (not recommended). */
+  STT_UNCLEAR_REPROMPT_MAX_PER_CALL: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(30).default(8)),
+  /** Minimum ms between unclear reprompts (anti-spam). */
+  STT_UNCLEAR_REPROMPT_COOLDOWN_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(120_000).default(2200)),
+  /** Pipe-separated TTS lines; default built-in phrases if unset. */
+  STT_UNCLEAR_REPROMPT_PHRASES: z.preprocess(emptyToUndefined, z.string().optional()),
+  /**
+   * If > 0, transcripts with fewer than this many letters (A–Z) are treated as unclear.
+   * Default 0 = disabled (avoids rejecting valid short answers like “no”).
+   */
+  STT_UNCLEAR_MIN_LETTERS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(20).default(0)),
+
+  /** Suppress a final transcript if it closely matches the previous final within a short window (double STT finals). */
+  STT_TRANSCRIPT_DEDUPE_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  STT_TRANSCRIPT_DEDUPE_WINDOW_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(500).max(30_000).default(2200)),
+  STT_TRANSCRIPT_DEDUPE_SIMILARITY: z.preprocess(emptyToUndefined, z.coerce.number().min(0.5).max(1).default(0.9)),
+
+  /** Log + metrics when Telnyx sequence jumps by at least this many missing indices. */
+  MEDIA_SEQ_GAP_LOG_MIN: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(100).default(3)),
+
+  /** Reuse TCP connections to Whisper (lower tail latency). */
+  WHISPER_HTTP_KEEPALIVE: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  WHISPER_HTTP_MAX_CONNECTIONS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(64).default(8)),
+
   /* STT debug dir (optional); when set, runtime ensures it exists at startup */
   STT_DEBUG_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Optional separate dir for AMR-WB debug artifacts (defaults to STT_DEBUG_DIR when unset). */
   AMRWB_DEBUG_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+
+  /** Linear fade (samples @ decode rate) when AMR-WB PCM is zero-padded to nominal frame length. 0 = hard pad (legacy). */
+  STT_AMRWB_PAD_FADE_SAMPLES: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).max(512).default(32)),
+  /** Crossfade length when joining pending decoded PCM with the next decode batch (0 = off). */
+  STT_INGEST_DECODE_JOIN_CROSSFADE_SAMPLES: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(0).max(160).default(24),
+  ),
+  /** Only apply decode-join crossfade when |Δ int16| between last pending and first new sample exceeds this. */
+  STT_INGEST_DECODE_JOIN_MIN_DELTA_INT16: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(0).max(32000).default(2500),
+  ),
 
   /* ───────────────────────── TTS ───────────────────────── */
   /** TTS backend when no tenant tts config is set. */

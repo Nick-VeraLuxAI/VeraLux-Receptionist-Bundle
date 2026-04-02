@@ -117,6 +117,16 @@ function sha1Hex(buf: Buffer): string {
   return crypto.createHash('sha1').update(buf).digest('hex');
 }
 
+/** Max absolute sample in a PCM16 frame (for energy gating). */
+function framePeakAbsInt16(frameView: Int16Array): number {
+  let p = 0;
+  for (let i = 0; i < frameView.length; i += 1) {
+    const a = Math.abs(frameView[i] ?? 0);
+    if (a > p) p = a;
+  }
+  return p;
+}
+
 /**
  * Dedupe exact repeated PCM frames in a recent window.
  * This fixes "echo + slow" caused by upstream frame replay (lag-k).
@@ -124,12 +134,16 @@ function sha1Hex(buf: Buffer): string {
  * Frames are assumed to be ~20ms each:
  *   frameSamples = sampleRateHz / 50
  *
+ * When minPeakAbsForDedupe > 0: frames below that int16 peak skip dedupe and clear the
+ * sliding window (avoids collapsing long runs of digital silence; avoids stale hashes after pauses).
+ *
  * Returns: { samples, keptFrames, droppedFrames, frameSamples }
  */
 function dedupeRecentPcmFrames(
   mono: Int16Array,
   sampleRateHz: number,
   windowSize: number,
+  minPeakAbsForDedupe: number,
 ): { samples: Int16Array; keptFrames: number; droppedFrames: number; frameSamples: number } {
   if (!Number.isFinite(windowSize) || windowSize <= 0) {
     return { samples: mono, keptFrames: 0, droppedFrames: 0, frameSamples: Math.max(1, Math.round(sampleRateHz / 50)) };
@@ -149,6 +163,8 @@ function dedupeRecentPcmFrames(
   let keptFrames = 0;
   let droppedFrames = 0;
 
+  const silenceAware = Number.isFinite(minPeakAbsForDedupe) && minPeakAbsForDedupe > 0;
+
   for (let i = 0; i < totalFrames; i += 1) {
     const start = i * frameSamples;
     const end = start + frameSamples;
@@ -156,6 +172,14 @@ function dedupeRecentPcmFrames(
     // hash the raw bytes of this frame
     const frameView = mono.subarray(start, end);
     const frameBuf = Buffer.from(frameView.buffer, frameView.byteOffset, frameView.byteLength);
+
+    if (silenceAware && framePeakAbsInt16(frameView) < minPeakAbsForDedupe) {
+      kept.push(frameView);
+      keptFrames += 1;
+      recentQueue.length = 0;
+      recentSet.clear();
+      continue;
+    }
 
     const h = sha1Hex(frameBuf);
 
@@ -252,12 +276,13 @@ export async function preWhisperGate(input: {
 
   // -------------------- PCM RECENT-WINDOW DEDUPE (fix echo/slow) --------------------
   // Set STT_PREWHISPER_DEDUPE_WINDOW=0 to disable
-  // Suggested starting points:
-  //   16 or 32 (catches lag-k replay up to ~320–640ms)
-  const dedupeWindow = Math.max(0, parseIntEnv('STT_PREWHISPER_DEDUPE_WINDOW', 0));
+  // Default 32 (~640ms @ 20ms frames) catches typical lag-k replay before Whisper.
+  // STT_PREWHISPER_DEDUPE_MIN_PEAK_ABS=0 disables silence-aware path (legacy: may collapse silence).
+  const dedupeWindow = Math.max(0, parseIntEnv('STT_PREWHISPER_DEDUPE_WINDOW', 32));
+  const dedupeMinPeakAbs = Math.max(0, parseIntEnv('STT_PREWHISPER_DEDUPE_MIN_PEAK_ABS', 280));
   const inRateForDedupe = inputSampleRate ?? OUTPUT_SAMPLE_RATE_HZ;
 
-  const dd = dedupeRecentPcmFrames(mono, inRateForDedupe, dedupeWindow);
+  const dd = dedupeRecentPcmFrames(mono, inRateForDedupe, dedupeWindow, dedupeMinPeakAbs);
   if (dedupeWindow > 0 && dd.droppedFrames > 0) {
     mono = dd.samples;
   }
@@ -312,6 +337,7 @@ export async function preWhisperGate(input: {
 
           // dedupe debug
           prewhisper_dedupe_window: dedupeWindow,
+          prewhisper_dedupe_min_peak_abs: dedupeMinPeakAbs,
           prewhisper_dedupe_in_rate_hz: inRateForDedupe,
           prewhisper_dedupe_frame_samples: dd.frameSamples,
           prewhisper_dedupe_dropped_frames: dd.droppedFrames,
@@ -334,6 +360,7 @@ export async function preWhisperGate(input: {
       output_channels: OUTPUT_CHANNELS,
 
       prewhisper_dedupe_window: dedupeWindow,
+      prewhisper_dedupe_min_peak_abs: dedupeMinPeakAbs,
       prewhisper_dedupe_in_rate_hz: inRateForDedupe,
       prewhisper_dedupe_frame_samples: dd.frameSamples,
       prewhisper_dedupe_dropped_frames: dd.droppedFrames,

@@ -9,9 +9,15 @@ import type { MediaFrame, Pcm16Frame } from '../media/types';
 import { storeWav } from '../storage/audioStore';
 import {
   ChunkedSTT,
+  type FinalPipelineOutcome,
   type SpeechStartInfo,
   type STTProvider as ChunkedSttProvider,
 } from '../stt/chunkedSTT';
+import {
+  classifyNearDuplicateMatch,
+  isFillerOrNoiseTranscript,
+  isTooShortForIntent,
+} from '../stt/transcriptClarity';
 import { getProvider } from '../stt/registry';
 import { PstnTelnyxTransportSession } from '../transport/pstnTelnyxTransport';
 import type { TransferOptions, TransportSession } from '../transport/types';
@@ -41,9 +47,24 @@ import {
   resetAecProcessor,
   speexAecAvailable,
 } from '../audio/aecProcessor';
-import { startStageTimer, incStageError, observeStageDuration, incSttFramesFed } from '../metrics';
+import {
+  startStageTimer,
+  incStageError,
+  observeStageDuration,
+  incSttFramesFed,
+  incTranscriptNearDuplicateSuppressed,
+  incTranscriptIgnoredAfterAccept,
+  observeTurnFinalToFirstPlaybackMs,
+  incUnclearReprompt,
+} from '../metrics';
 
 const PARTIAL_FAST_PATH_MIN_CHARS = 18;
+
+const DEFAULT_UNCLEAR_REPROMPT_PHRASES = [
+  "I'm sorry, I didn't catch that. Could you repeat that, please?",
+  "I didn't quite understand. Please say that again.",
+  'Sorry — I had trouble hearing you. Could you repeat your question?',
+] as const;
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -80,6 +101,20 @@ function wavHeader(pcmDataBytes: number, sampleRate: number, channels: number): 
 function encodePcm16Wav(pcm16le: Buffer, sampleRateHz: number): Buffer {
   const header = wavHeader(pcm16le.length, sampleRateHz, 1);
   return Buffer.concat([header, pcm16le]);
+}
+
+/** Negative dB only; returns same buffer when db >= 0. */
+function applyRxHeadroomDb(pcm16: Int16Array, db: number): Int16Array {
+  if (db >= 0) return pcm16;
+  const mul = 10 ** (db / 20);
+  const out = new Int16Array(pcm16.length);
+  for (let i = 0; i < pcm16.length; i += 1) {
+    const v = Math.round((pcm16[i] ?? 0) * mul);
+    if (v > 32767) out[i] = 32767;
+    else if (v < -32768) out[i] = -32768;
+    else out[i] = v;
+  }
+  return out;
 }
 
 export class CallSession {
@@ -146,6 +181,15 @@ export class CallSession {
   private deadAirTimer?: NodeJS.Timeout;
   private deadAirEligible = false;
   private repromptInFlight = false;
+  private unclearRepromptCount = 0;
+  private lastUnclearRepromptAtMs = 0;
+  private unclearPhrasesCache: string[] | undefined;
+  /** Last accepted user final for near-duplicate suppression (double Whisper finals). */
+  private lastUserFinalForDedupeText = '';
+  private lastUserFinalForDedupeAtMs = 0;
+  /** Anchor for turn SLO: time final transcript was accepted (post-dedupe), until first playback.play. */
+  private userTurnFinalAcceptedAtMs: number | null = null;
+  private userTurnPlaybackLatencyRecorded = false;
   private ingestFailurePrompted = false;
   private readonly logPreviewChars = 160;
   private ttsSegmentChain: Promise<void> = Promise.resolve();
@@ -405,6 +449,9 @@ export class CallSession {
         this.metrics.totalUtteranceMs += opts.utteranceMs;
         this.metrics.totalTranscribedChars += opts.textLength;
       },
+      onFinalPipelineOutcome: (outcome) => {
+        void this.onFinalPipelineOutcome(outcome);
+      },
       // When AEC is on, ring buffer has raw audio but STT receives AEC-processed;
       // mixing causes "starts over" / duplication. Use internal pre-roll only.
       consumePreRoll: env.STT_AEC_ENABLED
@@ -595,10 +642,12 @@ export class CallSession {
       this.stt.ingestPcm16(pcm16, sampleRateHz);
     };
 
+    const rxPcm = applyRxHeadroomDb(frame.pcm16, env.STT_RX_HEADROOM_DB);
+
     if (env.STT_AEC_ENABLED && speexAecAvailable && frame.sampleRateHz === 16000) {
-      processAec(this.callControlId, frame.pcm16, frame.sampleRateHz, feedToStt, this.logContext);
+      processAec(this.callControlId, rxPcm, frame.sampleRateHz, feedToStt, this.logContext);
     } else {
-      feedToStt(frame.pcm16, frame.sampleRateHz);
+      feedToStt(rxPcm, frame.sampleRateHz);
     }
   }
 
@@ -1334,6 +1383,120 @@ export class CallSession {
     this.transcriptAcceptedForUtterance = false;
     this.deferredTranscript = undefined;
     this.firstPartialAt = undefined;
+    this.userTurnFinalAcceptedAtMs = null;
+    this.userTurnPlaybackLatencyRecorded = false;
+  }
+
+  /** SLO: once per user turn, ms from final accepted to first assistant playback.play. */
+  private maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel: string): void {
+    if (this.userTurnFinalAcceptedAtMs == null || this.userTurnPlaybackLatencyRecorded) return;
+    observeTurnFinalToFirstPlaybackMs(tenantLabel, Date.now() - this.userTurnFinalAcceptedAtMs);
+    this.userTurnPlaybackLatencyRecorded = true;
+  }
+
+  private getUnclearRepromptPhrases(): string[] {
+    if (this.unclearPhrasesCache) return this.unclearPhrasesCache;
+    const raw = env.STT_UNCLEAR_REPROMPT_PHRASES?.trim();
+    if (raw) {
+      this.unclearPhrasesCache = raw.split('|').map((s) => s.trim()).filter(Boolean);
+    }
+    if (!this.unclearPhrasesCache?.length) {
+      this.unclearPhrasesCache = [...DEFAULT_UNCLEAR_REPROMPT_PHRASES];
+    }
+    return this.unclearPhrasesCache;
+  }
+
+  /**
+   * TTS reprompt when STT did not yield usable text (empty/error after retries, filler-only final, etc.).
+   */
+  private async tryPlayUnclearReprompt(reason: string, detail?: Record<string, unknown>): Promise<void> {
+    if (!env.STT_UNCLEAR_REPROMPT_ENABLED) return;
+    if (!this.active || this.state === 'ENDED') return;
+    if (this.repromptInFlight || this.isHandlingTranscript) return;
+    if (this.isPlaybackActive()) {
+      log.debug(
+        { event: 'unclear_reprompt_skipped_playback', reason, ...this.logContext, ...detail },
+        'skip unclear reprompt during playback',
+      );
+      return;
+    }
+
+    const max = env.STT_UNCLEAR_REPROMPT_MAX_PER_CALL;
+    if (max > 0 && this.unclearRepromptCount >= max) {
+      log.warn(
+        {
+          event: 'unclear_reprompt_cap',
+          reason,
+          max_per_call: max,
+          ...this.logContext,
+          ...detail,
+        },
+        'unclear reprompt cap reached',
+      );
+      return;
+    }
+
+    const now = Date.now();
+    const cooldown = env.STT_UNCLEAR_REPROMPT_COOLDOWN_MS;
+    if (this.lastUnclearRepromptAtMs > 0 && now - this.lastUnclearRepromptAtMs < cooldown) {
+      log.debug(
+        {
+          event: 'unclear_reprompt_skipped_cooldown',
+          reason,
+          cooldown_ms: cooldown,
+          ...this.logContext,
+        },
+        'unclear reprompt cooldown',
+      );
+      return;
+    }
+
+    const phrases = this.getUnclearRepromptPhrases();
+    const phrase = phrases[this.unclearRepromptCount % phrases.length] ?? phrases[0]!;
+    this.unclearRepromptCount += 1;
+    this.lastUnclearRepromptAtMs = now;
+    incUnclearReprompt(reason);
+
+    this.repromptInFlight = true;
+    const turnId = `unclear-${reason}-${this.nextTurnId()}`;
+    log.info(
+      {
+        event: 'call_session_unclear_reprompt',
+        reason,
+        phrase_index: this.unclearRepromptCount - 1,
+        ...this.logContext,
+        ...detail,
+      },
+      'playing unclear-transcript reprompt',
+    );
+
+    try {
+      await this.playText(phrase, turnId);
+    } catch (error) {
+      log.warn({ err: error, reason, ...this.logContext }, 'unclear reprompt playText failed');
+    } finally {
+      this.repromptInFlight = false;
+      this.resetTranscriptTracking();
+      if (this.active && this.state === 'LISTENING') {
+        this.scheduleDeadAirTimer();
+      }
+    }
+  }
+
+  private async onFinalPipelineOutcome(outcome: FinalPipelineOutcome): Promise<void> {
+    if (outcome.kind === 'success') return;
+    try {
+      await this.tryPlayUnclearReprompt(
+        outcome.kind === 'empty' ? 'stt_empty_final' : 'stt_provider_error',
+        {
+          attempts: outcome.attempts,
+          utterance_ms: outcome.utteranceMs,
+          ...(outcome.kind === 'error' ? { error: getErrorMessage(outcome.error) } : {}),
+        },
+      );
+    } catch (error) {
+      log.warn({ err: error, ...this.logContext }, 'onFinalPipelineOutcome failed');
+    }
   }
 
   private shouldTriggerPartialFastPath(text: string): boolean {
@@ -1462,21 +1625,20 @@ export class CallSession {
 
     this.rxDumpActive = true;
 
-    // 0.75s can still be tiny if the caller speaks immediately; use ~1.25s
-    this.rxDumpSamplesTarget = Math.max(1, Math.round(this.rxSampleRateHz * 1.25));
+    // Flush once we have ~0.8s of post-playback RX (enough for diagnosis); timer below catches partial captures.
+    this.rxDumpSamplesTarget = Math.max(1, Math.round(this.rxSampleRateHz * 0.8));
 
     this.rxDumpSamplesCollected = 0;
     this.rxDumpBuffers = [];
 
-    // ✅ guaranteed flush: even if FINAL arrives fast, we still write a meaningful chunk
+    // Guaranteed flush: write whatever was captured after T+2s so short/silent tails still produce a WAV when any audio arrived.
     this.rxDumpFlushTimer = setTimeout(() => {
       if (this.rxDumpActive && this.rxDumpSamplesCollected > 0) {
         void this.flushRxDump();
       } else {
-        // nothing collected; just stop quietly
         this.rxDumpActive = false;
       }
-    }, 900);
+    }, 2000);
 
     this.rxDumpFlushTimer.unref?.();
   }
@@ -1702,15 +1864,39 @@ export class CallSession {
     }
 
     const isPartial = transcriptSource === 'partial_fallback';
+
+    if (
+      isFinal &&
+      env.STT_UNCLEAR_REPROMPT_ENABLED &&
+      (isFillerOrNoiseTranscript(trimmed) ||
+        (env.STT_UNCLEAR_MIN_LETTERS > 0 && isTooShortForIntent(trimmed, env.STT_UNCLEAR_MIN_LETTERS)))
+    ) {
+      log.info(
+        {
+          event: 'transcript_unclear_filler_or_short',
+          transcript_preview: trimmed.slice(0, 120),
+          min_letters: env.STT_UNCLEAR_MIN_LETTERS,
+          ...this.logContext,
+        },
+        'final transcript treated as unclear (filler/short); reprompting',
+      );
+      await this.tryPlayUnclearReprompt('stt_filler_or_short', {
+        transcript_preview: trimmed.slice(0, 120),
+      });
+      return;
+    }
     const trigger = isPartial ? 'partial' : 'final';
 
     // If we've already accepted a transcript for this utterance, ignore anything else.
     if (this.transcriptAcceptedForUtterance) {
+      const src = transcriptSource ?? 'unknown';
+      incTranscriptIgnoredAfterAccept(src);
       log.info(
         {
           event: 'transcript_ignored_duplicate',
+          duplicate_gate: 'utterance_already_accepted',
           transcript_length: trimmed.length,
-          transcript_source: transcriptSource ?? 'unknown',
+          transcript_source: src,
           ...this.logContext,
         },
         'transcript ignored (duplicate)',
@@ -1771,8 +1957,38 @@ export class CallSession {
       return;
     }
 
+    if (isFinal && env.STT_TRANSCRIPT_DEDUPE_ENABLED && this.lastUserFinalForDedupeAtMs > 0) {
+      const nearDupKind =
+        this.lastUserFinalForDedupeText.length > 0 &&
+        Date.now() - this.lastUserFinalForDedupeAtMs <= env.STT_TRANSCRIPT_DEDUPE_WINDOW_MS
+          ? classifyNearDuplicateMatch(
+              trimmed,
+              this.lastUserFinalForDedupeText,
+              env.STT_TRANSCRIPT_DEDUPE_SIMILARITY,
+            )
+          : null;
+      if (nearDupKind) {
+        incTranscriptNearDuplicateSuppressed(nearDupKind);
+        log.info(
+          {
+            event: 'transcript_near_duplicate_suppressed',
+            duplicate_gate: 'near_duplicate_transcript',
+            near_duplicate_match_kind: nearDupKind,
+            transcript_preview: trimmed.slice(0, 120),
+            prior_preview: this.lastUserFinalForDedupeText.slice(0, 120),
+            window_ms: env.STT_TRANSCRIPT_DEDUPE_WINDOW_MS,
+            ...this.logContext,
+          },
+          'suppressing near-duplicate final transcript (same utterance / echo)',
+        );
+        return;
+      }
+    }
+
     const tenantLabel = this.tenantId ?? 'unknown';
     const responseStartAt = Date.now();
+    this.userTurnFinalAcceptedAtMs = responseStartAt;
+    this.userTurnPlaybackLatencyRecorded = false;
 
     // timing metric: if we had partials, measure partial->response
     if (this.firstPartialAt) {
@@ -1827,6 +2043,8 @@ export class CallSession {
       this.state = 'THINKING';
       this.appendTranscriptSegment(trimmed);
       this.appendHistory({ role: 'user', content: trimmed, timestamp: new Date() });
+      this.lastUserFinalForDedupeText = trimmed;
+      this.lastUserFinalForDedupeAtMs = Date.now();
 
       let response = '';
       let replySource = 'unknown';
@@ -2418,6 +2636,7 @@ export class CallSession {
           }
 
           markAudioSpan('tx_sent', spanMeta);
+          this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
           await this.transport.playback.play(playbackInput);
 
           if (this.transport.mode === 'pstn') {
@@ -2664,6 +2883,7 @@ export class CallSession {
       }
 
       markAudioSpan('tx_sent', spanMeta);
+      this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
       await this.transport.playback.play(playbackInput);
 
       // ✅ IMPORTANT: do NOT call onPlaybackEnded() here.

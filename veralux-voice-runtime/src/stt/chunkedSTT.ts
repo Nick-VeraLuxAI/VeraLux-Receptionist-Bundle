@@ -65,6 +65,12 @@ export interface STTProvider {
   ): Promise<{ text: string }>;
 }
 
+/** Result of the final STT transcribe loop (includes automatic retries). */
+export type FinalPipelineOutcome =
+  | { kind: 'success'; text: string; utteranceMs: number; attempts: number }
+  | { kind: 'empty'; utteranceMs: number; attempts: number }
+  | { kind: 'error'; utteranceMs: number; attempts: number; error: unknown };
+
 export interface ChunkedSTTOptions {
   provider: STTProvider;
   whisperUrl: string;
@@ -76,6 +82,8 @@ export interface ChunkedSTTOptions {
   onUtteranceEnd?: (info: UtteranceEndInfo) => void;
   /** Tier 5: called for every final STT result (including empty) for per-call metrics */
   onFinalResult?: (opts: { isEmpty: boolean; textLength: number; utteranceMs: number }) => void;
+  /** After final STT pipeline completes (success, empty after retries, or error after retries). */
+  onFinalPipelineOutcome?: (outcome: FinalPipelineOutcome) => void;
   consumePreRoll?: () => ExternalPreRoll | null;
   /** When set, called at start of each frame processing so preroll ring is fed in STT order (avoids duplication). */
   onFrameForPreRoll?: (buffer: Buffer, frameMs: number) => void;
@@ -139,8 +147,8 @@ const DEFAULT_FINAL_MIN_BYTES_FALLBACK = 0;
 const DEFAULT_PARTIAL_MIN_MS = 600;
 
 // Speech detection defaults (env.ts may override)
-const DEFAULT_SPEECH_RMS_FLOOR = 0.03;
-const DEFAULT_SPEECH_PEAK_FLOOR = 0.1;
+const DEFAULT_SPEECH_RMS_FLOOR = 0.015;
+const DEFAULT_SPEECH_PEAK_FLOOR = 0.045;
 const DEFAULT_SPEECH_FRAMES_REQUIRED = 8;
 
 // Replay guard defaults
@@ -157,6 +165,14 @@ const FINAL_STOP_ABORT_GRACE_MS = 150;
 function numEnv(key: string, fallback: number): number {
   const raw = process.env[key];
   if (raw == null) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** Like numEnv but treats blank/whitespace as unset (avoids `Number('') === 0` for optional caps). */
+function numEnvNonEmpty(key: string, fallback: number): number {
+  const raw = process.env[key];
+  if (raw == null || raw.trim() === '') return fallback;
   const n = Number(raw);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -199,10 +215,14 @@ const T1_FALLBACK_MIN_BYTES = numEnv('STT_FINALIZE_FALLBACK_MIN_BYTES', 6400);
 const T5_NOISE_FLOOR_ENABLED = parseBool(process.env.STT_NOISE_FLOOR_ENABLED, true);
 const T5_NOISE_FLOOR_ALPHA = clampN(numEnv('STT_NOISE_FLOOR_ALPHA', 0.05), 0.01, 1);
 const T5_NOISE_FLOOR_MIN_SAMPLES = numEnv('STT_NOISE_FLOOR_MIN_SAMPLES', 30);
-const T5_ADAPTIVE_RMS_MULT = numEnv('STT_ADAPTIVE_RMS_MULTIPLIER', 2.0);
-const T5_ADAPTIVE_PEAK_MULT = numEnv('STT_ADAPTIVE_PEAK_MULTIPLIER', 2.5);
+// Softer defaults than 2.0/2.5 — PSTN + AMR-WB often sits below aggressive adaptive floors.
+const T5_ADAPTIVE_RMS_MULT = numEnv('STT_ADAPTIVE_RMS_MULTIPLIER', 1.5);
+const T5_ADAPTIVE_PEAK_MULT = numEnv('STT_ADAPTIVE_PEAK_MULTIPLIER', 1.55);
 const T5_ADAPTIVE_MIN_RMS = numEnv('STT_ADAPTIVE_FLOOR_MIN_RMS', 0.01);
 const T5_ADAPTIVE_MIN_PEAK = numEnv('STT_ADAPTIVE_FLOOR_MIN_PEAK', 0.03);
+/** Max effective RMS/peak gate thresholds (0 = no cap). Keeps Tier-5 adaptivity from exceeding PSTN levels. */
+const T5_EFFECTIVE_RMS_CAP = numEnvNonEmpty('STT_EFFECTIVE_RMS_CAP', 0.019);
+const T5_EFFECTIVE_PEAK_CAP = numEnvNonEmpty('STT_EFFECTIVE_PEAK_CAP', 0.056);
 
 const T5_LATE_FINAL_WATCHDOG_ENABLED = parseBool(process.env.STT_LATE_FINAL_WATCHDOG_ENABLED, true);
 const T5_LATE_FINAL_WATCHDOG_MS = clampN(numEnv('STT_LATE_FINAL_WATCHDOG_MS', 8000), 3000, 30000);
@@ -271,6 +291,40 @@ function isAbortError(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const name = (error as { name?: unknown }).name;
   return name === 'AbortError';
+}
+
+function isRetryableSttError(error: unknown): boolean {
+  if (isAbortError(error)) return false;
+  if (error instanceof TypeError) return true;
+  const msg = String(error instanceof Error ? error.message : error).toLowerCase();
+  if (msg.includes('abort')) return false;
+  return (
+    msg.includes('fetch') ||
+    msg.includes('network') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('timeout') ||
+    msg.includes('502') ||
+    msg.includes('503') ||
+    msg.includes('504') ||
+    msg.includes('429')
+  );
+}
+
+function delayWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(t);
+      signal.removeEventListener('abort', onAbort);
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    };
+    const t = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function computeRmsAndPeak(pcm16le: Buffer): { rms: number; peak: number } {
@@ -407,6 +461,10 @@ export class ChunkedSTT {
   private readonly onSpeechStart?: (info: SpeechStartInfo) => void;
   private readonly onUtteranceEnd?: (info: UtteranceEndInfo) => void;
   private readonly onFinalResult?: (opts: { isEmpty: boolean; textLength: number; utteranceMs: number }) => void;
+  private readonly onFinalPipelineOutcome?: (outcome: FinalPipelineOutcome) => void;
+  private readonly emptyFinalExtraTries: number;
+  private readonly finalErrorExtraTries: number;
+  private readonly finalRetryBackoffMs: number;
   private readonly consumePreRoll?: () => ExternalPreRoll | null;
   private readonly onFrameForPreRoll?: (buffer: Buffer, frameMs: number) => void;
   private readonly prompt?: string;
@@ -489,6 +547,8 @@ export class ChunkedSTT {
   // ===== Optional RX replay guard (ENV-gated) =====
   private readonly rxGuardEnabled: boolean;
   private readonly rxDedupeWindow: number;
+  /** Normalized peak (0…1); below this, RX dedupe is skipped and the hash window is cleared (silence / near-silence). */
+  private readonly rxDedupeMinPeak: number;
   private readonly recentRxHashes: string[] = [];
   private rxFramesDropped = 0;
   private framesSeen = 0;
@@ -519,6 +579,10 @@ export class ChunkedSTT {
     this.onSpeechStart = opts.onSpeechStart;
     this.onUtteranceEnd = opts.onUtteranceEnd;
     this.onFinalResult = opts.onFinalResult;
+    this.onFinalPipelineOutcome = opts.onFinalPipelineOutcome;
+    this.emptyFinalExtraTries = clamp(env.STT_EMPTY_FINAL_EXTRA_TRIES, 0, 4);
+    this.finalErrorExtraTries = clamp(env.STT_FINAL_ERROR_EXTRA_TRIES, 0, 4);
+    this.finalRetryBackoffMs = clamp(env.STT_FINAL_RETRY_BACKOFF_MS, 0, 2000);
     this.consumePreRoll = opts.consumePreRoll;
     this.onFrameForPreRoll = opts.onFrameForPreRoll;
     this.prompt = opts.prompt;
@@ -649,6 +713,10 @@ export class ChunkedSTT {
     const win = Number.parseInt(process.env.STT_RX_DEDUPE_WINDOW ?? '', 10);
     this.rxDedupeWindow =
       this.rxGuardEnabled && Number.isFinite(win) && win > 0 ? win : this.rxGuardEnabled ? DEFAULT_RX_DEDUPE_WINDOW : 0;
+    const rawRxMinPeak = process.env.STT_RX_DEDUPE_MIN_PEAK;
+    const parsedRxMinPeak = rawRxMinPeak !== undefined && rawRxMinPeak !== '' ? Number.parseFloat(rawRxMinPeak) : NaN;
+    this.rxDedupeMinPeak =
+      Number.isFinite(parsedRxMinPeak) && parsedRxMinPeak >= 0 ? parsedRxMinPeak : 280 / 32768;
 
     log.info(
       {
@@ -670,14 +738,22 @@ export class ChunkedSTT {
           disable_gates: this.disableGates,
           rx_guard_enabled: this.rxGuardEnabled,
           rx_dedupe_window: this.rxDedupeWindow,
+          rx_dedupe_min_peak: this.rxDedupeMinPeak,
           post_playback_grace_ms: this.postPlaybackGraceMs,
           post_playback_grace_dynamic: !!this.getPostPlaybackGraceMs,
           no_frame_finalize_ms: this.noFrameFinalizeMs,
           noise_floor_enabled: T5_NOISE_FLOOR_ENABLED,
+          adaptive_rms_mult: T5_ADAPTIVE_RMS_MULT,
+          adaptive_peak_mult: T5_ADAPTIVE_PEAK_MULT,
+          effective_rms_cap: T5_EFFECTIVE_RMS_CAP,
+          effective_peak_cap: T5_EFFECTIVE_PEAK_CAP,
           late_final_watchdog_enabled: T5_LATE_FINAL_WATCHDOG_ENABLED,
           late_final_watchdog_ms: T5_LATE_FINAL_WATCHDOG_MS,
           pipeline_diag_interval_ms: env.STT_PIPELINE_DIAG_INTERVAL_MS,
           pipeline_diag_on_playback: env.STT_PIPELINE_DIAG_ON_PLAYBACK,
+          empty_final_extra_tries: this.emptyFinalExtraTries,
+          final_error_extra_tries: this.finalErrorExtraTries,
+          final_retry_backoff_ms: this.finalRetryBackoffMs,
         },
         ...(this.logContext ?? {}),
       },
@@ -1020,6 +1096,12 @@ export class ChunkedSTT {
   private shouldDropRxFrame(pcm16: Buffer): { drop: boolean; sha1_10: string; matchedLag?: number } {
     if (!this.rxGuardEnabled || this.rxDedupeWindow <= 0) return { drop: false, sha1_10: '' };
 
+    const pre = computeRmsAndPeak(pcm16);
+    if (pre.peak < this.rxDedupeMinPeak) {
+      this.recentRxHashes.length = 0;
+      return { drop: false, sha1_10: sha1Hex(pcm16).slice(0, 10) };
+    }
+
     const h = sha1Hex(pcm16);
     const h10 = h.slice(0, 10);
 
@@ -1083,6 +1165,7 @@ export class ChunkedSTT {
                 dropped: this.rxFramesDropped,
                 kept: this.framesSeen,
                 rx_dedupe_window: this.rxDedupeWindow,
+                rx_dedupe_min_peak: this.rxDedupeMinPeak,
                 ...(this.logContext ?? {}),
               },
               'dropping replayed PCM frame before ChunkedSTT buffering',
@@ -1125,8 +1208,11 @@ export class ChunkedSTT {
     const effectiveRmsFloor = this.getEffectiveRmsFloor();
     const effectivePeakFloor = this.getEffectivePeakFloor();
 
-    const gateRms = stats.rms >= effectiveRmsFloor;
-    const gatePeak = stats.peak >= effectivePeakFloor;
+    // PSTN syllables vary per 20 ms frame; compare loudest of instant + short rolling energy to the floor.
+    const rmsForGate = Math.max(stats.rms, this.rollingRms);
+    const peakForGate = Math.max(stats.peak, this.rollingPeak);
+    const gateRms = rmsForGate >= effectiveRmsFloor;
+    const gatePeak = peakForGate >= effectivePeakFloor;
 
     // === VAD: speech decision ===
     if (this.vadEnabled && this.vadReady && this.vad) {
@@ -1912,20 +1998,15 @@ export class ChunkedSTT {
     token: number,
     signal: AbortSignal,
   ): Promise<void> {
-    // ✅ NEW: last safety net before calling provider
     this.handlePlaybackTransitionIfNeeded();
     if (this.playbackGateActive()) return;
-    // ✅ CALL LIFECYCLE GATE: do not call provider if call is ended/inactive
     if (this.isCallActive && !this.isCallActive()) {
       if (!this.allowFinalDuringCallEndDrain(meta.reason)) return;
     }
-
-
-    // ✅ Abort hygiene: never proceed if the signal is already aborted
     if (signal.aborted) return;
 
-
     const startedAt = this.nowMs();
+    const utteranceMs = Math.round((payloadPcm16.length / this.bytesPerSecondPcm16) * 1000);
 
     const audioInput: STTAudioInput = {
       audio: payloadPcm16,
@@ -1934,66 +2015,163 @@ export class ChunkedSTT {
       channels: 1,
     };
 
-    const endStt = startStageTimer('stt', this.tenantLabel);
-
-    try {
-      const result = await this.provider.transcribe(audioInput, {
-        language: this.language,
-        prompt: this.prompt,
-        isPartial: meta.reason === 'partial',
-        endpointUrl: this.whisperUrl,
-        logContext: this.logContext,
-        signal,
-      });
-
-      endStt();
-      if (token !== this.inFlightToken) return;
-
-      this.finalizeToResultTimer?.();
-      this.finalizeToResultTimer = undefined;
-
-      const text = normalizeWhitespace(result.text ?? '');
-      log.info(
-        {
-          event: 'stt_transcription_result',
-          kind: meta.reason,
-          elapsed_ms: this.nowMs() - startedAt,
-          text_len: text.length,
-          ...(this.logContext ?? {}),
-        },
-        'stt transcription result',
-      );
-
-      // Tier 5: report final result for per-call metrics (including empty)
-      if (meta.reason === 'final') {
-        const utteranceMs = Math.round(
-          (payloadPcm16.length / this.bytesPerSecondPcm16) * 1000,
-        );
-        this.onFinalResult?.({
-          isEmpty: text.length === 0,
-          textLength: text.length,
-          utteranceMs,
+    // ----- partial: single attempt (unchanged policy) -----
+    if (meta.reason === 'partial') {
+      const endStt = startStageTimer('stt', this.tenantLabel);
+      try {
+        const result = await this.provider.transcribe(audioInput, {
+          language: this.language,
+          prompt: this.prompt,
+          isPartial: true,
+          endpointUrl: this.whisperUrl,
+          logContext: this.logContext,
+          signal,
         });
-      }
+        endStt();
+        if (token !== this.inFlightToken) return;
+        this.finalizeToResultTimer?.();
+        this.finalizeToResultTimer = undefined;
 
-      if (!text) return;
-
-      if (meta.reason === 'partial') {
+        const text = normalizeWhitespace(result.text ?? '');
+        log.info(
+          {
+            event: 'stt_transcription_result',
+            kind: 'partial',
+            elapsed_ms: this.nowMs() - startedAt,
+            text_len: text.length,
+            ...(this.logContext ?? {}),
+          },
+          'stt transcription result',
+        );
+        if (!text) return;
         if (text === this.lastPartialTranscript) return;
         this.lastPartialTranscript = text;
         if (isNonEmpty(text)) this.onTranscript(text, 'partial_fallback');
+      } catch (error) {
+        endStt();
+        if (signal.aborted || isAbortError(error)) return;
+        incStageError('stt', this.tenantLabel);
+        throw error;
+      }
+      return;
+    }
+
+    // ----- final: retries for empty transcript and transient HTTP errors -----
+    let emptyExtra = this.emptyFinalExtraTries;
+    let errorExtra = this.finalErrorExtraTries;
+    let attempts = 0;
+
+    while (true) {
+      if (signal.aborted) return;
+      if (token !== this.inFlightToken) return;
+
+      const endStt = startStageTimer('stt', this.tenantLabel);
+      try {
+        attempts += 1;
+        const result = await this.provider.transcribe(audioInput, {
+          language: this.language,
+          prompt: this.prompt,
+          isPartial: false,
+          endpointUrl: this.whisperUrl,
+          logContext: this.logContext,
+          signal,
+        });
+        endStt();
+        if (token !== this.inFlightToken) return;
+
+        this.finalizeToResultTimer?.();
+        this.finalizeToResultTimer = undefined;
+
+        const text = normalizeWhitespace(result.text ?? '');
+        log.info(
+          {
+            event: 'stt_transcription_result',
+            kind: 'final',
+            elapsed_ms: this.nowMs() - startedAt,
+            text_len: text.length,
+            attempts,
+            ...(this.logContext ?? {}),
+          },
+          'stt transcription result',
+        );
+
+        if (text) {
+          this.onFinalResult?.({
+            isEmpty: false,
+            textLength: text.length,
+            utteranceMs,
+          });
+          this.onFinalPipelineOutcome?.({
+            kind: 'success',
+            text,
+            utteranceMs,
+            attempts,
+          });
+          if (!this.finalTranscriptAccepted) {
+            this.finalTranscriptAccepted = true;
+            this.onTranscript(text, 'final');
+          }
+          return;
+        }
+
+        if (emptyExtra > 0) {
+          emptyExtra -= 1;
+          log.warn(
+            {
+              event: 'stt_empty_final_retry',
+              attempts,
+              empty_extra_remaining: emptyExtra,
+              utterance_ms: utteranceMs,
+              ...(this.logContext ?? {}),
+            },
+            'empty Whisper final; retrying same payload',
+          );
+          try {
+            await delayWithAbort(this.finalRetryBackoffMs, signal);
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        this.onFinalResult?.({ isEmpty: true, textLength: 0, utteranceMs });
+        this.onFinalPipelineOutcome?.({ kind: 'empty', utteranceMs, attempts });
+        return;
+      } catch (error) {
+        endStt();
+        if (signal.aborted || isAbortError(error)) return;
+        if (errorExtra > 0 && isRetryableSttError(error)) {
+          errorExtra -= 1;
+          log.warn(
+            {
+              event: 'stt_final_retry_after_error',
+              err: error,
+              attempts,
+              error_extra_remaining: errorExtra,
+              ...(this.logContext ?? {}),
+            },
+            'STT error; retrying transcribe',
+          );
+          incStageError('stt', this.tenantLabel);
+          try {
+            await delayWithAbort(this.finalRetryBackoffMs, signal);
+          } catch {
+            return;
+          }
+          continue;
+        }
+
+        incStageError('stt', this.tenantLabel);
+        this.finalizeToResultTimer?.();
+        this.finalizeToResultTimer = undefined;
+        log.error(
+          { event: 'stt_transcription_failed_final', err: error, attempts, ...(this.logContext ?? {}) },
+          'stt final transcription failed',
+        );
+        this.onFinalResult?.({ isEmpty: true, textLength: 0, utteranceMs });
+        this.onFinalPipelineOutcome?.({ kind: 'error', utteranceMs, attempts, error });
         return;
       }
-
-      if (!this.finalTranscriptAccepted) {
-        this.finalTranscriptAccepted = true;
-        this.onTranscript(text, 'final');
-      }
-    } catch (error) {
-      endStt();
-      if (signal.aborted || isAbortError(error)) return;
-      incStageError('stt', this.tenantLabel);
-      throw error;
     }
   }
 
@@ -2010,10 +2188,11 @@ export class ChunkedSTT {
       this.noiseFloorSampleCount < T5_NOISE_FLOOR_MIN_SAMPLES ||
       this.noiseFloorRms <= 0
     ) {
-      return this.speechRmsFloor;
+      return this.applyEffectiveFloorCap(this.speechRmsFloor, T5_EFFECTIVE_RMS_CAP);
     }
     const adaptive = this.noiseFloorRms * T5_ADAPTIVE_RMS_MULT;
-    return Math.max(T5_ADAPTIVE_MIN_RMS, this.speechRmsFloor, adaptive);
+    const v = Math.max(T5_ADAPTIVE_MIN_RMS, this.speechRmsFloor, adaptive);
+    return this.applyEffectiveFloorCap(v, T5_EFFECTIVE_RMS_CAP);
   }
 
   /** Tier 5: Effective peak floor (noise-adaptive or fixed). */
@@ -2023,10 +2202,17 @@ export class ChunkedSTT {
       this.noiseFloorSampleCount < T5_NOISE_FLOOR_MIN_SAMPLES ||
       this.noiseFloorPeak <= 0
     ) {
-      return this.speechPeakFloor;
+      return this.applyEffectiveFloorCap(this.speechPeakFloor, T5_EFFECTIVE_PEAK_CAP);
     }
     const adaptive = this.noiseFloorPeak * T5_ADAPTIVE_PEAK_MULT;
-    return Math.max(T5_ADAPTIVE_MIN_PEAK, this.speechPeakFloor, adaptive);
+    const v = Math.max(T5_ADAPTIVE_MIN_PEAK, this.speechPeakFloor, adaptive);
+    return this.applyEffectiveFloorCap(v, T5_EFFECTIVE_PEAK_CAP);
+  }
+
+  /** When cap > 0, prevents adaptive floors from exceeding PSTN-usual energy (set cap=0 to disable). */
+  private applyEffectiveFloorCap(v: number, cap: number): number {
+    if (!Number.isFinite(cap) || cap <= 0) return v;
+    return Math.min(v, cap);
   }
 
   private resolveGateClosedReason(
@@ -2176,6 +2362,7 @@ export class ChunkedSTT {
         dedupe: {
           rx_guard_enabled: this.rxGuardEnabled,
           rx_dedupe_window: this.rxDedupeWindow,
+          rx_dedupe_min_peak: this.rxDedupeMinPeak,
           frames_accepted: this.framesSeen,
           frames_dropped_as_duplicate: this.rxFramesDropped,
           duplicate_drop_ratio: Number(rxDropRatio.toFixed(4)),

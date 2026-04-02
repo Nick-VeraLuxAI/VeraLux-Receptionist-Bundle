@@ -1,0 +1,17 @@
+# Copy to docker-compose.override.yml (merge is automatic) so STT WAV dumps land on the host
+# without `docker cp`:
+#   cp docker-compose.override.example.yml docker-compose.override.yml
+#   mkdir -p stt-debug-call
+#   # Required: runtime runs as UID 1001 (`veralux`); the bind mount keeps host ownership.
+#   chmod 777 stt-debug-call
+#   # or: sudo chown -R 1001:1001 stt-debug-call
+#   docker compose -p veralux up -d runtime
+#
+# This bind-mount overlays /app/audio/stt-debug inside the runtime container; prewhisper_* and
+# whisper_*.wav from STT_DEBUG_DUMP_WHISPER_WAVS=true appear under ./stt-debug-call/
+# Without chmod/chown, writes fail with EACCES (see logs: stt_post_decode_pcm_failed).
+
+services:
+  runtime:
+    volumes:
+      - ./stt-debug-call:/app/audio/stt-debug
