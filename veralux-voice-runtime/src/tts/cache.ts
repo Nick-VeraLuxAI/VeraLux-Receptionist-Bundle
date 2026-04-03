@@ -35,6 +35,7 @@ export function buildTtsCacheDescriptor(
       sp: request.speakerWavUrl ?? null,
       l: request.language ?? config.language ?? null,
       v: config.chatterboxVariant ?? null,
+      stream: env.CHATTERBOX_STREAMING && env.CHATTERBOX_VARIANT === 'turbo',
     };
   }
   if (config.mode === 'coqui_xtts') {

@@ -2,8 +2,8 @@
 /**
  * True pipeline load test: Whisper (STT) + Brain (vLLM via OpenAI-compatible API).
  *
- * Does NOT exercise Telnyx or TTS — those are separate bottlenecks. This measures
- * the two heaviest AI steps in a real call turn.
+ * Does NOT exercise Telnyx/media — those are separate bottlenecks. With --mode full,
+ * measures STT → LLM → TTS (same HTTP services the runtime uses).
  *
  * Usage:
  *   npx tsx scripts/pipeline-load-test.ts [options]
@@ -13,7 +13,17 @@
  *   whisper   — POST transcribe only (Whisper saturation)
  *   pipeline  — whisper then brain per iteration (STT→LLM)
  *   full      — pipeline + TTS (STT→LLM→TTS; no Telnyx/media). Use --tts-backend kokoro|chatterbox
+ *
+ * Optional: --wav /path/to/file.wav  (default: short silence WAV for STT)
  */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { config as loadEnv } from 'dotenv';
+
+const scriptDir = __dirname;
+loadEnv({ path: path.resolve(scriptDir, '../../.env') });
+loadEnv({ path: path.resolve(scriptDir, '../.env'), override: true });
 
 interface Options {
   mode: 'brain' | 'whisper' | 'pipeline' | 'full';
@@ -29,6 +39,10 @@ interface Options {
   warmup: number;
   /** Extra delay between iterations (ms) — helps avoid Whisper 429 when many workers hit STT. */
   gapMs: number;
+  /** When set, POST this WAV to Whisper instead of the built-in silence clip. */
+  wavPath?: string;
+  /** Log transcript, brain reply length, TTS bytes (useful for diagnosing “slow Kokoro”). */
+  verbose: boolean;
 }
 
 function parseArgs(): Options {
@@ -54,6 +68,7 @@ function parseArgs(): Options {
     iterations: 10,
     warmup: 1,
     gapMs: 0,
+    verbose: false,
   };
   let explicitTtsUrl = false;
   for (let i = 0; i < args.length; i++) {
@@ -106,6 +121,14 @@ function parseArgs(): Options {
         o.gapMs = parseInt(n, 10);
         i++;
         break;
+      case '--wav':
+        o.wavPath = n;
+        i++;
+        break;
+      case '--verbose':
+      case '-v':
+        o.verbose = true;
+        break;
       case '--help':
         console.log(`
 Usage: npx tsx scripts/pipeline-load-test.ts [options]
@@ -120,6 +143,8 @@ Options:
   --iterations <n>                loops per worker (default: 10)
   --warmup <n>                    discarded iterations per worker at start (default: 1)
   --gap-ms <n>                    pause between each iteration per worker (default: 0; use ~50–150 for Whisper-heavy runs)
+  --wav <path>                    WAV file for Whisper (otherwise ~0.5s silence)
+  --verbose, -v                   After each pipeline/full iteration: transcript, brain chars, TTS WAV bytes
 
 Examples:
   npx tsx scripts/pipeline-load-test.ts --mode brain --concurrency 8 --iterations 20
@@ -190,8 +215,8 @@ async function postWhisper(url: string, wav: Buffer): Promise<{ ms: number; text
       await new Promise((r) => setTimeout(r, 80 * (attempt + 1)));
       continue;
     }
-    const ms = Date.now() - t0;
     const j = (await res.json()) as { text?: string };
+    const ms = Date.now() - t0;
     if (!res.ok) {
       throw new Error(`whisper HTTP ${res.status}`);
     }
@@ -217,19 +242,19 @@ async function postBrain(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const ms = Date.now() - t0;
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`brain HTTP ${res.status}: ${t.slice(0, 200)}`);
   }
   const j = (await res.json()) as { text?: string };
+  const ms = Date.now() - t0;
   if (typeof j.text !== 'string' || !j.text.trim()) {
     throw new Error('brain returned empty text');
   }
   return { ms, text: j.text.trim() };
 }
 
-async function postKokoroTts(url: string, text: string, voiceId: string): Promise<{ ms: number }> {
+async function postKokoroTts(url: string, text: string, voiceId: string): Promise<{ ms: number; wavBytes: number }> {
   const trimmed = text.trim().slice(0, 1000);
   if (!trimmed) {
     throw new Error('empty text for TTS');
@@ -241,16 +266,16 @@ async function postKokoroTts(url: string, text: string, voiceId: string): Promis
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: trimmed, voice_id: vid }),
   });
-  const ms = Date.now() - t0;
   if (!res.ok) {
     const t = await res.text();
     throw new Error(`tts HTTP ${res.status}: ${t.slice(0, 200)}`);
   }
-  await res.arrayBuffer();
-  return { ms };
+  const buf = await res.arrayBuffer();
+  const ms = Date.now() - t0;
+  return { ms, wavBytes: buf.byteLength };
 }
 
-async function postChatterboxTts(baseUrl: string, text: string): Promise<{ ms: number }> {
+async function postChatterboxTts(baseUrl: string, text: string): Promise<{ ms: number; wavBytes: number }> {
   const trimmed = text.trim().slice(0, 1500);
   if (!trimmed) {
     throw new Error('empty text for TTS');
@@ -267,13 +292,13 @@ async function postChatterboxTts(baseUrl: string, text: string): Promise<{ ms: n
       body: JSON.stringify({ text: trimmed, language_id: 'en' }),
       signal: controller.signal,
     });
-    const ms = Date.now() - t0;
     const buf = await res.arrayBuffer();
+    const ms = Date.now() - t0;
     if (!res.ok) {
       const t = new TextDecoder().decode(buf.slice(0, 500));
       throw new Error(`chatterbox HTTP ${res.status}: ${t}`);
     }
-    return { ms };
+    return { ms, wavBytes: buf.byteLength };
   } finally {
     clearTimeout(timer);
   }
@@ -341,6 +366,15 @@ async function worker(
           ttsMs.push(t.ms);
           totalMs.push(Date.now() - tPipe0);
         }
+        if (opts.verbose && !isWarmup) {
+          const preview = (s: string, max = 120) =>
+            s.length <= max ? s : `${s.slice(0, max - 3)}...`;
+          console.log(
+            `\n[verbose] transcript (${w.text.length} chars): ${preview(w.text)}\n` +
+              `[verbose] brain reply (${b.text.length} chars): ${preview(b.text)}\n` +
+              `[verbose] TTS WAV ${t.wavBytes} bytes (longer replies → longer synthesis + larger download)`,
+          );
+        }
       } else if (!isWarmup) {
         totalMs.push(Date.now() - tPipe0);
       }
@@ -355,7 +389,18 @@ async function worker(
 
 async function main(): Promise<void> {
   const opts = parseArgs();
-  const wav = makeSilenceWav();
+  let wav: Buffer;
+  if (opts.wavPath) {
+    const resolved = path.resolve(opts.wavPath);
+    if (!fs.existsSync(resolved)) {
+      console.error(`WAV not found: ${resolved}`);
+      process.exit(2);
+    }
+    wav = fs.readFileSync(resolved);
+    console.log(`Using WAV: ${resolved} (${wav.length} bytes)`);
+  } else {
+    wav = makeSilenceWav();
+  }
 
   console.log('\n=== Pipeline load test (Whisper + Brain / vLLM) ===\n');
   console.log(`Mode:          ${opts.mode}`);

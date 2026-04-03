@@ -1,0 +1,50 @@
+# Kokoro TTS on GPU via onnxruntime-gpu (port 7001).
+# CPU image (Dockerfile.kokoro) installs onnxruntime — this image uses CUDA + GPU EP.
+FROM nvidia/cuda:12.6.3-runtime-ubuntu22.04
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3-pip \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python3 \
+    && ln -sf /usr/bin/python3.10 /usr/bin/python
+
+RUN useradd --create-home --shell /bin/bash appuser
+
+# kokoro-onnx pulls onnxruntime (CPU); replace with GPU build for inference.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir \
+        fastapi uvicorn gunicorn slowapi soundfile numpy \
+    && pip install --no-cache-dir kokoro-onnx \
+    && pip uninstall -y onnxruntime onnxruntime-gpu 2>/dev/null || true \
+    && pip install --no-cache-dir onnxruntime-gpu
+
+RUN mkdir -p /app/models \
+    && curl -fSL -o /app/models/kokoro-v1.0.onnx \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx \
+    && curl -fSL -o /app/models/voices-v1.0.bin \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin \
+    && chown -R appuser:appuser /app/models
+
+COPY --chown=appuser:appuser kokoro_server.py .
+
+USER appuser
+
+ENV KOKORO_MODEL_PATH=/app/models/kokoro-v1.0.onnx
+ENV KOKORO_VOICES_PATH=/app/models/voices-v1.0.bin
+ENV KOKORO_DEVICE=cuda
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+EXPOSE 7001
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:7001/health || exit 1
+
+STOPSIGNAL SIGTERM
+CMD ["gunicorn", "kokoro_server:app", "-k", "uvicorn.workers.UvicornWorker", \
+     "--bind", "0.0.0.0:7001", "--workers", "1", "--timeout", "120", \
+     "--graceful-timeout", "30"]

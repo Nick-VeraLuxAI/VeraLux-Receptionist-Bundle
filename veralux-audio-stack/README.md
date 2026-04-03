@@ -7,6 +7,13 @@ FastAPI-based services that expose Kokoro TTS, Coqui XTTS TTS, [Chatterbox](http
 - `ffmpeg` installed and on your `PATH` (required by `faster-whisper`)
 - Kokoro model assets (`kokoro-v1.0.onnx`, `voices-v1.0.bin`) placed at the project root (for Kokoro only)
 
+## Kokoro TTS (Docker)
+
+- **CPU:** `Dockerfile.kokoro` — `onnxruntime` (CPU).
+- **GPU:** `Dockerfile.kokoro.gpu` — CUDA 12.6 base, `onnxruntime-gpu`, `KOKORO_DEVICE=cuda`. Used by `kokoro-gpu` in `docker compose --profile gpu`. Health JSON `device` shows `cuda` when configured; ONNX providers should list `CUDAExecutionProvider`.
+
+Voice id `default` from clients is mapped server-side to `KOKORO_DEFAULT_VOICE` (`bf_emma` if unset).
+
 ## Kokoro TTS environment
 ```bash
 python3 -m venv kokoro-env

@@ -295,6 +295,11 @@ const EnvSchema = z.object({
   CHATTERBOX_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Default language_id for Chatterbox-Multilingual (e.g. en, fr). */
   CHATTERBOX_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /**
+   * When true (and CHATTERBOX_VARIANT=turbo), runtime calls POST .../tts/stream and merges segment WAVs.
+   * Improves server-side chunking for long replies; short lines are one segment.
+   */
+  CHATTERBOX_STREAMING: z.preprocess(stringToBoolean, z.boolean().default(false)),
   /** Coqui XTTS voice_id (e.g. "en_sample"). Default "en_sample" when unset; not Kokoro preset names. */
   COQUI_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** When true, omit voice_id/speaker in Coqui requests (for single-speaker XTTS models). Default false. */

@@ -90,6 +90,8 @@ async def synthesize(request: Request, req: TTSRequest):
 
         # voice: Node sends `voice`; server also accepts voice_id
         voice = (req.voice or req.voice_id or KOKORO_DEFAULT_VOICE).strip()
+        if voice.lower() == "default":
+            voice = KOKORO_DEFAULT_VOICE
 
         # map rate -> speed for Kokoro
         speed = req.rate if req.rate is not None else 1.0

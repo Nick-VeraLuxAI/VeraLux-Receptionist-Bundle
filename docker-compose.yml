@@ -159,6 +159,8 @@ services:
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
+      # When true + turbo: POST /tts/stream on Chatterbox, merge segment WAVs (see veralux-audio-stack/chatterbox_server.py).
+      - CHATTERBOX_STREAMING=${CHATTERBOX_STREAMING:-false}
       # Qwen3 is service qwen3-tts-gpu (profile gpu); hostname resolves only when that container is up.
       - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://veralux-qwen3-tts:7010}
       - QWEN3_TTS_SPEAKER=${QWEN3_TTS_SPEAKER:-Ryan}
@@ -391,7 +393,7 @@ services:
     image: ${REGISTRY:-ghcr.io/nick-veraluxai}/kokoro:${VERSION:-0.1.0}
     build:
       context: ./veralux-audio-stack
-      dockerfile: Dockerfile.kokoro
+      dockerfile: Dockerfile.kokoro.gpu
     container_name: veralux-kokoro
     restart: unless-stopped
     logging: *default-logging
@@ -402,18 +404,20 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 90s
     deploy:
       resources:
         limits:
-          cpus: "4.0"
-          memory: 4G
+          cpus: "8.0"
+          memory: 8G
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${KOKORO_GPU_IDS:-0}"]
               capabilities: [gpu]
     environment:
+      - NVIDIA_VISIBLE_DEVICES=${KOKORO_GPU_IDS:-0}
+      - KOKORO_DEVICE=${KOKORO_DEVICE:-cuda}
       - VOICE_ID=${KOKORO_VOICE_ID:-default}
       - KOKORO_MAX_CONCURRENT=${KOKORO_MAX_CONCURRENT:-16}
       - RATE_LIMIT_PER_MINUTE=${KOKORO_RATE_LIMIT_PER_MINUTE:-10000}
@@ -448,9 +452,11 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
+              device_ids: ["${XTTS_GPU_IDS:-0}"]
               capabilities: [gpu]
     environment:
+      - NVIDIA_VISIBLE_DEVICES=${XTTS_GPU_IDS:-0}
+      - XTTS_USE_GPU=true
       - LANGUAGE=${XTTS_LANGUAGE:-en}
       - COQUI_TOS_AGREED=1
     ports:
@@ -480,12 +486,18 @@ services:
       resources:
         limits:
           cpus: "8.0"
-          memory: 16G
+          # Multi-worker Turbo: raise if container OOMs during model load (host RAM, not VRAM).
+          memory: 32G
         reservations:
           devices:
             - driver: nvidia
               device_ids: ["${CHATTERBOX_GPU_IDS:-0}"]
               capabilities: [gpu]
+    # Pre-built image runs single-process uvicorn by default; multi-lane = uvicorn --workers (see CHATTERBOX_GUNICORN_WORKERS).
+    command:
+      - sh
+      - -c
+      - exec uvicorn chatterbox_server:app --host 0.0.0.0 --port 7005 --workers ${CHATTERBOX_GUNICORN_WORKERS:-1}
     environment:
       - CHATTERBOX_VARIANT=${CHATTERBOX_VARIANT:-turbo}
       - CHATTERBOX_DEVICE=${CHATTERBOX_DEVICE:-cuda}
@@ -500,6 +512,11 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
       - RATE_LIMIT_PER_MINUTE=${CHATTERBOX_RATE_LIMIT_PER_MINUTE:-10000}
       - CHATTERBOX_MAX_CONCURRENT=${CHATTERBOX_MAX_CONCURRENT:-1}
+      # Speaker WAV cache (per worker), optional CUDA warmup, optional preload URLs (comma-separated).
+      - CHATTERBOX_SPEAKER_CACHE_DIR=${CHATTERBOX_SPEAKER_CACHE_DIR:-/tmp/chatterbox_speaker_cache}
+      - CHATTERBOX_CUDA_WARMUP=${CHATTERBOX_CUDA_WARMUP:-true}
+      - CHATTERBOX_PRELOAD_SPEAKER_URLS=${CHATTERBOX_PRELOAD_SPEAKER_URLS:-}
+      - CHATTERBOX_STREAM_MAX_SEGMENTS=${CHATTERBOX_STREAM_MAX_SEGMENTS:-8}
     ports:
       - "${CHATTERBOX_PORT:-7005}:7005"
     networks:
@@ -539,6 +556,8 @@ services:
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
       - QWEN3_TTS_DEVICE=${QWEN3_TTS_DEVICE:-cuda}
       - QWEN3_TTS_MODEL=${QWEN3_TTS_MODEL:-Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice}
+      - QWEN3_TTS_DTYPE=${QWEN3_TTS_DTYPE:-bfloat16}
+      - QWEN3_TTS_ATTN=${QWEN3_TTS_ATTN:-sdpa}
       - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
       - RATE_LIMIT_PER_MINUTE=${QWEN3_TTS_RATE_LIMIT_PER_MINUTE:-10000}
       - QWEN3_TTS_MAX_CONCURRENT=${QWEN3_TTS_MAX_CONCURRENT:-1}
@@ -654,6 +673,7 @@ services:
     environment:
       - LANGUAGE=${XTTS_LANGUAGE:-en}
       - CUDA_VISIBLE_DEVICES=""
+      - XTTS_USE_GPU=false
       - COQUI_TOS_AGREED=1
     ports:
       - "${XTTS_PORT:-7002}:7002"
@@ -705,6 +725,8 @@ services:
   # Local LLM (optional profile: llm) — vLLM Qwen2.5-7B-Instruct-AWQ + brain gateway
   # Start: docker compose --profile llm up -d vllm-qwen brain
   # Point voice runtime at BRAIN_URL=http://brain:3001 (see .env.example).
+  # Defaults favor a voice receptionist (few concurrent LLM streams), not 256-way chat.
+  # Raise VLLM_MAX_NUM_SEQS / VLLM_GPU_MEMORY_UTILIZATION if you need heavy parallel LLM load.
   # ---------------------------------------------------------------------------
   vllm-qwen:
     image: ${VLLM_IMAGE:-vllm/vllm-openai:cu130-nightly-x86_64}
@@ -738,10 +760,10 @@ services:
       - --max-model-len
       - ${VLLM_MAX_MODEL_LEN:-8192}
       - --gpu-memory-utilization
-      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.75}
-      # Optional: raise concurrent sequences if you have headroom (watch VRAM at startup).
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.6}
+      # Cap concurrent sequences (receptionist default; was 256 — overkill for call volume).
       - --max-num-seqs
-      - ${VLLM_MAX_NUM_SEQS:-256}
+      - ${VLLM_MAX_NUM_SEQS:-24}
     ports:
       - "${VLLM_PORT:-8000}:8000"
     networks:

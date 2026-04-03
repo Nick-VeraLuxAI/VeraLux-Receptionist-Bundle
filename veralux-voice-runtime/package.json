@@ -19,6 +19,8 @@
     "load-test": "tsx scripts/load-test.ts",
     "load-test:calls": "tsx scripts/concurrent-calls-test.ts",
     "load-test:pipeline": "tsx scripts/pipeline-load-test.ts",
+    "benchmark:tts-backends": "tsx scripts/benchmark-tts-backends.ts",
+    "benchmark:tts-gpu": "TTS_BENCH_REQUIRE_GPU=true tsx scripts/benchmark-tts-backends.ts",
     "load-test:e2e-ai": "tsx scripts/pipeline-load-test.ts --mode full",
     "load-test:e2e-chatterbox": "tsx scripts/pipeline-load-test.ts --mode full --tts-backend chatterbox",
     "bench:qwen3-tts-latency": "tsx scripts/benchmark-qwen3-tts-latency.ts",
