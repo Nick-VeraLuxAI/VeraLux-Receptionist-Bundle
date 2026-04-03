@@ -141,8 +141,13 @@ jobs:
       needs.changes.outputs.control == 'true' ||
       needs.changes.outputs.runtime == 'true' ||
       needs.changes.outputs.shared == 'true' ||
-      needs.changes.outputs.deploy == 'true'
+      needs.changes.outputs.deploy == 'true' ||
+      needs.changes.outputs.audio == 'true'
     runs-on: ubuntu-latest
+    env:
+      # Required by compose interpolation when optional profiles are evaluated; avoids empty-tag errors.
+      NGROK_TAG: '3.22.1'
+      CLOUDFLARED_TAG: '2026.2.0'
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
@@ -155,6 +160,9 @@ jobs:
       - name: Build runtime image
         if: needs.changes.outputs.runtime == 'true' || needs.changes.outputs.shared == 'true'
         run: docker compose build runtime
+      - name: Build Kokoro CPU image (audio stack)
+        if: needs.changes.outputs.audio == 'true'
+        run: docker compose --profile cpu build kokoro-cpu
 
   # ---------------------------------------------------------------------------
   # Deploy config validation
@@ -163,6 +171,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    env:
+      NGROK_TAG: '3.22.1'
+      CLOUDFLARED_TAG: '2026.2.0'
     steps:
       - uses: actions/checkout@v4
       - name: Validate docker-compose.yml

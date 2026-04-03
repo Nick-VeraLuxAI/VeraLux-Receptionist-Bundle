@@ -2,12 +2,10 @@
  * Integration tests for call flow webhook handling
  *
  * These tests verify the complete webhook flow from call.initiated through call.hangup.
- * They require a running Redis instance (provided by CI or local docker-compose).
- *
- * Run with: npm test -- tests/callFlow.integration.test.ts
+ * Requires Redis (GitHub Actions service, or local with RUN_CALL_FLOW_INTEGRATION=1).
  */
 
-import { describe, it, beforeAll, afterAll } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert';
 import http from 'node:http';
 import { setTestEnv } from './testEnv';
@@ -146,8 +144,12 @@ async function cleanupTestTenant(): Promise<void> {
   await redis.del(`cap:tenant:${TEST_TENANT_ID}:rpm`);
 }
 
-describe('Call Flow Integration Tests', { skip: !process.env.REDIS_URL }, () => {
-  beforeAll(async () => {
+/** CI sets `CI=true` and starts Redis; locally set `RUN_CALL_FLOW_INTEGRATION=1` with Redis on REDIS_URL. */
+const runCallFlowIntegration =
+  process.env.CI === 'true' || process.env.RUN_CALL_FLOW_INTEGRATION === '1';
+
+describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () => {
+  before(async () => {
     // Skip signature verification for tests
     process.env.TELNYX_SKIP_SIGNATURE = 'true';
 
@@ -164,7 +166,7 @@ describe('Call Flow Integration Tests', { skip: !process.env.REDIS_URL }, () => 
     await setupTestTenant();
   });
 
-  afterAll(async () => {
+  after(async () => {
     await cleanupTestTenant();
 
     if (ctx?.server) {

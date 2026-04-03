@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTestEnv } from './testEnv';
+import { env } from '../src/env';
 
 setTestEnv();
 
@@ -56,6 +57,11 @@ test('tryAcquire builds expected keys and args', async () => {
     callControlId: 'call-2',
     redis: mockRedis as never,
     nowEpochMs,
+    capDefaults: {
+      globalConcurrency: 30,
+      tenantConcurrency: 5,
+      tenantRpm: 10,
+    },
   });
 
   assert.deepEqual(result, { ok: true });
@@ -69,5 +75,11 @@ test('tryAcquire builds expected keys and args', async () => {
     'tenantmap:tenant:tenant-a:cap:concurrency',
     'tenantmap:tenant:tenant-a:cap:rpm',
   ]);
-  assert.deepEqual(call.args, ['call-2', '30', '5', '10', '600']);
+  assert.deepEqual(call.args, [
+    'call-2',
+    '30',
+    '5',
+    '10',
+    String(env.CAPACITY_TTL_SECONDS),
+  ]);
 });
