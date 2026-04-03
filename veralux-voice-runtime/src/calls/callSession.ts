@@ -370,6 +370,7 @@ export class CallSession {
         requestId: this.requestId,
         isActive: () => this.active && this.state !== 'ENDED',
         allowPlaybackWhenInactive: () => this.isRespondingToLateFinal,
+        alreadyAnswered: config.pstnAlreadyAnswered,
       });
 
     // ✅ Ensure this is ALWAYS a string (tenant override → env fallback)

@@ -31,12 +31,14 @@ Checks:
 ## Capacity errors
 
 Symptoms:
-- "We are currently at capacity" or "unable to accept your call".
+- "We are currently at capacity", hold timeout message, or "unable to accept your call".
+
+Behavior (default): when `CAPACITY_HOLD_ENABLED=true`, a full system first plays a **hold** prompt (TTS or `CAPACITY_HOLD_AUDIO_URL`), **polls Redis** for a slot every `CAPACITY_HOLD_POLL_INTERVAL_MS`, up to `CAPACITY_HOLD_MAX_SECONDS`, then either connects the receptionist flow or plays `CAPACITY_HOLD_TIMEOUT_MESSAGE` and hangs up. Set `CAPACITY_HOLD_ENABLED=false` to revert to an immediate busy message.
 
 Checks:
 - Inspect Redis capacity keys and overrides.
 - Confirm tenantcfg caps are reasonable.
-- Look for `capacity_denied` or `capacity_eval_failed` logs.
+- Look for `capacity_denied`, `capacity_hold_aborted`, or `capacity_eval_failed` logs.
 
 ## STT or TTS failures
 

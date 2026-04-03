@@ -51,6 +51,8 @@ export class SessionManager {
   private readonly capacityRelease: (params: ReleaseParams) => Promise<void>;
   private readonly inactiveCalls = new Map<CallSessionId, number>();
   private readonly pendingMediaWsConnectedAt = new Map<CallSessionId, number>();
+  /** PSTN capacity hold: answered early; skip stub session in onAnswered until real createSession. */
+  private readonly capacityHoldCallIds = new Set<CallSessionId>();
 
   constructor(
     options: {
@@ -175,7 +177,42 @@ export class SessionManager {
   }
 
 
+  public beginCapacityHold(callControlId: CallSessionId): void {
+    this.capacityHoldCallIds.add(callControlId);
+  }
+
+  public endCapacityHold(callControlId: CallSessionId): void {
+    this.capacityHoldCallIds.delete(callControlId);
+  }
+
+  public isInCapacityHold(callControlId: CallSessionId): boolean {
+    return this.capacityHoldCallIds.has(callControlId);
+  }
+
+  /**
+   * Remove session created by onAnswered during a capacity-hold race (no tenant yet).
+   * Safe no-op if session is fully configured.
+   */
+  public evictPlaceholderSessionWithoutTenant(callControlId: CallSessionId): void {
+    const session = this.sessions.get(callControlId);
+    if (session && !session.tenantId) {
+      this.teardown(callControlId, 'placeholder_evict');
+    }
+  }
+
   public onAnswered(callControlId: CallSessionId, context: SessionLogContext = {}): void {
+    if (this.capacityHoldCallIds.has(callControlId)) {
+      log.info(
+        {
+          event: 'capacity_hold_skip_on_answered',
+          call_control_id: callControlId,
+          requestId: context.requestId,
+        },
+        'skipping onAnswered during capacity hold',
+      );
+      return;
+    }
+
     const session =
       this.sessions.get(callControlId) ??
       this.createSession({ callControlId }, context, { autoAnswer: false });
@@ -316,6 +353,7 @@ export class SessionManager {
   }
 
   public onHangup(callControlId: CallSessionId, reason?: string, context: SessionLogContext = {}): void {
+    this.capacityHoldCallIds.delete(callControlId);
     const session = this.sessions.get(callControlId);
     if (!session) {
       this.inactiveCalls.set(callControlId, Date.now());

@@ -114,6 +114,8 @@ export class PstnTelnyxTransportSession implements TransportSession {
     requestId?: string;
     isActive?: () => boolean;
     allowPlaybackWhenInactive?: () => boolean;
+    /** When true, start() will not call Telnyx answer (call already live). */
+    alreadyAnswered?: boolean;
   }) {
     this.id = options.callControlId;
     this.logContext = {
@@ -123,6 +125,7 @@ export class PstnTelnyxTransportSession implements TransportSession {
     };
     this.isActive = options.isActive;
     this.allowPlaybackWhenInactive = options.allowPlaybackWhenInactive;
+    this._answered = Boolean(options.alreadyAnswered);
     this.telnyx = new TelnyxClient(this.logContext);
     this.ingest = new PstnAudioIngest();
     this.playback = new PstnAudioPlayback({

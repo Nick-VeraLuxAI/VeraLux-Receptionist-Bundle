@@ -217,6 +217,12 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     return undefined;
   }
 
+  const capacityHoldInFlight = new Set<string>();
+
+  function sleepMs(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function playMessageAndHangup(options: {
     callControlId: string;
     message: string;
@@ -224,6 +230,8 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     requestId?: string;
     tenantId?: string;
     ttsConfig?: RuntimeTenantConfig['tts'];
+    /** When true, skip Telnyx answer (call already answered). */
+    skipAnswer?: boolean;
   }): Promise<void> {
     const context = {
       call_control_id: options.callControlId,
@@ -233,10 +241,12 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     const telnyx = new TelnyxClient(context);
 
     try {
-      if (shouldSkipTelnyxAction('answer', options.callControlId, options.tenantId, options.requestId)) {
-        return;
+      if (!options.skipAnswer) {
+        if (shouldSkipTelnyxAction('answer', options.callControlId, options.tenantId, options.requestId)) {
+          return;
+        }
+        await telnyx.answerCall(options.callControlId);
       }
-      await telnyx.answerCall(options.callControlId);
 
       const ttsStart = Date.now();
       const ttsResult = await synthesizeSpeech(
@@ -358,6 +368,152 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     }
   }
 
+  async function playHoldPrompt(
+    callControlId: string,
+    tenantId: string | undefined,
+    requestId: string | undefined,
+    ttsConfig: RuntimeTenantConfig['tts'],
+  ): Promise<void> {
+    const context = { call_control_id: callControlId, tenant_id: tenantId, requestId };
+    const telnyx = new TelnyxClient(context);
+    const holdUrl = env.CAPACITY_HOLD_AUDIO_URL?.trim();
+    if (holdUrl) {
+      if (shouldSkipTelnyxAction('playback_start', callControlId, tenantId, requestId)) {
+        return;
+      }
+      await telnyx.playAudio(callControlId, holdUrl);
+      return;
+    }
+    const ttsResult = await synthesizeSpeech(
+      {
+        text: env.CAPACITY_HOLD_MESSAGE,
+        voice:
+          ttsConfig.mode === 'qwen3_tts_http' ? ttsConfig.speaker : ttsConfig.voice,
+        format: ttsConfig.format,
+        sampleRate: ttsConfig.sampleRate,
+      },
+      ttsConfig,
+    );
+    let audio = ttsResult.audio;
+    if (env.PLAYBACK_PROFILE === 'pstn') {
+      const pipelineResult = runPlaybackPipeline(audio, {
+        targetSampleRateHz: env.PLAYBACK_PSTN_SAMPLE_RATE,
+        enableHighpass: env.PLAYBACK_ENABLE_HIGHPASS,
+        logContext: context,
+      });
+      audio = pipelineResult.audio;
+    }
+    const publicUrl = await storeWav(callControlId, 'capacity_hold_prompt', audio);
+    if (shouldSkipTelnyxAction('playback_start', callControlId, tenantId, requestId)) {
+      return;
+    }
+    await telnyx.playAudio(callControlId, publicUrl);
+  }
+
+  async function proceedInboundPostCapacity(options: {
+    callControlId: string;
+    tenantId: string;
+    tenantConfig: RuntimeTenantConfig;
+    toNumber: string | undefined;
+    from?: string;
+    requestId?: string;
+    pstnAlreadyAnswered?: boolean;
+  }): Promise<void> {
+    const {
+      callControlId,
+      tenantId,
+      tenantConfig,
+      toNumber,
+      from,
+      requestId,
+      pstnAlreadyAnswered = false,
+    } = options;
+
+    const forwarding = tenantConfig.callForwarding;
+    if (
+      forwarding?.enabled &&
+      forwarding.destination &&
+      forwarding.forwardBeforeAnswer !== false
+    ) {
+      const telnyx = new TelnyxClient({
+        call_control_id: callControlId,
+        tenant_id: tenantId,
+        requestId,
+      });
+      try {
+        if (
+          !pstnAlreadyAnswered &&
+          !shouldSkipTelnyxAction('answer', callControlId, tenantId, requestId)
+        ) {
+          await telnyx.answerCall(callControlId);
+        }
+        await telnyx.transferCall(callControlId, forwarding.destination, {
+          audioUrl: forwarding.audioUrl,
+          timeoutSecs: forwarding.timeoutSecs,
+        });
+        log.info(
+          {
+            event: 'call_forwarded_before_answer',
+            call_control_id: callControlId,
+            tenant_id: tenantId,
+            destination: forwarding.destination,
+            requestId,
+          },
+          'call forwarded before answer',
+        );
+      } catch (error) {
+        log.error(
+          { err: error, call_control_id: callControlId, tenant_id: tenantId, requestId },
+          'call forward before answer failed',
+        );
+        await playMessageAndHangup({
+          callControlId,
+          message: 'We could not complete your transfer. Please try again.',
+          reason: 'forward_failed',
+          requestId,
+          tenantId,
+          ttsConfig: tenantConfig.tts,
+          skipAnswer: pstnAlreadyAnswered,
+        });
+      } finally {
+        await release({ tenantId, callControlId, requestId });
+      }
+      return;
+    }
+
+    sessionManager.evictPlaceholderSessionWithoutTenant(callControlId);
+    sessionManager.createSession(
+      {
+        callControlId,
+        tenantId,
+        from,
+        to: toNumber,
+        tenantConfig,
+        pstnAlreadyAnswered,
+      },
+      { requestId },
+    );
+    const transport = sessionManager.getTransport(callControlId);
+    if (transport?.mode === 'pstn') {
+      try {
+        await transport.start();
+        if (pstnAlreadyAnswered && !streamingStarted.has(callControlId)) {
+          await startStreamingOnce(callControlId, tenantId, requestId);
+        }
+      } catch (error) {
+        log.warn(
+          {
+            err: error,
+            call_control_id: callControlId,
+            tenant_id: tenantId,
+            requestId,
+          },
+          'immediate PSTN answer failed',
+        );
+      }
+    }
+  }
+
   async function enqueueSessionWork(
     eventType?: string,
     callControlId?: string,
@@ -473,17 +629,19 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
             return;
           }
 
+          const capDefaults = {
+            tenantConcurrency: tenantConfig.caps.maxConcurrentCallsTenant,
+            tenantRpm: tenantConfig.caps.maxCallsPerMinuteTenant,
+            globalConcurrency: tenantConfig.caps.maxConcurrentCallsGlobal,
+          };
+
           let capacity;
           try {
             capacity = await tryAcquire({
               tenantId,
               callControlId,
               requestId,
-              capDefaults: {
-                tenantConcurrency: tenantConfig.caps.maxConcurrentCallsTenant,
-                tenantRpm: tenantConfig.caps.maxCallsPerMinuteTenant,
-                globalConcurrency: tenantConfig.caps.maxConcurrentCallsGlobal,
-              },
+              capDefaults,
             });
           } catch (error) {
             log.error(
@@ -502,93 +660,142 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
           }
 
           if (!capacity.ok) {
-            await playMessageAndHangup({
-              callControlId,
-              message: 'We are currently at capacity. Please try again later.',
-              reason: 'at_capacity',
-              requestId,
-              tenantId,
-              ttsConfig: tenantConfig.tts,
-            });
-            return;
-          }
-
-          // Call forwarding before answer: answer then transfer; do not create a session.
-          const forwarding = tenantConfig.callForwarding;
-          if (
-            forwarding?.enabled &&
-            forwarding.destination &&
-            forwarding.forwardBeforeAnswer !== false
-          ) {
-            const telnyx = new TelnyxClient({
-              call_control_id: callControlId,
-              tenant_id: tenantId,
-              requestId,
-            });
-            try {
-              if (!shouldSkipTelnyxAction('answer', callControlId, tenantId, requestId)) {
-                await telnyx.answerCall(callControlId);
+            if (env.CAPACITY_HOLD_ENABLED) {
+              if (capacityHoldInFlight.has(callControlId)) {
+                log.warn(
+                  {
+                    event: 'capacity_hold_skip_duplicate_init',
+                    call_control_id: callControlId,
+                    tenant_id: tenantId,
+                    requestId,
+                  },
+                  'skipping duplicate call.initiated while capacity hold in progress',
+                );
+                return;
               }
-              await telnyx.transferCall(callControlId, forwarding.destination, {
-                audioUrl: forwarding.audioUrl,
-                timeoutSecs: forwarding.timeoutSecs,
-              });
-              log.info(
-                {
-                  event: 'call_forwarded_before_answer',
+              capacityHoldInFlight.add(callControlId);
+              sessionManager.beginCapacityHold(callControlId);
+              const deadline = Date.now() + env.CAPACITY_HOLD_MAX_SECONDS * 1000;
+              let acquiredAfterHold = false;
+              try {
+                const telnyxHold = new TelnyxClient({
                   call_control_id: callControlId,
                   tenant_id: tenantId,
-                  destination: forwarding.destination,
                   requestId,
-                },
-                'call forwarded before answer',
-              );
-            } catch (error) {
-              log.error(
-                { err: error, call_control_id: callControlId, tenant_id: tenantId, requestId },
-                'call forward before answer failed',
-              );
+                });
+                if (!shouldSkipTelnyxAction('answer', callControlId, tenantId, requestId)) {
+                  await telnyxHold.answerCall(callControlId);
+                }
+
+                while (Date.now() < deadline) {
+                  if (!sessionManager.isCallActive(callControlId)) {
+                    log.info(
+                      {
+                        event: 'capacity_hold_aborted',
+                        reason: 'caller_hangup',
+                        call_control_id: callControlId,
+                        tenant_id: tenantId,
+                        requestId,
+                      },
+                      'capacity hold ended (caller disconnected)',
+                    );
+                    return;
+                  }
+
+                  try {
+                    await playHoldPrompt(callControlId, tenantId, requestId, tenantConfig.tts);
+                  } catch (promptErr) {
+                    log.warn(
+                      { err: promptErr, call_control_id: callControlId, tenant_id: tenantId, requestId },
+                      'capacity hold prompt failed',
+                    );
+                  }
+
+                  await sleepMs(env.CAPACITY_HOLD_POLL_INTERVAL_MS);
+
+                  if (!sessionManager.isCallActive(callControlId)) {
+                    return;
+                  }
+
+                  let retryCap;
+                  try {
+                    retryCap = await tryAcquire({
+                      tenantId,
+                      callControlId,
+                      requestId,
+                      capDefaults,
+                    });
+                  } catch (retryErr) {
+                    log.error(
+                      { err: retryErr, call_control_id: callControlId, tenant_id: tenantId, requestId },
+                      'capacity hold retry check failed',
+                    );
+                    await playMessageAndHangup({
+                      callControlId,
+                      message: 'We are unable to accept your call right now.',
+                      reason: 'capacity_error',
+                      requestId,
+                      tenantId,
+                      ttsConfig: tenantConfig.tts,
+                      skipAnswer: true,
+                    });
+                    return;
+                  }
+
+                  if (retryCap.ok) {
+                    acquiredAfterHold = true;
+                    break;
+                  }
+                }
+
+                if (!acquiredAfterHold) {
+                  await playMessageAndHangup({
+                    callControlId,
+                    message: env.CAPACITY_HOLD_TIMEOUT_MESSAGE,
+                    reason: 'capacity_hold_timeout',
+                    requestId,
+                    tenantId,
+                    ttsConfig: tenantConfig.tts,
+                    skipAnswer: true,
+                  });
+                  return;
+                }
+
+                await proceedInboundPostCapacity({
+                  callControlId,
+                  tenantId,
+                  tenantConfig,
+                  toNumber,
+                  from: getString(payload?.from),
+                  requestId,
+                  pstnAlreadyAnswered: true,
+                });
+              } finally {
+                sessionManager.endCapacityHold(callControlId);
+                capacityHoldInFlight.delete(callControlId);
+              }
+            } else {
               await playMessageAndHangup({
                 callControlId,
-                message: 'We could not complete your transfer. Please try again.',
-                reason: 'forward_failed',
+                message: 'We are currently at capacity. Please try again later.',
+                reason: 'at_capacity',
                 requestId,
                 tenantId,
                 ttsConfig: tenantConfig.tts,
               });
-            } finally {
-              await release({ tenantId, callControlId, requestId });
             }
-            break;
+            return;
           }
 
-          sessionManager.createSession(
-            {
-              callControlId,
-              tenantId,
-              from: getString(payload?.from),
-              to: toNumber,
-              tenantConfig,
-            },
-            { requestId },
-          );
-          // Answer PSTN immediately so we don't lose the call if answerAndGreet runs after a hangup event.
-          const transport = sessionManager.getTransport(callControlId);
-          if (transport?.mode === 'pstn') {
-            try {
-              await transport.start();
-            } catch (error) {
-              log.warn(
-                {
-                  err: error,
-                  call_control_id: callControlId,
-                  tenant_id: tenantId,
-                  requestId,
-                },
-                'immediate PSTN answer failed',
-              );
-            }
-          }
+          await proceedInboundPostCapacity({
+            callControlId,
+            tenantId,
+            tenantConfig,
+            toNumber,
+            from: getString(payload?.from),
+            requestId,
+            pstnAlreadyAnswered: false,
+          });
           break;
         }
         case 'call.answered': {

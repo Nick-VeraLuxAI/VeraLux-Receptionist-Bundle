@@ -61,4 +61,6 @@ export interface CallSessionConfig {
   requestId?: string;
   tenantConfig?: RuntimeTenantConfig;
   transportSession?: TransportSession;
+  /** PSTN: call was already answered (e.g. capacity hold) — skip duplicate Telnyx answer. */
+  pstnAlreadyAnswered?: boolean;
 }

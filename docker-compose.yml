@@ -219,6 +219,13 @@ services:
       - TENANT_CONCURRENCY_CAP_DEFAULT=${TENANT_CONCURRENCY_CAP_DEFAULT:-4}
       - TENANT_CALLS_PER_MIN_CAP_DEFAULT=${TENANT_CALLS_PER_MIN_CAP_DEFAULT:-60}
       - CAPACITY_TTL_SECONDS=${CAPACITY_TTL_SECONDS:-3600}
+      # At capacity: answer + retry (hold) instead of immediate busy (Telnyx PSTN)
+      - CAPACITY_HOLD_ENABLED=${CAPACITY_HOLD_ENABLED:-true}
+      - CAPACITY_HOLD_MAX_SECONDS=${CAPACITY_HOLD_MAX_SECONDS:-300}
+      - CAPACITY_HOLD_POLL_INTERVAL_MS=${CAPACITY_HOLD_POLL_INTERVAL_MS:-4000}
+      - CAPACITY_HOLD_MESSAGE=${CAPACITY_HOLD_MESSAGE:-Please hold while we connect you.}
+      - CAPACITY_HOLD_TIMEOUT_MESSAGE=${CAPACITY_HOLD_TIMEOUT_MESSAGE:-We are still busy. Please try your call again later.}
+      - CAPACITY_HOLD_AUDIO_URL=${CAPACITY_HOLD_AUDIO_URL:-}
       # Brain / LLM (optional — set BRAIN_URL when running profile `llm`, see .env.example)
       - BRAIN_USE_LOCAL=${BRAIN_USE_LOCAL:-false}
       - BRAIN_URL=${BRAIN_URL:-}

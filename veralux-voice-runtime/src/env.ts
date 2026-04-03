@@ -367,6 +367,27 @@ const EnvSchema = z.object({
   TENANT_CALLS_PER_MIN_CAP_DEFAULT: z.coerce.number().int().positive(),
   CAPACITY_TTL_SECONDS: z.coerce.number().int().positive(),
 
+  /** When at capacity, answer and retry instead of immediate busy message (PSTN / Telnyx). */
+  CAPACITY_HOLD_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  /** Max seconds to wait on hold for a capacity slot before giving up. */
+  CAPACITY_HOLD_MAX_SECONDS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().max(3600).default(300)),
+  /** Delay between capacity retries while caller is on hold. */
+  CAPACITY_HOLD_POLL_INTERVAL_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().max(120_000).default(4000),
+  ),
+  /** TTS line played periodically while waiting (ignored if CAPACITY_HOLD_AUDIO_URL is set). */
+  CAPACITY_HOLD_MESSAGE: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1).default('Please hold while we connect you.'),
+  ),
+  CAPACITY_HOLD_TIMEOUT_MESSAGE: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1).default("We're still busy. Please try your call again later."),
+  ),
+  /** Optional looped hold audio (Telnyx playback_start URL); overrides CAPACITY_HOLD_MESSAGE when set. */
+  CAPACITY_HOLD_AUDIO_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+
   TENANTMAP_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('tenantmap')),
   TENANTCFG_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('tenantcfg')),
   CAP_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('cap')),
