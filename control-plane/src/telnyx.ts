@@ -288,14 +288,16 @@ export async function ensureConnection(): Promise<string> {
   }
 
   // Create a new connection
-  const newConn = await createConnection("VeraLux Voice", webhookUrl);
+  const connName =
+    process.env.TELNYX_CONNECTION_DISPLAY_NAME?.trim() || "Voice Receptionist";
+  const newConn = await createConnection(connName, webhookUrl);
   console.log(`[telnyx] Created new connection: ${newConn.id}`);
   console.log(`[telnyx] ⚠️  Set TELNYX_CONNECTION_ID=${newConn.id} to reuse this connection.`);
   return newConn.id;
 }
 
 /**
- * Provision an existing number: assign it to the VeraLux connection.
+ * Provision an existing number: assign it to the app's Telnyx connection.
  * Returns the updated phone number.
  */
 export async function provisionExistingNumber(

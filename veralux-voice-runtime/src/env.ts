@@ -88,6 +88,11 @@ const EnvSchema = z.object({
   WEBRTC_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   WEBRTC_ALLOWED_ORIGINS: z.preprocess(emptyToUndefined, z.string().optional()),
   AUDIO_DIAGNOSTICS: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /**
+   * When true (default), `GET /health/ready` checks Whisper + TTS HTTP `/health` in addition to Redis.
+   * Set `false` for CI or redis-only gates (operators should leave default on in production).
+   */
+  HEALTH_VOICE_DEPENDENCIES: z.preprocess(stringToBoolean, z.boolean().default(true)),
 
   /* ───────────────────────── Telnyx ───────────────────────── */
   TELNYX_API_KEY: z.string().min(1),

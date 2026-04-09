@@ -38,7 +38,9 @@ Returns 200 if the process is running. Use for Kubernetes liveness probe.
 ```
 GET /health/ready
 ```
-Returns 200 if Redis is connected. Use for Kubernetes readiness probe.
+Returns **200** when Redis is reachable and, if **`HEALTH_VOICE_DEPENDENCIES=true`** (default in production), Whisper and the configured TTS backend respond on their **`/health`** URLs. Returns **503** otherwise. Use for Kubernetes readiness and for Docker Compose (this repo’s **`runtime`** service).
+
+Set **`HEALTH_VOICE_DEPENDENCIES=false`** only for CI or redis-only stacks; then readiness is Redis-only and **`GET /health`** skips voice probes (`voice_dependencies_checked: false`).
 
 ### Full Health Check
 ```
@@ -59,9 +61,11 @@ Returns detailed health status including Redis, Whisper, and TTS connectivity:
 ```
 
 Status values:
-- `ok`: All checks pass
-- `degraded`: Non-critical checks failing (Whisper/TTS)
-- `unhealthy`: Redis is down (returns 503)
+- `ok`: All checks pass (when voice dependencies are checked)
+- `degraded`: Whisper/TTS failing while Redis is up (HTTP **200**; use for dashboards)
+- `unhealthy`: Redis is down (returns **503**)
+
+When **`HEALTH_VOICE_DEPENDENCIES=false`**, the response is **`ok`** if Redis is up; `voice_ready` is **false** and `voice_dependencies_checked` is **false**.
 
 ## Structured Logging
 
@@ -205,19 +209,21 @@ spec:
         - name: runtime
           image: veralux/runtime:latest
           ports:
-            - containerPort: 3000
+            - containerPort: 4001
           livenessProbe:
             httpGet:
               path: /health/live
-              port: 3000
+              port: 4001
             initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 20
           readinessProbe:
             httpGet:
               path: /health/ready
-              port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 5
+              port: 4001
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 12
+            failureThreshold: 8
           lifecycle:
             preStop:
               exec:

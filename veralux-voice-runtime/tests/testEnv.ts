@@ -22,6 +22,8 @@ const defaults: Record<string, string> = {
   TENANTMAP_PREFIX: 'tenantmap',
   TENANTCFG_PREFIX: 'tenantcfg',
   CAP_PREFIX: 'cap',
+  /** Integration tests have no real Whisper/TTS; readiness is Redis-only. */
+  HEALTH_VOICE_DEPENDENCIES: 'false',
 };
 
 export function setTestEnv(): void {

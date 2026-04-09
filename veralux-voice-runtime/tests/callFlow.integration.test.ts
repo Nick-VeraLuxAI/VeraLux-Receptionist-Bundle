@@ -271,17 +271,23 @@ describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () =>
     const response = await fetch(`${ctx.baseUrl}/health`);
     assert.strictEqual(response.status, 200);
 
-    const body = (await response.json()) as { status: string; checks: { redis: { ok: boolean } } };
+    const body = (await response.json()) as {
+      status: string;
+      checks: { redis: { ok: boolean } };
+      voice_dependencies_checked?: boolean;
+    };
     assert.strictEqual(body.status, 'ok');
     assert.strictEqual(body.checks.redis.ok, true);
+    assert.strictEqual(body.voice_dependencies_checked, false);
   });
 
   it('should return ready status from /health/ready', async () => {
     const response = await fetch(`${ctx.baseUrl}/health/ready`);
     assert.strictEqual(response.status, 200);
 
-    const body = (await response.json()) as { status: string };
+    const body = (await response.json()) as { status: string; voice_dependencies_checked?: boolean };
     assert.strictEqual(body.status, 'ok');
+    assert.strictEqual(body.voice_dependencies_checked, false);
   });
 
   it('should return live status from /health/live', async () => {

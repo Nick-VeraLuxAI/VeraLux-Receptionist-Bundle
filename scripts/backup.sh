@@ -12,9 +12,8 @@
 # Automated (cron example - daily at 2am, keep last 30 days):
 #   0 2 * * * /path/to/veralux/scripts/backup.sh 2>&1 | logger -t veralux-backup
 #
-# Restore:
-#   gunzip -c backups/veralux_2026-02-07_020000.sql.gz | \
-#     docker exec -i veralux-postgres psql -U veralux -d veralux
+# Restore (destructive — use scripts/restore.sh or ./deploy.sh restore):
+#   See BACKUP_RESTORE.md
 # =============================================================================
 set -euo pipefail
 
@@ -29,11 +28,14 @@ CONTAINER_NAME="veralux-postgres"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 TIMESTAMP=$(date +"%Y-%m-%d_%H%M%S")
 
-# Load .env for DB credentials
-if [[ -f ".env" ]]; then
-    # shellcheck disable=SC2046
-    export $(grep -E '^(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)=' .env | xargs)
-fi
+# Load .env then .env.internal for DB credentials (later file overrides)
+for _vl_env_f in .env .env.internal; do
+    if [[ -f "$_vl_env_f" ]]; then
+        # shellcheck disable=SC2046
+        export $(grep -E '^(POSTGRES_USER|POSTGRES_PASSWORD|POSTGRES_DB)=' "$_vl_env_f" | xargs)
+    fi
+done
+unset _vl_env_f
 
 DB_USER="${POSTGRES_USER:-veralux}"
 DB_NAME="${POSTGRES_DB:-veralux}"
@@ -173,5 +175,6 @@ if [[ -n "$S3_DEST" ]]; then
 fi
 echo ""
 echo "  Restore with:"
-echo "    gunzip -c $BACKUP_PATH | docker exec -i $CONTAINER_NAME psql -U $DB_USER -d $DB_NAME"
+echo "    ./deploy.sh restore $BACKUP_PATH"
+echo "  (or: ./scripts/restore.sh $BACKUP_PATH — see BACKUP_RESTORE.md)"
 echo ""

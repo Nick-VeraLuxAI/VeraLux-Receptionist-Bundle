@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VeraLux — Dental &amp; clinic receptionist</title>
+  <meta name="description" content="Scheduling-first AI receptionist for clinics and dental practices—triage, routing, and handoffs with dedicated deployment and live-call validation." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* Palette aligned with control-plane (portal.html / owner.html / admin-neural.css) */
+    :root {
+      --bg: #f4f1ea;
+      --bg-elevated: #fffcf7;
+      --ink: #0a0908;
+      --muted: #8a8477;
+      --line: rgba(10, 9, 8, 0.1);
+      --accent: #c9a04e;
+      --accent-bright: #d4b56a;
+      --accent-soft: rgba(201, 160, 78, 0.14);
+      --accent-hover: #a67e3a;
+      --hero-deep: #050506;
+      --hero-mid: #0a0a0c;
+      --hero-low: #12110f;
+      --text-on-dark: #f4f1ea;
+      --gold: #c9a04e;
+      --success: #34d399;
+      --success-glow: rgba(52, 211, 153, 0.28);
+      --radius: 14px;
+      --radius-sm: 10px;
+      --shadow: 0 20px 50px rgba(5, 5, 6, 0.12);
+      --shadow-soft: 0 8px 30px rgba(5, 5, 6, 0.06);
+      --font: "Outfit", "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
+      --narrow: 36rem;
+      --wide: 70rem;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--ink);
+      background: var(--bg);
+      line-height: 1.55;
+      font-size: 1.02rem;
+    }
+
+    a { color: var(--accent); text-underline-offset: 3px; }
+    a:hover { color: var(--accent-hover); }
+
+    .skip {
+      position: absolute;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+    .skip:focus {
+      left: 1rem;
+      top: 1rem;
+      width: auto;
+      height: auto;
+      padding: 0.5rem 1rem;
+      background: var(--ink);
+      color: #fff;
+      z-index: 200;
+    }
+
+    /* —— Header —— */
+    .top {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255, 252, 247, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(220, 214, 204, 0.7);
+    }
+    .top-inner {
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 0.9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .brand {
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      font-size: 1.1rem;
+      color: var(--ink);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .brand-mark {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #d4b56a 0%, #a67e3a 100%);
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+    }
+    .brand span { color: var(--accent); font-weight: 600; }
+    nav ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      gap: 1.1rem;
+      flex-wrap: wrap;
+    }
+    nav a {
+      font-size: 0.9rem;
+      color: var(--muted);
+      text-decoration: none;
+      font-weight: 500;
+    }
+    nav a:hover { color: var(--accent); }
+
+    /* —— Premium hero band —— */
+    .hero-band {
+      position: relative;
+      background:
+        radial-gradient(ellipse 90% 60% at 80% 0%, rgba(201, 160, 78, 0.14) 0%, transparent 55%),
+        radial-gradient(ellipse 60% 50% at 10% 100%, rgba(201, 160, 78, 0.07) 0%, transparent 45%),
+        linear-gradient(165deg, var(--hero-deep) 0%, var(--hero-mid) 45%, var(--hero-low) 100%);
+      color: var(--text-on-dark);
+      overflow: hidden;
+    }
+    .hero-band::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M60 0v60H0' fill='none' stroke='%23ffffff' stroke-opacity='0.04'/%3E%3C/svg%3E");
+      opacity: 0.9;
+      pointer-events: none;
+    }
+
+    .hero-inner {
+      position: relative;
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 3rem 1.5rem 3.5rem;
+      display: grid;
+      gap: 2.25rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 960px) {
+      .hero-inner {
+        grid-template-columns: 1.05fr 0.95fr;
+        align-items: stretch;
+        padding-top: 3.5rem;
+        padding-bottom: 4rem;
+      }
+    }
+
+    .hero-copy .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-bright);
+      margin-bottom: 0.85rem;
+    }
+    .hero-copy .eyebrow::before {
+      content: "";
+      width: 1.5rem;
+      height: 2px;
+      background: linear-gradient(90deg, var(--gold), transparent);
+      border-radius: 2px;
+    }
+
+    .hero-copy h1 {
+      font-size: clamp(2rem, 4.2vw, 2.75rem);
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+      margin: 0 0 1rem;
+      font-weight: 700;
+      color: #fff;
+    }
+    .hero-copy .lede {
+      font-size: 1.08rem;
+      color: rgba(244, 241, 234, 0.85);
+      max-width: var(--narrow);
+      margin: 0 0 1.5rem;
+    }
+    .hero-copy .lede strong { color: #fff; font-weight: 600; }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.82rem 1.4rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s;
+    }
+    .btn:active { transform: translateY(1px); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #d4b56a 0%, #a67e3a 100%);
+      color: #0a0908;
+      box-shadow:
+        0 4px 24px rgba(201, 160, 78, 0.35),
+        0 0 0 1px rgba(201, 160, 78, 0.2);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #e0c47f 0%, #b8924a 100%);
+      color: #0a0908;
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.06);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+    }
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.35);
+    }
+
+    .micro {
+      font-size: 0.84rem;
+      color: rgba(244, 241, 234, 0.65);
+      max-width: 28rem;
+    }
+
+    /* —— Hero product mock —— */
+    .hero-mock {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .flow-diagram {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--radius);
+      padding: 1rem 1rem 1.1rem;
+      backdrop-filter: blur(10px);
+    }
+    .flow-diagram h3 {
+      margin: 0 0 0.85rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.55);
+    }
+    .flow-nodes {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.35rem 0.5rem;
+      font-size: 0.78rem;
+    }
+    .flow-nodes .node {
+      background: rgba(201, 160, 78, 0.18);
+      border: 1px solid rgba(201, 160, 78, 0.42);
+      color: #fdfbf7;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+    .flow-nodes .arrow {
+      color: rgba(255, 255, 255, 0.35);
+      font-size: 0.9rem;
+    }
+
+    .routing-bar {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    @media (min-width: 520px) {
+      .routing-bar { grid-template-columns: repeat(3, 1fr); }
+    }
+    .route-pill {
+      font-size: 0.72rem;
+      padding: 0.45rem 0.55rem;
+      border-radius: var(--radius-sm);
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.88);
+      line-height: 1.35;
+    }
+    .route-pill b {
+      display: block;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent-bright);
+      margin-bottom: 0.2rem;
+    }
+
+    .transcript-card {
+      flex: 1;
+      background: var(--bg-elevated);
+      color: var(--ink);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+    }
+    .transcript-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.65rem 1rem;
+      background: linear-gradient(180deg, #f7f4ef 0%, #efeae3 100%);
+      border-bottom: 1px solid var(--line);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .transcript-head .live {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+    }
+    .transcript-head .live::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 0 3px var(--success-glow);
+    }
+    .transcript-body {
+      padding: 1rem 1rem 1.15rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .bubble {
+      max-width: 92%;
+      padding: 0.55rem 0.75rem;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+    .bubble.caller {
+      align-self: flex-start;
+      background: rgba(246, 243, 236, 0.97);
+      border: 1px solid rgba(201, 160, 78, 0.22);
+      color: var(--ink);
+    }
+    .bubble.bot {
+      align-self: flex-end;
+      background: linear-gradient(160deg, #1a1816 0%, #12110f 100%);
+      color: var(--text-on-dark);
+      border: 1px solid rgba(201, 160, 78, 0.2);
+    }
+    .bubble .who {
+      display: block;
+      font-size: 0.62rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.25rem;
+      opacity: 0.75;
+    }
+
+    .before-after {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+      font-size: 0.72rem;
+      padding: 0.65rem 1rem 1rem;
+      background: #faf7f2;
+      border-top: 1px solid var(--line);
+    }
+    .before-after .col { padding: 0.5rem 0.55rem; border-radius: 8px; }
+    .before-after .bad { background: #fdeeed; color: #7c2d2d; }
+    .before-after .good { background: #ecfdf3; color: #166534; }
+    .before-after strong { display: block; font-size: 0.62rem; margin-bottom: 0.25rem; opacity: 0.85; }
+
+    /* Industry links */
+    .industry-links {
+      background: linear-gradient(180deg, #f0ebe3 0%, var(--bg-elevated) 100%);
+      border-bottom: 1px solid var(--line);
+    }
+    .industry-links-inner {
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 1rem 1.5rem 1.15rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem 1.25rem;
+    }
+    .industry-links-label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .industry-links-label strong {
+      font-size: 0.95rem;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .industry-links-label span {
+      font-size: 0.8rem;
+      color: var(--muted);
+      max-width: 22rem;
+      line-height: 1.35;
+    }
+    .industry-links-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem 0.75rem;
+    }
+    .industry-links-actions a {
+      font-weight: 700;
+      font-size: 0.88rem;
+      text-decoration: none;
+      padding: 0.45rem 0.85rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--accent);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .industry-links-actions a:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .industry-links-actions .sep { opacity: 0.35; user-select: none; font-weight: 400; }
+    .industry-links-actions [aria-current="page"] {
+      font-weight: 700;
+      font-size: 0.88rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 999px;
+      border: 1px solid rgba(201, 160, 78, 0.4);
+      background: var(--accent-soft);
+      color: var(--ink);
+    }
+
+    /* Go-live standard: operator discipline + illustrative checklist (not customer testimonial) */
+    .trust-anchor {
+      padding: 2.75rem 1.5rem 3rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--line);
+    }
+    .trust-anchor .eyebrow-small {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin: 0 0 0.5rem;
+    }
+    .trust-anchor h2 {
+      margin: 0 0 0.5rem;
+      font-size: clamp(1.35rem, 2.4vw, 1.75rem);
+      letter-spacing: -0.025em;
+      color: var(--ink);
+    }
+    .trust-anchor .sub {
+      margin: 0 0 1.75rem;
+    }
+    .trust-anchor-grid {
+      display: grid;
+      gap: 1.25rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 900px) {
+      .trust-anchor-grid {
+        grid-template-columns: 1.2fr 1fr;
+        align-items: stretch;
+      }
+    }
+    .operator-standard {
+      margin: 0;
+      padding: 1.35rem 1.4rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      border-left: 4px solid var(--accent);
+      box-shadow: var(--shadow-soft);
+    }
+    .operator-standard h3 {
+      margin: 0 0 0.75rem;
+      font-size: 1.08rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+    }
+    .operator-standard p {
+      margin: 0;
+      font-size: 1.02rem;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+    .artifact-illustrative {
+      margin: 0 0 0.5rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .trust-side {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .trust-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    .trust-stat {
+      background: var(--bg-elevated);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      padding: 0.9rem 1rem;
+    }
+    .trust-stat .num {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--accent);
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+    }
+    .trust-stat .lbl {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.35;
+      margin-top: 0.25rem;
+    }
+    .trust-artifact {
+      background: #0a0a0c;
+      color: #c9c3b5;
+      border-radius: var(--radius-sm);
+      padding: 1rem 1.1rem;
+      font-family: ui-monospace, "Cascadia Code", "Segoe UI Mono", monospace;
+      font-size: 0.72rem;
+      line-height: 1.5;
+      border: 1px solid rgba(201, 160, 78, 0.2);
+    }
+    .trust-artifact .artifact-title {
+      color: var(--accent-bright);
+      margin-bottom: 0.5rem;
+      font-weight: 700;
+    }
+    .trust-artifact .artifact-line { opacity: 0.92; }
+    .trust-artifact .artifact-ok { color: var(--success); }
+    .trust-screenshot {
+      margin-top: 0.5rem;
+      padding: 0.65rem 0.75rem;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      font-size: 0.68rem;
+      color: #9a948a;
+    }
+    .trust-screenshot strong { color: var(--text-on-dark); }
+    .trust-screenshot .artifact-pass { color: var(--success); }
+
+    /* —— Trust strip —— */
+    .trust-strip {
+      position: relative;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--line);
+      box-shadow: var(--shadow-soft);
+    }
+    .trust-inner {
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 1.35rem 1.5rem 1.5rem;
+    }
+    .trust-pills {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.65rem 1rem;
+    }
+    @media (min-width: 800px) {
+      .trust-pills { grid-template-columns: repeat(4, 1fr); }
+    }
+    .trust-item {
+      display: flex;
+      gap: 0.65rem;
+      align-items: flex-start;
+    }
+    .trust-item svg {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      color: var(--accent);
+    }
+    .trust-item strong {
+      display: block;
+      font-size: 0.86rem;
+      color: var(--ink);
+      margin-bottom: 0.15rem;
+    }
+    .trust-item span {
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .trust-meta {
+      margin-top: 1.35rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--line);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 1rem 1.5rem;
+      justify-content: space-between;
+    }
+    .badge-pilot {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #3d3424;
+      background: linear-gradient(135deg, #fff8e6, #fef3c7);
+      border: 1px solid rgba(201, 160, 78, 0.45);
+      padding: 0.4rem 0.75rem;
+      border-radius: 999px;
+    }
+    .logo-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem 1.25rem;
+    }
+    .logo-row span {
+      font-size: 0.72rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .logo-placeholder {
+      height: 28px;
+      min-width: 72px;
+      border-radius: 6px;
+      background: linear-gradient(135deg, #e8e4dc, #ddd8cf);
+      opacity: 0.85;
+    }
+
+    /* —— Sections —— */
+    section {
+      padding: 3rem 1.5rem;
+    }
+    section.alt {
+      background: #ebe8e0;
+    }
+    section.darkish {
+      background: linear-gradient(180deg, #f0ebe3 0%, var(--bg) 100%);
+    }
+
+    .wrap {
+      max-width: var(--wide);
+      margin: 0 auto;
+    }
+
+    h2.section-title {
+      font-size: clamp(1.35rem, 2.2vw, 1.65rem);
+      letter-spacing: -0.025em;
+      margin: 0 0 0.4rem;
+    }
+    .sub {
+      color: var(--muted);
+      max-width: 38rem;
+      margin: 0 0 1.5rem;
+      font-size: 0.98rem;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 0.85rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 680px) {
+      .grid-2 { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.15rem 1.2rem;
+      box-shadow: var(--shadow-soft);
+    }
+    .card h3 {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .card h3 svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }
+    .card p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+
+    .compare {
+      display: grid;
+      gap: 0.85rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) {
+      .compare { grid-template-columns: 1fr 1fr; }
+    }
+    .compare-col {
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      border: 1px solid var(--line);
+    }
+    .compare-col.bad { background: #faf6f3; }
+    .compare-col.good {
+      background: linear-gradient(145deg, var(--accent-soft), #fff);
+      border-color: rgba(201, 160, 78, 0.35);
+    }
+    .compare-col h3 { margin: 0 0 0.75rem; font-size: 0.95rem; }
+    .compare-col ul {
+      margin: 0;
+      padding-left: 1.1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .compare-col.good ul { color: #3d3424; }
+
+    /* Proof */
+    .proof-grid {
+      display: grid;
+      gap: 0.85rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 900px) {
+      .proof-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    .proof-card {
+      background: var(--bg-elevated);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      padding: 1.2rem 1.25rem;
+      box-shadow: var(--shadow-soft);
+    }
+    .proof-card h3 {
+      margin: 0 0 0.65rem;
+      font-size: 0.95rem;
+      color: var(--ink);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .proof-card h3 .ic {
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 8px;
+      background: var(--accent-soft);
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      font-size: 0.75rem;
+      font-weight: 800;
+    }
+    .proof-card ul {
+      margin: 0;
+      padding-left: 1rem;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .proof-wide {
+      grid-column: 1 / -1;
+      background: linear-gradient(135deg, var(--hero-mid), var(--hero-low));
+      color: var(--text-on-dark);
+      border: none;
+      padding: 1.35rem 1.5rem;
+    }
+    .proof-wide h3 { color: #fff; margin-bottom: 0.5rem; }
+    .proof-wide p { margin: 0; font-size: 0.92rem; color: rgba(244, 241, 234, 0.88); max-width: 48rem; }
+
+    /* Why us — emotional / operational edge */
+    .why-band {
+      position: relative;
+      background:
+        linear-gradient(135deg, rgba(201, 160, 78, 0.08) 0%, transparent 45%),
+        linear-gradient(180deg, #f0ebe3 0%, var(--bg-elevated) 100%);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .why-inner {
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 3rem 1.5rem;
+      display: grid;
+      gap: 1.75rem;
+    }
+    @media (min-width: 860px) {
+      .why-inner {
+        grid-template-columns: 1fr 1fr;
+        gap: 2.5rem;
+        align-items: start;
+      }
+    }
+    .why-band h2 {
+      margin: 0 0 0.75rem;
+      font-size: clamp(1.45rem, 2.6vw, 1.95rem);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      color: var(--ink);
+    }
+    .why-band .lead {
+      font-size: 1.05rem;
+      color: var(--muted);
+      margin: 0 0 1rem;
+      line-height: 1.6;
+    }
+    .why-band .lead strong { color: var(--ink); font-weight: 600; }
+    .pain-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.85rem;
+    }
+    .pain-list li {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      font-size: 0.95rem;
+      color: var(--ink);
+      line-height: 1.45;
+    }
+    .pain-list li::before {
+      content: "";
+      flex-shrink: 0;
+      width: 6px;
+      height: 6px;
+      margin-top: 0.45rem;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(201, 160, 78, 0.25);
+    }
+    .why-dedicated {
+      background: var(--bg-elevated);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.35rem;
+      box-shadow: var(--shadow-soft);
+    }
+    .why-dedicated h3 {
+      margin: 0 0 0.65rem;
+      font-size: 1rem;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+    .why-dedicated p {
+      margin: 0;
+      font-size: 0.93rem;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+    .why-dedicated p + p { margin-top: 0.75rem; }
+
+    /* Timeline compact */
+    .timeline {
+      display: grid;
+      gap: 0;
+    }
+    @media (min-width: 820px) {
+      .timeline {
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0.5rem;
+      }
+    }
+    .step {
+      padding: 0.85rem 0.85rem 0.85rem 0;
+      border-left: 3px solid #c5bfb4;
+      margin-left: 0.4rem;
+    }
+    @media (min-width: 820px) {
+      .step {
+        border-left: none;
+        border-top: 3px solid var(--accent);
+        margin: 0;
+        padding: 1rem 0.4rem 0 0;
+      }
+    }
+    .step-num {
+      display: inline-flex;
+      width: 1.65rem;
+      height: 1.65rem;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #d4b56a 0%, #a67e3a 100%);
+      color: #0a0908;
+      border-radius: 50%;
+      font-size: 0.75rem;
+      font-weight: 800;
+      margin-bottom: 0.45rem;
+    }
+    .step strong {
+      display: block;
+      font-size: 0.88rem;
+      margin-bottom: 0.25rem;
+    }
+    .step span { font-size: 0.8rem; color: var(--muted); }
+
+    .pill-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-top: 0.75rem;
+    }
+    .pill {
+      font-size: 0.8rem;
+      padding: 0.3rem 0.65rem;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+    }
+
+    .pricing {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) {
+      .pricing { grid-template-columns: 1fr 1fr; }
+    }
+    .price-card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 1.35rem;
+      box-shadow: var(--shadow-soft);
+    }
+    .price-card h3 { margin: 0 0 0.5rem; font-size: 1.02rem; }
+    .price-card .range {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 0.35rem;
+    }
+    .price-card p { margin: 0; font-size: 0.88rem; color: var(--muted); }
+
+    .boundaries {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+    .boundaries ul { margin: 0.4rem 0 0; padding-left: 1.1rem; }
+    .boundaries li { margin-bottom: 0.45rem; }
+
+    /* Book / form */
+    .book-section {
+      background: linear-gradient(165deg, #050506 0%, #0a0a0c 50%, #12110f 100%);
+      color: var(--text-on-dark);
+      padding: 3.5rem 1.5rem;
+    }
+    .book-grid {
+      max-width: var(--wide);
+      margin: 0 auto;
+      display: grid;
+      gap: 2rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 880px) {
+      .book-grid { grid-template-columns: 1fr 1.05fr; align-items: start; }
+    }
+    .book-intro h2 {
+      margin: 0 0 0.65rem;
+      font-size: clamp(1.4rem, 2.4vw, 1.85rem);
+      letter-spacing: -0.02em;
+      color: #fff;
+    }
+    .book-intro p {
+      margin: 0 0 1.25rem;
+      color: rgba(244, 241, 234, 0.85);
+      font-size: 0.95rem;
+      max-width: 28rem;
+    }
+    .cta-links {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+    .cta-links a {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--accent-bright);
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 0.92rem;
+    }
+    .cta-links a:hover { text-decoration: underline; }
+    .cta-links a::before {
+      content: "→";
+      opacity: 0.7;
+    }
+
+    .form-panel {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.35rem 1.4rem;
+      backdrop-filter: blur(8px);
+    }
+    .form-panel label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: rgba(255, 255, 255, 0.55);
+      margin-bottom: 0.35rem;
+    }
+    .form-panel input,
+    .form-panel textarea {
+      width: 100%;
+      padding: 0.65rem 0.75rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      background: rgba(0, 0, 0, 0.25);
+      color: #fff;
+      font-size: 0.95rem;
+      margin-bottom: 0.85rem;
+      font-family: inherit;
+    }
+    .form-panel input::placeholder,
+    .form-panel textarea::placeholder {
+      color: rgba(255, 255, 255, 0.35);
+    }
+    .form-panel textarea { min-height: 4.5rem; resize: vertical; }
+    .form-row-2 {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: 1fr;
+    }
+    @media (min-width: 520px) {
+      .form-row-2 { grid-template-columns: 1fr 1fr; }
+    }
+    .form-panel .btn-primary {
+      width: 100%;
+      margin-top: 0.25rem;
+      padding: 0.95rem;
+      font-size: 1rem;
+      background: linear-gradient(135deg, #d4b56a 0%, #a67e3a 100%);
+      color: #0a0908;
+      box-shadow: 0 4px 24px rgba(201, 160, 78, 0.3);
+    }
+    .form-panel .btn-primary:hover {
+      background: linear-gradient(135deg, #e0c47f 0%, #b8924a 100%);
+      color: #0a0908;
+    }
+
+    .legal {
+      max-width: var(--wide);
+      margin: 0 auto;
+      padding: 1.75rem 1.5rem 2.5rem;
+      font-size: 0.76rem;
+      color: #9a948a;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">VL</span>
+        Vera<span>Lux</span>
+      </a>
+      <nav aria-label="Page">
+        <ul>
+          <li><a href="#why">Why us</a></li>
+          <li><a href="#go-live">Go-live standard</a></li>
+          <li><a href="#proof">Proof</a></li>
+          <li><a href="#how">Rollout</a></li>
+          <li><a href="#pilot">Pilot</a></li>
+          <li><a href="#fit">Fit</a></li>
+          <li><a href="#book">Book</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="hero-band">
+      <div class="hero-inner">
+        <div class="hero-copy">
+          <p class="eyebrow">Managed AI receptionist</p>
+          <h1>The schedule can’t be a single point of failure.</h1>
+          <p class="lede">
+            <strong>Clinics &amp; dental</strong>: hygiene and visits, <strong>same-day triage language</strong>, <strong>network checks as you define them</strong>, and <strong>handoffs with context</strong>—not a generic chatbot. <strong>Dedicated deployment</strong>, <strong>guided rollout</strong>, <strong>live-call validation</strong> before production.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="#book">Book a pilot call</a>
+            <a class="btn btn-ghost" href="#proof">See sample scenarios</a>
+          </div>
+          <p class="micro">Not website chat. Built for inbound telephony—with clear ownership, not a shared one-size-fits-all bot.</p>
+        </div>
+
+        <div class="hero-mock" aria-label="Product preview">
+          <div class="flow-diagram">
+            <h3>Call flow</h3>
+            <div class="flow-nodes">
+              <span class="node">Inbound</span>
+              <span class="arrow" aria-hidden="true">→</span>
+              <span class="node">Triage</span>
+              <span class="arrow" aria-hidden="true">→</span>
+              <span class="node">Schedule</span>
+              <span class="arrow" aria-hidden="true">→</span>
+              <span class="node">Chart flag</span>
+            </div>
+            <div class="routing-bar">
+              <div class="route-pill"><b>Scheduling</b> Hygiene &amp; visits</div>
+              <div class="route-pill"><b>Same day</b> Urgent / pain triage</div>
+              <div class="route-pill"><b>After hours</b> Message + on-call policy</div>
+            </div>
+          </div>
+
+          <div class="transcript-card">
+            <div class="transcript-head">
+              <span>Inbound · Patient line</span>
+              <span class="live">Live session</span>
+            </div>
+            <div class="transcript-body">
+              <div class="bubble caller">
+                <span class="who">Caller</span>
+                “First-time <strong>pediatric hygiene</strong>—we’re <strong>Cigna PPO</strong>. Do you have <strong>before school</strong>, like <strong>7:30</strong>?”
+              </div>
+              <div class="bubble bot">
+                <span class="who">Receptionist</span>
+                “<strong>Tuesday 7:30</strong> or <strong>Thursday 4:00</strong> open. Verbal network checks <strong>aren’t a guarantee at the chair</strong>—I’ll need <strong>guardian name</strong>, <strong>patient name</strong>, and <strong>subscriber ID</strong> to build the chart.”
+              </div>
+              <div class="bubble caller">
+                <span class="who">Caller</span>
+                “<strong>Lisa Park</strong> for <strong>Sam P.</strong>—subscriber ends <strong>7781</strong>—book <strong>Tuesday 7:30</strong>.”
+              </div>
+              <div class="bubble bot">
+                <span class="who">Receptionist</span>
+                “Held <strong>Tuesday 7:30</strong>—new patient packet link to <strong>mobile on file</strong>? Arrive <strong>15 minutes early</strong> for photos. <strong>Pain or swelling today</strong>—say <strong>urgent</strong>.”
+              </div>
+            </div>
+            <div class="before-after" aria-label="Before and after handling">
+              <div class="col bad">
+                <strong>Before</strong>
+                Hold queue → hang-up → open chair + staff rework
+              </div>
+              <div class="col good">
+                <strong>After</strong>
+                Slot held + chart pre-build + reminder path + triage flag if needed
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="industry-links" aria-label="Explore industry-specific pages">
+      <div class="industry-links-inner">
+        <div class="industry-links-label">
+          <strong>See your industry</strong>
+          <span>You’re on the dental/clinic playbook—compare home-services dispatch or the master overview.</span>
+        </div>
+        <div class="industry-links-actions">
+          <a href="index.html">All industries</a>
+          <span class="sep" aria-hidden="true">·</span>
+          <a href="vertical-home-services.html">Home services</a>
+          <span class="sep" aria-hidden="true">·</span>
+          <span aria-current="page">Dental &amp; clinic</span>
+        </div>
+      </div>
+    </div>
+
+    <section class="trust-strip" aria-label="Trust">
+      <div class="trust-inner">
+        <div class="trust-pills">
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+            <div>
+              <strong>Built for phone-primary businesses</strong>
+              <span>Inbound voice—not a browser widget.</span>
+            </div>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            <div>
+              <strong>Dedicated deployment</strong>
+              <span>Your environment—predictable ops.</span>
+            </div>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>
+            <div>
+              <strong>Live-call validation before go-live</strong>
+              <span>Real dials—not dashboard-only checks.</span>
+            </div>
+          </div>
+          <div class="trust-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <div>
+              <strong>Managed, not DIY</strong>
+              <span>We lead rollout with your team.</span>
+            </div>
+          </div>
+        </div>
+        <div class="trust-meta">
+          <span class="badge-pilot" title="Edit if your go-to-market phase changes">Private pilot — limited onboarding</span>
+          <div class="logo-row">
+            <span>Trusted by teams in</span>
+            <span class="logo-placeholder" title="Replace with logo"></span>
+            <span class="logo-placeholder" title="Replace with logo"></span>
+            <span class="logo-placeholder" title="Replace with logo"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="trust-anchor" id="go-live" aria-labelledby="go-live-title">
+      <div class="wrap">
+        <p class="eyebrow-small">Go-live standard</p>
+        <h2 id="go-live-title">What we validate before production</h2>
+        <p class="sub">Scheduling and triage have to prove out on real calls—the same operator bar applies in every vertical.</p>
+        <div class="trust-anchor-grid">
+          <div class="operator-standard">
+            <h3>What we require before go-live</h3>
+            <p>We do not call a deployment live because a dashboard looks healthy. We call it live when <strong>inbound calls complete end-to-end on the production path</strong>, <strong>escalation works</strong>, and the <strong>owner signs off after live validation</strong>.</p>
+          </div>
+          <div class="trust-side">
+            <div class="trust-stats">
+              <div class="trust-stat">
+                <span class="num">60–90</span>
+                <span class="lbl">Day pilot window typical (scoped in agreement)</span>
+              </div>
+              <div class="trust-stat">
+                <span class="num">Live</span>
+                <span class="lbl">Scheduling + triage paths tested on production numbers</span>
+              </div>
+            </div>
+            <p class="artifact-illustrative">Illustrative pilot standard — example of the validation criteria we apply before production cutover.</p>
+            <div class="trust-artifact" aria-label="Illustrative scheduling checklist excerpt">
+              <div class="artifact-title">Schedule gate (excerpt)</div>
+              <div class="artifact-line artifact-ok">✓ Hold released only after slot + ID captured</div>
+              <div class="artifact-line artifact-ok">✓ Urgent dental pain routes to on-call test</div>
+              <div class="artifact-line artifact-ok">✓ Reminder opt-in matches your policy</div>
+              <div class="trust-screenshot" role="img" aria-label="Illustrative status line">
+                <strong>Hygiene · Tue 7:30</strong> · status <span class="artifact-pass">HELD</span> · live validation
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="why-band" id="why" aria-labelledby="why-title">
+      <div class="why-inner">
+        <div>
+          <h2 id="why-title">The phone is where the money is—and where the day falls apart.</h2>
+          <p class="lead">
+            Every ring is a job, a reschedule, or a relationship on the line. When lines stack up, the quiet failure is <strong>unresolved intent</strong>—callers who needed a time, a ticket, or a human, and left without a clear next step—so they try the next name on the list.
+          </p>
+          <ul class="pain-list">
+            <li><strong>Missed revenue:</strong> calls that never become tickets because nobody picked up in time.</li>
+            <li><strong>Front-desk load:</strong> scheduling + triage stacking while patients wait—errors and no-shows creep up.</li>
+            <li><strong>Reputation risk:</strong> every rushed handoff trains customers to expect inconsistency.</li>
+          </ul>
+        </div>
+        <div class="why-dedicated">
+          <h3>Why dedicated deployment matters</h3>
+          <p>
+            Shared “AI for everyone” stacks optimize for demos, not <strong>your</strong> routing rules, <strong>your</strong> service areas, or <strong>your</strong> on-call policy. A dedicated environment means your receptionist isn’t learning your business next to a hundred unrelated tenants—it’s built to run <strong>your</strong> operation, with <strong>live-call proof</strong> before you bet the board on it.
+          </p>
+          <p>
+            That’s the difference between a vendor that ships software and a partner that stays on the hook for <strong>what happens when real customers dial</strong>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section id="what" class="alt">
+      <div class="wrap">
+        <h2 class="section-title">Where revenue leaks today</h2>
+        <p class="sub">Most gaps aren’t “lack of AI”—they’re inconsistent answering under load.</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Busy periods</h3>
+            <p>Ring-out, voicemail, or rushed handoffs when the desk is underwater.</p>
+          </div>
+          <div class="card">
+            <h3>After hours</h3>
+            <p>Callers still expect clarity—hours, urgency, and what happens next.</p>
+          </div>
+          <div class="card">
+            <h3>Repeat questions</h3>
+            <p>Scheduling and FAQs that shouldn’t consume a human every time.</p>
+          </div>
+          <div class="card">
+            <h3>Inconsistent answers</h3>
+            <p>Different staff, different scripts—trust erodes fast.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="not-chatbot">
+      <div class="wrap">
+        <h2 class="section-title">Not “another chatbot”</h2>
+        <p class="sub">If success is measured on the phone, the product has to be.</p>
+        <div class="compare">
+          <div class="compare-col bad">
+            <h3>Website chat</h3>
+            <ul>
+              <li>Browser-first, not telephony-first</li>
+              <li>Shared behavior across tenants</li>
+              <li>“Go live” = flip a widget</li>
+            </ul>
+          </div>
+          <div class="compare-col good">
+            <h3>VeraLux</h3>
+            <ul>
+              <li>Inbound voice &amp; routing</li>
+              <li>Dedicated environment</li>
+              <li>Go-live = successful real call</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="proof" class="darkish">
+      <div class="wrap">
+        <h2 class="section-title">Proof: what actually happens on the line</h2>
+        <p class="sub">Illustrative scenarios—your flows are configured in discovery.</p>
+        <div class="proof-grid">
+          <div class="proof-card">
+            <h3><span class="ic">1</span> Sample scenarios</h3>
+            <ul>
+              <li>New patient: visit type + availability + routing</li>
+              <li>Established: reschedule, billing question, or provider request</li>
+              <li>Urgent triage vs routine—handoff with context</li>
+            </ul>
+          </div>
+          <div class="proof-card">
+            <h3><span class="ic">2</span> After hours</h3>
+            <ul>
+              <li>Clear expectations (“we reopen at…”) + capture lead</li>
+              <li>Optional SMS/email summary to the customer</li>
+              <li>True emergencies routed per your policy</li>
+            </ul>
+          </div>
+          <div class="proof-card">
+            <h3><span class="ic">3</span> Escalation vs auto-resolve</h3>
+            <ul>
+              <li><strong>Auto:</strong> hours, areas, booking slots, FAQs</li>
+              <li><strong>Escalate:</strong> complaints, clinical/legal judgment, VIP rules</li>
+            </ul>
+          </div>
+          <div class="proof-wide">
+            <h3>What a successful pilot looks like</h3>
+            <p>Agreed call types working end-to-end on production routing, live validation complete, your owner trained on when to ask for changes—and a clear path to annual production with defined support.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <div class="wrap">
+        <h2 class="section-title">Rollout, in five moves</h2>
+        <p class="sub">From how you answer today to a receptionist you can run.</p>
+        <div class="timeline">
+          <div class="step">
+            <span class="step-num">1</span>
+            <strong>Discovery</strong>
+            <span>Flows, hours, escalation—what “good” sounds like.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">2</span>
+            <strong>Deploy</strong>
+            <span>Your dedicated environment.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">3</span>
+            <strong>Route</strong>
+            <span>Carrier + DNS—we coordinate.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">4</span>
+            <strong>Validate</strong>
+            <span>Live test calls pre-production.</span>
+          </div>
+          <div class="step">
+            <span class="step-num">5</span>
+            <strong>Operate</strong>
+            <span>Managed service, clear scope.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="pilot" class="alt">
+      <div class="wrap">
+        <h2 class="section-title">Pilot, then production</h2>
+        <p class="sub">60–90 days to prove fit; fees depend on volume, numbers, and workflow depth.</p>
+        <div class="pricing">
+          <div class="price-card">
+            <h3>Pilot (indicative)</h3>
+            <p class="range">$5k–$12k setup</p>
+            <p class="range" style="font-size:1.05rem">$2k–$3.5k / mo</p>
+            <p>Scoped in your agreement.</p>
+          </div>
+          <div class="price-card">
+            <h3>Production</h3>
+            <p class="range">Often $24k–$60k / yr</p>
+            <p>Annual engagement; multi-site &amp; higher touch scoped separately.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="fit">
+      <div class="wrap">
+        <h2 class="section-title">Who it fits</h2>
+        <p class="sub"><strong>~10–80 employees</strong>, phone-primary, one owner for decisions + routing. Industries:</p>
+        <div class="pill-wrap">
+          <span class="pill">Home services</span>
+          <span class="pill">Dental / clinic / med spa</span>
+          <span class="pill">Property</span>
+          <span class="pill">Hospitality</span>
+          <span class="pill">Professional services</span>
+        </div>
+        <p class="sub" style="margin-top:1.75rem;margin-bottom:0.5rem"><strong>Expect:</strong> fewer missed calls, better after-hours handling, less desk repetition, clear human escalation—not a substitute for every judgment call.</p>
+      </div>
+    </section>
+
+    <section id="boundaries" class="boundaries alt">
+      <div class="wrap">
+        <h2 class="section-title">Boundaries (clear beats clever)</h2>
+        <p class="sub" style="margin-bottom:0.75rem">Routing and public access are part of professional rollout. Standard branding included; deep custom programs scoped separately. Support channels &amp; hours defined up front.</p>
+      </div>
+    </section>
+
+    <section class="book-section" id="book">
+      <div class="book-grid">
+        <div class="book-intro">
+          <h2>Next step</h2>
+          <p>Tell us about your lines, volume, and what “good” sounds like—we’ll recommend whether a pilot is the right move.</p>
+          <div class="cta-links">
+            <a href="#pilot-form">Book a pilot call</a>
+            <a href="#pilot-form">Request rollout review</a>
+            <a href="#pilot-form">See if your business is a fit</a>
+          </div>
+        </div>
+        <div class="form-panel">
+          <!-- Wire before launch: set <form action="…"> to your endpoint, or replace this entire block with your WordPress form/scheduler shortcode (Contact Form 7, WPForms, Gravity Forms, Calendly embed, HubSpot form, etc.). -->
+          <form id="pilot-form" method="post" action="" accept-charset="UTF-8">
+            <label for="name">Name</label>
+            <input id="name" name="name" type="text" autocomplete="name" placeholder="Jordan Lee" required />
+            <div class="form-row-2">
+              <div>
+                <label for="email">Work email</label>
+                <input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required />
+              </div>
+              <div>
+                <label for="company">Company</label>
+                <input id="company" name="company" type="text" autocomplete="organization" placeholder="Acme Services" />
+              </div>
+            </div>
+            <label for="msg">What should we know?</label>
+            <textarea id="msg" name="message" placeholder="Main number, rough monthly inbound volume, after-hours needs…"></textarea>
+            <button type="submit" class="btn btn-primary">Book a pilot call</button>
+          </form>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="legal">
+    <p>Managed service; dedicated customer environment. Scope, terms, and fees are confirmed in your agreement.</p>
+  </footer>
+</body>
+</html>

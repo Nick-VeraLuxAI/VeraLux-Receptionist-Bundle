@@ -173,7 +173,8 @@ function buildPrompt(
 
   return [
     systemPreamble ||
-      "You are the VeraLux on-premises virtual receptionist for a local service business.",
+      process.env.DEFAULT_RECEPTIONIST_SYSTEM_PREAMBLE?.trim() ||
+      "You are the on-premises virtual receptionist for a local service business.",
     "",
     policyPrompt || "",
     "",

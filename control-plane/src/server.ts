@@ -41,6 +41,7 @@ import {
   type VoicePreset,
   type PromptConfig,
 } from "./config";
+import { getCustomerBrandingPayload } from "./customerBranding";
 import { resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
 import { createPreviewJob, pollPreviewJob } from "./ttsPreviewJobs";
 import { tenants, DEFAULT_TENANT_ID, type TenantContext } from "./tenants";
@@ -183,6 +184,12 @@ app.get("/portal.html", (req, res) => {
   const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   res.redirect(301, "/portal" + q);
 });
+
+/** Public JSON for operator branding (BRAND_* env) — used by apply-branding.js on static shells. */
+app.get("/api/branding", (_req, res) => {
+  res.json(getCustomerBrandingPayload());
+});
+
 app.use(express.static("public"));
 
 // ────────────────────────────────────────────────
@@ -995,7 +1002,9 @@ app.get("/ready", async (_req, res) => {
    ──────────────────────────────────────────────── */
 
 const INSTALLER_USERNAME = process.env.INSTALLER_USERNAME || "VeraLux";
-const INSTALLER_PASSWORD = process.env.INSTALLER_PASSWORD || "JesusisKing";
+/** Matches docker-compose: INSTALLER_PASSWORD defaults empty; then use ADMIN_API_KEY (never a hardcoded password). */
+const INSTALLER_PASSWORD =
+  (process.env.INSTALLER_PASSWORD || "").trim() || (process.env.ADMIN_API_KEY || "").trim() || "";
 
 app.post("/admin-auth", (req, res) => {
   const { username, password } = req.body || {};
@@ -2792,7 +2801,7 @@ app.get("/api/admin/telnyx/available", async (req, res) => {
   }
 });
 
-// Provision an existing number (assign to VeraLux connection)
+// Provision an existing number (assign to app Telnyx connection)
 app.post("/api/admin/telnyx/provision", async (req, res) => {
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
@@ -3624,8 +3633,10 @@ async function start() {
   try {
     const port = await findAvailablePort(preferredPort);
     httpServer = app.listen(port, () => {
+      const productLabel =
+        process.env.PRODUCT_DISPLAY_NAME?.trim() || "VeraLux Receptionist";
       console.log(
-        `VeraLux Receptionist server listening on port ${port}${
+        `${productLabel} control plane listening on port ${port}${
           port !== preferredPort ? ` (preferred ${preferredPort} unavailable)` : ""
         }`
       );

@@ -1,5 +1,7 @@
 # veralux-audio-stack
 
+> **Production stack:** Customer deployments start the **root** bundle with **`./up`** or **`./deploy.sh up`** (repo root `docker-compose.yml`). This directory is the **audio service source and dev context**; do not treat `veralux-audio-stack/docker-compose*.yml` as the primary production entrypoint unless you are developing in isolation.
+
 FastAPI-based services that expose Kokoro TTS, Coqui XTTS TTS, [Chatterbox](https://github.com/resemble-ai/chatterbox) (Resemble AI), and Faster-Whisper transcription endpoints. Each stack runs in its own Python virtual environment to keep dependencies clean (except the CUDA Chatterbox image, which bundles PyTorch).
 
 ## Prerequisites

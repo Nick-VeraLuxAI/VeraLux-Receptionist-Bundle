@@ -1,13 +1,25 @@
 # Veralux Receptionist - Docker Compose Configuration
 #
-# Build locally:  docker compose build
-# Run:            docker compose up -d
-# Local LLM:      docker compose --profile llm up -d vllm-qwen brain  (set BRAIN_URL=http://brain:3001 on runtime)
-# Qwen3 TTS:      set TTS_MODE=qwen3_tts_http in .env — ./deploy.sh up enables gpu or cpu profile so qwen3-tts-* starts (not started on plain `compose up` without profile).
-# Pull pre-built: docker compose pull && docker compose up -d
+# ---------------------------------------------------------------------------
+# PRODUCTION-LIKE START (required for voice):  ./deploy.sh up   or   ./up
+# Optional: .env.internal (see .env.internal.example) — merged by deploy.sh for overrides.
+# ---------------------------------------------------------------------------
+# Do NOT use plain `docker compose up -d` as your primary startup: Whisper,
+# XTTS, Kokoro, and Qwen TTS run under Compose profiles (gpu/cpu). deploy.sh
+# selects them from TTS_MODE + hardware. Plain `up` starts control/runtime only
+# and voice/STT/TTS will fail until profiles are applied.
+#
+# Developers may still use targeted commands, e.g.:
+#   docker compose -p veralux build control
+#   docker compose -p veralux config
+# Optional local LLM stack:  docker compose -p veralux --profile llm up -d vllm-qwen brain
+#   (then set BRAIN_URL=http://brain:3001 for the runtime — see .env.example)
 #
 # When both `image` and `build` are set, `docker compose build` builds locally
 # and tags with the image name. `docker compose up` uses whichever image exists.
+#
+# Upgrades: pin REGISTRY + VERSION in .env (avoid `latest` for fleets). See
+# RELEASE_CHANNELS.md, UPGRADE_RUNBOOK.md, and ./deploy.sh update.
 
 x-logging: &default-logging
   driver: json-file
@@ -39,10 +51,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    # Readiness: Postgres + Redis (see control-plane GET /ready). Do not use GET /health here — that is liveness-only.
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/ready"]
       interval: 15s
-      timeout: 5s
+      timeout: 10s
       retries: 8
       start_period: 60s
     deploy:
@@ -82,6 +95,23 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-noreply@veralux.ai}
+      # White-label UI + copy (see CUSTOMER_CONFIG_SURFACE.md, GET /api/branding)
+      - BRAND_NAME=${BRAND_NAME:-}
+      - BRAND_LOGO_URL=${BRAND_LOGO_URL:-}
+      - BRAND_LOGO_ALT=${BRAND_LOGO_ALT:-}
+      - BRAND_ADMIN_HEADLINE=${BRAND_ADMIN_HEADLINE:-}
+      - BRAND_ADMIN_TAGLINE=${BRAND_ADMIN_TAGLINE:-}
+      - BRAND_PORTAL_BROWSER_TITLE=${BRAND_PORTAL_BROWSER_TITLE:-}
+      - BRAND_PORTAL_HEADER=${BRAND_PORTAL_HEADER:-}
+      - BRAND_PORTAL_FOOTER_URL=${BRAND_PORTAL_FOOTER_URL:-}
+      - BRAND_PORTAL_FOOTER_DISABLED=${BRAND_PORTAL_FOOTER_DISABLED:-}
+      - BRAND_PORTAL_FOOTER_LINK_TEXT=${BRAND_PORTAL_FOOTER_LINK_TEXT:-}
+      - BRAND_OWNER_BROWSER_TITLE=${BRAND_OWNER_BROWSER_TITLE:-}
+      - PRODUCT_DISPLAY_NAME=${PRODUCT_DISPLAY_NAME:-}
+      - TTS_PREVIEW_SAMPLE_TEXT=${TTS_PREVIEW_SAMPLE_TEXT:-}
+      - DEFAULT_RECEPTIONIST_SYSTEM_PREAMBLE=${DEFAULT_RECEPTIONIST_SYSTEM_PREAMBLE:-}
+      - TELNYX_CONNECTION_DISPLAY_NAME=${TELNYX_CONNECTION_DISPLAY_NAME:-}
+      - WORKFLOW_SMS_DEFAULT_MESSAGE=${WORKFLOW_SMS_DEFAULT_MESSAGE:-}
       # ── Redis sync env vars (used by redisSync.ts) ──
       - TTS_MODE=${TTS_MODE:-coqui_xtts}
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
@@ -99,6 +129,9 @@ services:
       - TENANT_CALLS_PER_MIN_CAP_DEFAULT=${TENANT_CALLS_PER_MIN_CAP_DEFAULT:-60}
     ports:
       - "${CONTROL_PORT:-4000}:4000"
+    # Voice clone / recording uploads (see PERSISTENCE_CONTRACT.md). Default path matches VOICE_RECORDINGS_DIR.
+    volumes:
+      - control-uploads:/app/control-plane/public/voice-recordings
     networks:
       - veralux-network
 
@@ -117,12 +150,13 @@ services:
         condition: service_healthy
       control:
         condition: service_healthy
+    # Readiness: Redis + Whisper + TTS HTTP /health (see veralux-voice-runtime GET /health/ready). Allow long GPU/CPU model load.
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health/live"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health/ready"]
+      interval: 20s
+      timeout: 12s
+      retries: 8
+      start_period: 360s
     deploy:
       resources:
         limits:
@@ -136,6 +170,8 @@ services:
       - REDIS_URL=redis://redis:6379
       - CONTROL_URL=http://control:4000
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Readiness: when true, GET /health/ready checks Whisper + TTS HTTP (see HEALTH_MODEL.md).
+      - HEALTH_VOICE_DEPENDENCIES=${HEALTH_VOICE_DEPENDENCIES:-true}
       # LLM / OpenAI
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -299,12 +335,13 @@ services:
       - veralux-network
 
   # =============================================================================
-  # Tunnel Service (Optional - enable with: docker compose --profile tunnel up)
+  # Tunnel Service (Optional — use ./deploy.sh tunnel cloudflare | ngrok, or --profile cloudflare | ngrok)
   # =============================================================================
 
   # Option A: Cloudflare Tunnel (recommended for production)
   cloudflared:
-    image: cloudflare/cloudflared:${CLOUDFLARED_TAG:?Set CLOUDFLARED_TAG}
+    # Pin in .env for production; default matches CI deploy-validation.
+    image: cloudflare/cloudflared:${CLOUDFLARED_TAG:-2026.2.0}
     container_name: veralux-cloudflared
     restart: unless-stopped
     logging: *default-logging
@@ -328,7 +365,7 @@ services:
 
   # Option B: ngrok (for quick testing)
   ngrok:
-    image: ngrok/ngrok:${NGROK_TAG:?Set NGROK_TAG}
+    image: ngrok/ngrok:${NGROK_TAG:-3.22.1}
     container_name: veralux-ngrok
     restart: unless-stopped
     logging: *default-logging
@@ -818,6 +855,16 @@ services:
 # =============================================================================
 # Volumes & Networks
 # =============================================================================
+#
+# Official named volumes (managed deployments): see PERSISTENCE_CONTRACT.md and BACKUP_RESTORE.md
+# ─────────────────────────────────────────────────────────────────────────────
+# veralux-postgres-data   Source of truth: tenants, workflows, encrypted secret refs metadata, UI state.
+# veralux-redis-data      AOF persistence: runtime pub config, capacity keys, TTS cache entries, sessions.
+# veralux-audio-storage   Runtime: greeting.wav, served audio, optional STT debug under subdirs.
+# veralux-control-uploads Admin-uploaded voice clone WAVs (control plane).
+# veralux-vllm-hf-cache   Optional (profile llm): Hugging Face / model download cache for vLLM only.
+#
+# Do not use `docker compose down -v` on production hosts unless you intend to wipe customer data.
 
 volumes:
   postgres-data:
@@ -826,6 +873,8 @@ volumes:
     name: veralux-redis-data
   audio-storage:
     name: veralux-audio-storage
+  control-uploads:
+    name: veralux-control-uploads
   vllm-hf-cache:
     name: veralux-vllm-hf-cache
 

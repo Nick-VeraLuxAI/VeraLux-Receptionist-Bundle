@@ -40,7 +40,8 @@ export async function sendEmail(
   const port = config.smtpPort || parseInt(process.env.SMTP_PORT || "587");
   const user = config.smtpUser || process.env.SMTP_USER || "";
   const pass = config.smtpPass || process.env.SMTP_PASS || "";
-  const from = config.fromAddress || process.env.SMTP_FROM || "noreply@veralux.ai";
+  const from =
+    config.fromAddress || process.env.SMTP_FROM || "noreply@localhost";
 
   const subject = interpolate(config.subject || "Workflow notification", ctx);
   const body = interpolate(config.body || "A workflow event occurred.", ctx);
@@ -73,7 +74,12 @@ export async function sendSms(
     from?: string;
   }
 ): Promise<{ sent: boolean; to: string }> {
-  const message = interpolate(config.message || "You have a new notification from VeraLux.", ctx);
+  const message = interpolate(
+    config.message ||
+      process.env.WORKFLOW_SMS_DEFAULT_MESSAGE?.trim() ||
+      "You have a new notification.",
+    ctx,
+  );
   const from = config.from || process.env.TELNYX_PHONE_NUMBER;
 
   if (!from) {

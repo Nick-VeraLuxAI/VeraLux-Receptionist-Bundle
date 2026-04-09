@@ -46,7 +46,33 @@ jobs:
               - 'docker-compose.yml'
               - 'deploy.sh'
               - 'install.sh'
+              - 'up'
               - '.env.example'
+              - '.env.internal.example'
+              - 'scripts/validate-voice-deploy.sh'
+              - 'scripts/preflight.sh'
+              - 'scripts/backup.sh'
+              - 'scripts/restore.sh'
+              - 'PRECHECKS.md'
+              - 'PERSISTENCE_CONTRACT.md'
+              - 'BACKUP_RESTORE.md'
+              - 'RELEASE_CHANNELS.md'
+              - 'UPGRADE_RUNBOOK.md'
+              - 'ROLLBACK_RUNBOOK.md'
+              - 'CUSTOMER_CONFIG_SURFACE.md'
+              - 'FILES_REQUIRING_SOURCE_EDITS.md'
+              - 'QUICKSTART.md'
+              - 'CLIENT_DEPLOY_CHECKLIST.md'
+              - 'FIRST_BOOT_EXPECTATIONS.md'
+              - 'TROUBLESHOOTING_DEPLOY.md'
+              - 'RELEASE_BUNDLE_SPEC.md'
+              - 'FINAL_PRODUCTIZATION_REVIEW.md'
+              - 'LAUNCH_BLOCKERS.md'
+              - 'PILOT_READINESS_SCORE.md'
+              - 'DEPLOYMENT_CONTRACT.md'
+              - 'SUPPORTED_OPERATIONS.md'
+              - 'UNSUPPORTED_PATTERNS.md'
+              - 'scripts/start.sh'
 
   # ---------------------------------------------------------------------------
   # Shared package
@@ -176,8 +202,8 @@ jobs:
       CLOUDFLARED_TAG: '2026.2.0'
     steps:
       - uses: actions/checkout@v4
-      - name: Validate docker-compose.yml
-        run: docker compose config --quiet
+      - name: Preflight (CI mode, operator template)
+        run: bash scripts/preflight.sh --ci .env.example
       - name: Lint shell scripts
         run: |
           if command -v shellcheck &>/dev/null; then

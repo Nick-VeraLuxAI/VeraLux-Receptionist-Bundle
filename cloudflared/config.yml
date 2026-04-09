@@ -1,4 +1,9 @@
-tunnel: d8ef04e1-e810-42d9-a28a-5b6d7b4cac91
+# =============================================================================
+# EXAMPLE cloudflared ingress — NOT used by default docker-compose (that uses
+# CLOUDFLARE_TUNNEL_TOKEN + `cloudflared tunnel run`). Copy and customize hostnames
+# for a customer; do not treat this file as a production default.
+# =============================================================================
+tunnel: REPLACE_WITH_TUNNEL_UUID
 credentials-file: /etc/cloudflared/credentials.json
 no-autoupdate: true
 
@@ -8,14 +13,14 @@ no-autoupdate: true
 # Long TTS admin preview uses POST /api/tts/preview/async + short polls so Cloudflare is less likely
 # to 502 than a single multi-minute response. No extra tunnel settings required for that flow.
 ingress:
-  - hostname: api.veraluxclients.com
+  - hostname: api.example.com
     service: http://runtime:4001
-  - hostname: panel.veraluxclients.com
+  - hostname: panel.example.com
     service: http://control:4000
-  - hostname: app.veraluxclients.com
+  - hostname: app.example.com
     service: http://control:4000
-  - hostname: portal.veraluxclients.com
+  - hostname: portal.example.com
     service: http://control:4000
-  - hostname: receptionist.veraluxclients.com
+  - hostname: receptionist.example.com
     service: http://control:4000
   - service: http_status:404

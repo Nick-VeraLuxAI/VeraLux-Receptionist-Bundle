@@ -1,5 +1,7 @@
 # Deployment
 
+> **Repository bundle:** For production-like Docker deployment, use the **repository root** `./up` or `./deploy.sh up`, not this package’s historical `docker-compose.yml` Redis-only snippet. See root `README.md` and `DEPLOYMENT_CONTRACT.md`.
+
 ## Prerequisites
 
 - Node.js 18+ (for native fetch and ws).

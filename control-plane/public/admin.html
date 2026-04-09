@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="vlx-admin-build" content="__ADMIN_UI_BUILD_STAMP__" />
     <title>VeraLux — Neural Operations Console</title>
+    <script src="/apply-branding.js" defer></script>
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
@@ -39,7 +40,7 @@
       }
     </style>
   </head>
-  <body class="neural-console">
+  <body class="neural-console" data-vlx-branding-page="admin">
     <div class="atmo-layer" aria-hidden="true"></div>
     <div class="neural-signal" aria-hidden="true">
       <div class="neural-signal__layer neural-signal__layer--wash"></div>
@@ -52,10 +53,10 @@
         <div class="command-rail__band">
         <div class="command-rail__top">
           <div class="command-rail__brand">
-            <div class="logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+            <div class="logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
             <div>
               <h1>Neural Operations Console</h1>
-              <div class="sub">VeraLux Receptionist · Live control plane</div>
+              <div class="sub" id="vlx-brand-subline">VeraLux Receptionist · Live control plane</div>
             </div>
           </div>
           <div class="live-indicator" title="Authenticated session — telemetry active">

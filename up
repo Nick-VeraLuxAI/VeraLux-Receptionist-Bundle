@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Official production-like startup for this bundle (same as ./deploy.sh up).
+# Do not use plain "docker compose up" for voice — audio services need Compose profiles;
+# this script runs deploy.sh, which applies gpu/cpu profiles from TTS_MODE and hardware.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$ROOT/deploy.sh" up "$@"

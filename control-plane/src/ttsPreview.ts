@@ -12,7 +12,8 @@ function previewFetchTimeoutMs(): number {
 }
 
 const DEFAULT_PHRASE =
-  "Hello, this is a quick voice preview from your VeraLux receptionist settings.";
+  process.env.TTS_PREVIEW_SAMPLE_TEXT?.trim() ||
+  "Hello, this is a quick voice preview from your receptionist settings.";
 
 const QWEN3_SPEAKER_MAX = 100;
 const QWEN3_LANG_MAX = 32;

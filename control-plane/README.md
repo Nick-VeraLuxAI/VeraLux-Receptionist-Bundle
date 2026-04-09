@@ -1,6 +1,8 @@
 # VeraLux Receptionist Control Plane
 
-This repo is the VeraLux control plane (admin + onboarding + config). The low-latency voice runtime lives in a separate repo and owns the real-time call loop (Telnyx webhooks/media, STT/TTS, audio storage/serving, and hot-path capacity enforcement).
+> **Bundled product:** In this monorepo, production-like deployments use the **root** **`./up`** or **`./deploy.sh up`** with **`docker-compose.yml`** at the repo root. **`control-plane/docker-compose.yml`** is for **local dev** of the app + Postgres only—not the supported customer stack.
+
+This package is the VeraLux control plane (admin + onboarding + config). The voice runtime in this bundle owns the real-time call loop (Telnyx webhooks/media, STT/TTS, audio storage/serving, and hot-path capacity enforcement).
 
 ## Documentation
 - Docs index: `docs/README.md`

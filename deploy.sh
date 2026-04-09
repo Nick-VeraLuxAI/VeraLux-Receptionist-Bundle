@@ -14,6 +14,43 @@ COMPOSE_FILE="docker-compose.yml"
 ENV_FILE=".env"
 ENV_EXAMPLE=".env.example"
 PROJECT_NAME="veralux"
+ENV_INTERNAL_FILE=".env.internal"
+
+# -----------------------------------------------------------------------------
+# Docker Compose: optional second env file (operator .env + overrides in .env.internal)
+# -----------------------------------------------------------------------------
+dc() {
+    if [[ -f "$SCRIPT_DIR/$ENV_INTERNAL_FILE" ]]; then
+        $COMPOSE_CMD --env-file "$SCRIPT_DIR/$ENV_INTERNAL_FILE" "$@"
+    else
+        $COMPOSE_CMD "$@"
+    fi
+}
+
+# Last file wins (for TTS_MODE, tokens, etc.)
+read_merged_env_value() {
+    local key="$1"
+    local val="" line f
+    for f in "$ENV_FILE" "$ENV_INTERNAL_FILE"; do
+        [[ -f "$SCRIPT_DIR/$f" ]] || continue
+        line=$(grep "^${key}=" "$SCRIPT_DIR/$f" 2>/dev/null | tail -n1) || true
+        if [[ -n "$line" ]]; then
+            val="${line#${key}=}"
+        fi
+    done
+    echo "$val" | tr -d '\r' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | xargs
+}
+
+cloudflare_token_configured() {
+    grep -q "CLOUDFLARE_TUNNEL_TOKEN=." "$SCRIPT_DIR/$ENV_FILE" 2>/dev/null && return 0
+    [[ -f "$SCRIPT_DIR/$ENV_INTERNAL_FILE" ]] && grep -q "CLOUDFLARE_TUNNEL_TOKEN=." "$SCRIPT_DIR/$ENV_INTERNAL_FILE" 2>/dev/null
+}
+
+ngrok_token_configured() {
+    [[ -n "${NGROK_AUTHTOKEN:-}" ]] && return 0
+    grep -q "NGROK_AUTHTOKEN=." "$SCRIPT_DIR/$ENV_FILE" 2>/dev/null && return 0
+    [[ -f "$SCRIPT_DIR/$ENV_INTERNAL_FILE" ]] && grep -q "NGROK_AUTHTOKEN=." "$SCRIPT_DIR/$ENV_INTERNAL_FILE" 2>/dev/null
+}
 
 # -----------------------------------------------------------------------------
 # Colors & Output Helpers
@@ -76,6 +113,7 @@ check_env() {
             echo "    - POSTGRES_PASSWORD: Set a strong password"
             echo "    - JWT_SECRET: Generate with 'openssl rand -base64 32'"
             echo "    - REGISTRY: Set to your container registry"
+            echo "  Optional: cp .env.internal.example .env.internal for advanced tuning (see CONFIG_MATRIX.md)."
             echo ""
             exit 0
         else
@@ -85,13 +123,20 @@ check_env() {
     fi
     
     success ".env file found."
+    if [[ -f "$SCRIPT_DIR/$ENV_INTERNAL_FILE" ]]; then
+        info "Found $ENV_INTERNAL_FILE — Docker Compose will merge it (overrides .env for duplicate keys)."
+    fi
 }
 
 # Helper: detect audio profile based on TTS_MODE and hardware
-# Qwen3 TTS is only in the gpu/cpu profiles; without this, `docker compose up` never starts qwen3-tts-*.
+# Qwen3 TTS is only in the gpu/cpu profiles; plain `docker compose up -d` (without profiles) does not start them.
+# Missing TTS_MODE in .env: treat as coqui_xtts so we always pass --profile gpu|cpu (matches compose defaults for runtime).
 detect_audio_profile() {
     local tts_mode
-    tts_mode=$(grep "^TTS_MODE=" "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '\r' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | xargs)
+    tts_mode=$(read_merged_env_value TTS_MODE)
+    if [[ -z "$tts_mode" ]]; then
+        tts_mode="coqui_xtts"
+    fi
     if [[ "$tts_mode" == "coqui_xtts" || "$tts_mode" == "kokoro_http" || "$tts_mode" == "qwen3_tts_http" || "$tts_mode" == "chatterbox_http" ]]; then
         if docker info 2>/dev/null | grep -qi nvidia || command -v nvidia-smi &>/dev/null; then
             echo "--profile gpu"
@@ -104,14 +149,108 @@ detect_audio_profile() {
     echo ""
 }
 
+# Warn when operators use non-reproducible tags (managed fleets should pin VERSION).
+warn_release_pinning() {
+    [[ "${VERALUX_SKIP_VERSION_WARN:-}" == "1" ]] && return 0
+    local v r vl
+    v=$(read_merged_env_value VERSION)
+    r=$(read_merged_env_value REGISTRY)
+    if [[ -z "$r" ]]; then
+        warn "REGISTRY is not set in merged .env — Compose uses the default registry in docker-compose.yml. Set REGISTRY explicitly for predictable upgrades (see RELEASE_CHANNELS.md)."
+    fi
+    if [[ -z "$v" ]]; then
+        warn "VERSION is not set in merged .env — Compose interpolates its own default (see docker-compose.yml). Set VERSION explicitly so fleet upgrades are predictable."
+    fi
+    vl=$(echo "$v" | tr '[:upper:]' '[:lower:]')
+    if [[ "$vl" == "latest" ]]; then
+        warn "VERSION=latest drifts between hosts and over time — not recommended for managed production. Pin an immutable tag (semver or digest). See RELEASE_CHANNELS.md."
+    fi
+}
+
+# Map a running container name to its Compose service (gpu/cpu/llm aware).
+compose_audio_svc_for_container() {
+    local cname="$1"
+    local envdump
+    envdump=$(docker inspect "$cname" --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null || true)
+    case "$cname" in
+        veralux-whisper)
+            if echo "$envdump" | grep -q '^WHISPER_DEVICE=cpu$'; then echo "whisper-cpu"; else echo "whisper-gpu"; fi
+            ;;
+        veralux-kokoro)
+            if echo "$envdump" | grep -qE '^CUDA_VISIBLE_DEVICES=$|^CUDA_VISIBLE_DEVICES=""$'; then echo "kokoro-cpu"; else echo "kokoro-gpu"; fi
+            ;;
+        veralux-xtts)
+            if echo "$envdump" | grep -q '^XTTS_USE_GPU=false$'; then echo "xtts-cpu"; else echo "xtts-gpu"; fi
+            ;;
+        veralux-chatterbox)
+            echo "chatterbox-gpu"
+            ;;
+        veralux-qwen3-tts)
+            if echo "$envdump" | grep -q '^QWEN3_TTS_DEVICE=cpu$'; then echo "qwen3-tts-cpu"; else echo "qwen3-tts-gpu"; fi
+            ;;
+        veralux-vllm-qwen)
+            echo "vllm-qwen"
+            ;;
+        veralux-brain)
+            echo "brain"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+record_image_snapshot() {
+    local reason="${1:-snapshot}"
+    local ts out dir
+    ts=$(date +"%Y-%m-%d_%H%M%S")
+    dir="$SCRIPT_DIR/backups"
+    mkdir -p "$dir"
+    out="$dir/veralux-images_${reason}_${ts}.txt"
+    {
+        echo "# Veralux image snapshot — $reason — $ts"
+        echo "# VERSION=$(read_merged_env_value VERSION) REGISTRY=$(read_merged_env_value REGISTRY)"
+        echo ""
+        for c in veralux-control veralux-runtime veralux-postgres veralux-redis \
+                 veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts \
+                 veralux-cloudflared veralux-ngrok veralux-vllm-qwen veralux-brain; do
+            if docker inspect "$c" &>/dev/null; then
+                echo "--- $c ---"
+                docker inspect "$c" --format 'Image={{.Config.Image}} Id={{.Image}}' 2>/dev/null || true
+            fi
+        done
+    } > "$out"
+    info "Recorded container images to $out"
+}
+
+cmd_versions() {
+    info "Env pin (merged): VERSION=$(read_merged_env_value VERSION) REGISTRY=$(read_merged_env_value REGISTRY)"
+    echo ""
+    local c
+    for c in veralux-control veralux-runtime veralux-postgres veralux-redis \
+             veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts \
+             veralux-cloudflared veralux-ngrok veralux-vllm-qwen veralux-brain; do
+        if docker inspect "$c" &>/dev/null; then
+            docker inspect "$c" --format "{{printf '%-22s' \"${c}\"}} {{.Config.Image}}  id={{.Image}}" 2>/dev/null
+        fi
+    done
+}
+
 # -----------------------------------------------------------------------------
 # Commands
 # -----------------------------------------------------------------------------
 cmd_up() {
-    info "Starting Veralux Receptionist..."
+    info "Starting Veralux Receptionist (official path: ./deploy.sh up or ./up — not plain docker compose up)..."
+    
+    if [[ -f "scripts/preflight.sh" ]]; then
+        bash scripts/preflight.sh || exit 1
+    elif [[ -f "scripts/validate-voice-deploy.sh" ]]; then
+        bash scripts/validate-voice-deploy.sh || exit 1
+    fi
     
     local audio_profile
     audio_profile=$(detect_audio_profile)
+    warn_release_pinning
     if [[ "$audio_profile" == *gpu* ]]; then
         info "NVIDIA GPU detected — running audio services with GPU acceleration"
     elif [[ -n "$audio_profile" ]]; then
@@ -124,16 +263,16 @@ cmd_up() {
     
     # Best-effort pull (don't fail if offline)
     info "Pulling latest images (if available)..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
     
     # Start services
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d "$@"
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d "$@"
     
     # `docker rm` above drops veralux-cloudflared; plain compose up omits profile `cloudflare`.
     # Bring tunnel back if .env has a token so Error 1033 does not persist after deploy.sh up.
-    if grep -q "CLOUDFLARE_TUNNEL_TOKEN=." "$ENV_FILE" 2>/dev/null; then
+    if cloudflare_token_configured; then
         info "Restarting Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN is set)..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared 2>/dev/null || \
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared 2>/dev/null || \
             warn "cloudflared did not start — set CLOUDFLARED_TAG in .env and verify the tunnel token."
     fi
     
@@ -148,27 +287,27 @@ cmd_up() {
 
 cmd_down() {
     info "Stopping Veralux Receptionist..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down "$@"
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down "$@"
     success "Services stopped."
 }
 
 cmd_restart() {
     info "Restarting Veralux Receptionist..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" restart "$@"
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" restart "$@"
     success "Services restarted."
 }
 
 cmd_status() {
     info "Service Status:"
     echo ""
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps
 }
 
 cmd_logs() {
     if [[ $# -gt 0 ]]; then
-        $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f "$@"
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f "$@"
     else
-        $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f
     fi
 }
 
@@ -197,23 +336,66 @@ cmd_build() {
     local audio_profile
     audio_profile=$(detect_audio_profile)
 
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile build "$@"
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile build "$@"
 
     success "Build complete!"
 }
 
 cmd_update() {
     info "Updating Veralux Receptionist (rolling restart)..."
+    warn_release_pinning
+    info "Upgrade contract: UPGRADE_RUNBOOK.md — rollback: ROLLBACK_RUNBOOK.md — tagging: RELEASE_CHANNELS.md"
+    
+    if [[ -f "scripts/preflight.sh" ]]; then
+        bash scripts/preflight.sh || exit 1
+    elif [[ -f "scripts/validate-voice-deploy.sh" ]]; then
+        bash scripts/validate-voice-deploy.sh || exit 1
+    fi
     
     local audio_profile
     audio_profile=$(detect_audio_profile)
     
-    # 1. Pull latest images
-    info "Pulling latest images..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull
+    if [[ "${UPDATE_SNAPSHOT_PRE:-1}" != "0" ]]; then
+        record_image_snapshot "pre-update"
+    fi
+    
+    # 1. Pull images (strict by default so partial tag drift is visible; airgap: UPDATE_IGNORE_PULL_FAILURES=1)
+    if [[ "${UPDATE_IGNORE_PULL_FAILURES:-}" == "1" ]]; then
+        warn "UPDATE_IGNORE_PULL_FAILURES=1 — pull errors will be ignored (not recommended for online managed upgrades)."
+        info "Pulling images (best-effort)..."
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
+    else
+        info "Pulling images for VERSION=$(read_merged_env_value VERSION) (set UPDATE_IGNORE_PULL_FAILURES=1 only for offline/airgap hosts)..."
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull
+    fi
+    
+    # Pull optional-profile images when those containers are in use (main pull above omits llm/tunnel profiles).
+    _update_pull_profile() {
+        local prof="$1"
+        shift
+        if [[ "${UPDATE_IGNORE_PULL_FAILURES:-}" == "1" ]]; then
+            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile "$prof" pull --ignore-pull-failures "$@" 2>/dev/null || true
+        else
+            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile "$prof" pull "$@"
+        fi
+    }
+    if [[ "$(docker inspect -f '{{.State.Running}}' veralux-vllm-qwen 2>/dev/null)" == "true" ]] || [[ "$(docker inspect -f '{{.State.Running}}' veralux-brain 2>/dev/null)" == "true" ]]; then
+        info "Pulling profile llm images (vLLM / brain)..."
+        _update_pull_profile llm vllm-qwen brain
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' veralux-cloudflared 2>/dev/null)" == "true" ]]; then
+        info "Pulling cloudflared image..."
+        _update_pull_profile cloudflare cloudflared
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' veralux-ngrok 2>/dev/null)" == "true" ]]; then
+        info "Pulling ngrok image..."
+        _update_pull_profile ngrok ngrok
+    fi
     
     # 2. Backup database before updating
-    if [[ -x "scripts/backup.sh" ]]; then
+    if [[ "${UPDATE_SKIP_BACKUP:-}" == "1" ]]; then
+        warn "UPDATE_SKIP_BACKUP=1 — skipping pre-update Postgres backup."
+    elif [[ -x "scripts/backup.sh" ]]; then
         info "Creating pre-update database backup..."
         bash scripts/backup.sh || warn "Backup failed — continuing with update."
     fi
@@ -221,7 +403,7 @@ cmd_update() {
     # 3. Rolling restart: infrastructure first, then services one at a time
     # Infrastructure (Redis/Postgres) — these hold state, restart only if image changed
     info "Updating infrastructure services..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps redis postgres
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps redis postgres
     
     # Wait for infrastructure to be healthy
     info "Waiting for infrastructure health checks..."
@@ -245,7 +427,7 @@ cmd_update() {
     
     # 4. Update control plane (runtime depends on it)
     info "Updating control plane..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps control
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps control
     
     # Wait for control plane to be healthy before updating runtime
     info "Waiting for control plane health check..."
@@ -268,36 +450,44 @@ cmd_update() {
     
     # 5. Update voice runtime
     info "Updating voice runtime..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps runtime
+    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps runtime
     
-    # 6. Update audio services (if active)
-    local audio_services
-    audio_services=$(docker ps --filter "name=veralux-whisper" --filter "name=veralux-kokoro" --filter "name=veralux-xtts" --filter "name=veralux-qwen3-tts" --format '{{.Names}}' 2>/dev/null || echo "")
-    if [[ -n "$audio_services" ]]; then
-        info "Updating audio services..."
-        for svc in $audio_services; do
-            local short_name="${svc#veralux-}"
-            info "  Updating $short_name..."
-            # Determine which compose service name to use (gpu or cpu variant)
-            local compose_svc
-            if docker inspect "$svc" --format='{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null | grep -q "CUDA_VISIBLE_DEVICES="; then
-                compose_svc="${short_name}-cpu"
-            else
-                compose_svc="${short_name}-gpu"
+    # 6. Update audio + optional LLM services (if running)
+    local ac c compose_svc
+    for ac in veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts veralux-vllm-qwen veralux-brain; do
+        if [[ "$(docker inspect -f '{{.State.Running}}' "$ac" 2>/dev/null)" == "true" ]]; then
+            compose_svc=$(compose_audio_svc_for_container "$ac")
+            if [[ -z "$compose_svc" ]]; then
+                continue
             fi
-            $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d --no-deps "$compose_svc" 2>/dev/null || \
-                warn "  Could not update $short_name (may need profile flag)."
-        done
+            info "Updating $ac (compose: $compose_svc)..."
+            if [[ "$compose_svc" == "vllm-qwen" || "$compose_svc" == "brain" ]]; then
+                dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile llm up -d --no-deps "$compose_svc" 2>/dev/null || \
+                    warn "  Could not update $compose_svc (check profile llm and image pull)."
+            else
+                dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d --no-deps "$compose_svc" 2>/dev/null || \
+                    warn "  Could not update $compose_svc (check gpu/cpu profile)."
+            fi
+        fi
+    done
+    
+    # 7. Update tunnels if active (both profiles are used in the wild)
+    if [[ "$(docker inspect -f '{{.State.Running}}' veralux-cloudflared 2>/dev/null)" == "true" ]]; then
+        info "Updating Cloudflare Tunnel..."
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared
+    fi
+    if [[ "$(docker inspect -f '{{.State.Running}}' veralux-ngrok 2>/dev/null)" == "true" ]]; then
+        info "Updating ngrok..."
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d --no-deps ngrok
     fi
     
-    # 7. Update tunnel if active
-    if docker ps --filter "name=veralux-cloudflared" --format '{{.Names}}' 2>/dev/null | grep -q cloudflared; then
-        info "Updating Cloudflare Tunnel..."
-        $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps cloudflared
+    if [[ "${UPDATE_SNAPSHOT_POST:-1}" != "0" ]]; then
+        record_image_snapshot "post-update"
     fi
     
     echo ""
     success "Rolling update complete!"
+    info "Verify: ./scripts/healthcheck.sh  —  image report: ./deploy.sh versions"
     echo ""
     cmd_status
 }
@@ -310,8 +500,22 @@ cmd_backup() {
     bash scripts/backup.sh "$@"
 }
 
+cmd_restore() {
+    if [[ ! -x "scripts/restore.sh" ]]; then
+        error "Restore script not found at scripts/restore.sh"
+        exit 1
+    fi
+    bash scripts/restore.sh "$@"
+}
+
 cmd_tunnel() {
     local tunnel_type="${1:-cloudflare}"
+    
+    if [[ -f "scripts/preflight.sh" ]]; then
+        bash scripts/preflight.sh || exit 1
+    elif [[ -f "scripts/validate-voice-deploy.sh" ]]; then
+        bash scripts/validate-voice-deploy.sh || exit 1
+    fi
     
     local audio_profile
     audio_profile=$(detect_audio_profile)
@@ -323,8 +527,8 @@ cmd_tunnel() {
     
     case "$tunnel_type" in
         cloudflare|cf)
-            if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]] && ! grep -q "CLOUDFLARE_TUNNEL_TOKEN=." "$ENV_FILE" 2>/dev/null; then
-                error "CLOUDFLARE_TUNNEL_TOKEN not set in .env"
+            if [[ -z "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]] && ! cloudflare_token_configured; then
+                error "CLOUDFLARE_TUNNEL_TOKEN not set in .env or .env.internal"
                 echo ""
                 echo "  To get a token:"
                 echo "    1. Go to Cloudflare Zero Trust dashboard"
@@ -337,19 +541,19 @@ cmd_tunnel() {
             # Remove any leftover containers to avoid name conflicts
             docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
                 veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
-            $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d
+            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d
             success "Cloudflare Tunnel started!"
             echo ""
             info "Your public URL is configured in the Cloudflare dashboard."
             ;;
         ngrok)
-            if [[ -z "${NGROK_AUTHTOKEN:-}" ]] && ! grep -q "NGROK_AUTHTOKEN=." "$ENV_FILE" 2>/dev/null; then
-                error "NGROK_AUTHTOKEN not set in .env"
+            if [[ -z "${NGROK_AUTHTOKEN:-}" ]] && ! ngrok_token_configured; then
+                error "NGROK_AUTHTOKEN not set in .env or .env.internal"
                 echo "  Get your token at: https://dashboard.ngrok.com"
                 exit 1
             fi
             info "Starting with ngrok tunnel..."
-            $COMPOSE_CMD -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d
+            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d
             success "ngrok started!"
             echo ""
             info "View your public URL at: http://localhost:4040"
@@ -367,6 +571,9 @@ cmd_help() {
     echo ""
     echo "Usage: ./deploy.sh <command> [options]"
     echo ""
+    echo "Production-like start: ./deploy.sh up   or   ./up   (do not use plain docker compose up for voice)"
+    echo "Preflight only:        ./scripts/preflight.sh"
+    echo ""
     echo "Commands:"
     echo "  up [services...]     Start services (pulls images first)"
     echo "  down                 Stop and remove containers"
@@ -375,7 +582,9 @@ cmd_help() {
     echo "  logs [service]       Follow service logs"
     echo "  build [services...]  Build images from local source (sets ADMIN_UI_BUILD_STAMP=git HEAD if unset)"
     echo "  update               Rolling update (pull + restart one at a time)"
+    echo "  versions             Show running container image refs + env VERSION/REGISTRY pin"
     echo "  backup [dir] [opts]  Backup the database"
+    echo "  restore <file.sql.gz> [--yes]  Restore Postgres from backup (destructive)"
     echo "  tunnel [type]        Start with tunnel (cloudflare or ngrok)"
     echo "  help                 Show this help message"
     echo ""
@@ -386,11 +595,13 @@ cmd_help() {
     echo "Build & Update:"
     echo "  ./deploy.sh build                 # Build all images from source"
     echo "  ./deploy.sh build control         # Build just the control plane"
-    echo "  ./deploy.sh update                # Rolling update (zero-downtime)"
+    echo "  ./deploy.sh update                # Rolling update (strict pull; see UPGRADE_RUNBOOK.md)"
+    echo "  ./deploy.sh versions              # After update: verify images match intended VERSION"
     echo ""
     echo "Backup & Restore:"
     echo "  ./deploy.sh backup                # Backup to ./backups/"
     echo "  ./deploy.sh backup --s3 s3://b    # Backup + upload to S3"
+    echo "  ./deploy.sh restore ./backups/veralux_*.sql.gz   # Restore (see BACKUP_RESTORE.md)"
     echo ""
     echo "Examples:"
     echo "  ./deploy.sh up                    # Start all core services"
@@ -438,9 +649,16 @@ main() {
         update)
             cmd_update
             ;;
+        versions)
+            cmd_versions
+            ;;
         backup)
             shift
             cmd_backup "$@"
+            ;;
+        restore)
+            shift
+            cmd_restore "$@"
             ;;
         tunnel)
             shift

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Your Receptionist — VeraLux</title>
+    <script src="/apply-branding.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -342,10 +343,10 @@
       .stat strong { color: var(--text); font-weight: 600; }
     </style>
   </head>
-  <body>
+  <body data-vlx-branding-page="owner">
     <header class="owner-header">
       <div class="owner-brand">
-        <div class="owner-logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+        <div class="owner-logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
         <div>
           <h1>Your receptionist</h1>
           <div class="tagline">One place to set up calls, transfers, and pricing.</div>
@@ -2262,7 +2263,7 @@
         const confirmed = confirm(
           `Purchase ${phoneNumber}?\n\n` +
           `Cost: ${costMessage}\n\n` +
-          `This will be added to your VeraLux account. Continue?`
+          `This will be added to your account. Continue?`
         );
 
         if (confirmed) {

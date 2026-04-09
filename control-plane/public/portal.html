@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Business Portal — VeraLux</title>
+    <script src="/apply-branding.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -582,12 +583,12 @@
       .portal-table-wrap table { margin-top: 0 !important; }
     </style>
   </head>
-  <body>
+  <body data-vlx-branding-page="portal">
 
     <!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
     <div id="login-screen" class="login-wrap">
       <div class="login-card">
-        <div class="login-logo"><img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+        <div class="login-logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
         <h2 id="login-heading">Welcome back</h2>
         <p class="subtitle">Sign in with the email and password your operations team set up for this portal.</p>
 
@@ -614,8 +615,8 @@
     <div id="dashboard" class="dashboard">
       <header class="portal-topbar">
         <div class="portal-topbar__brand">
-          <img src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="" width="36" height="36" />
-          <span>VeraLux · Client portal</span>
+          <img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="" width="36" height="36" />
+          <span id="vlx-portal-header-line">VeraLux · Client portal</span>
         </div>
         <div class="portal-topbar__actions">
           <span id="dash-status" class="portal-status portal-status--live" aria-live="polite"><span class="portal-status__dot" aria-hidden="true"></span><span id="dash-status-text">Answering calls</span></span>
@@ -1109,8 +1110,10 @@
         </div>
       </main>
 
-      <footer class="owner-footer">
-        Powered by <a href="https://veralux.ai" target="_blank">VeraLux AI</a>
+      <footer class="owner-footer" id="vlx-portal-footer">
+        <span id="vlx-portal-footer-inner"
+          >Powered by <a href="https://veralux.ai" target="_blank" rel="noopener noreferrer">VeraLux AI</a></span
+        >
       </footer>
     </div>
 

@@ -189,10 +189,35 @@ main() {
     # Required files
     cp docker-compose.yml "$BUILD_DIR/"
     cp .env.example "$BUILD_DIR/"
+    cp .env.internal.example "$BUILD_DIR/"
     cp deploy.sh "$BUILD_DIR/"
     cp install.sh "$BUILD_DIR/"
     cp load-images.sh "$BUILD_DIR/"
+    cp up "$BUILD_DIR/"
     cp README.md "$BUILD_DIR/"
+    mkdir -p "$BUILD_DIR/scripts"
+    cp scripts/validate-voice-deploy.sh "$BUILD_DIR/scripts/"
+    cp scripts/preflight.sh "$BUILD_DIR/scripts/"
+    cp scripts/healthcheck.sh "$BUILD_DIR/scripts/"
+    cp scripts/backup.sh "$BUILD_DIR/scripts/"
+    cp scripts/restore.sh "$BUILD_DIR/scripts/"
+    cp scripts/start.sh "$BUILD_DIR/scripts/"
+    cp DEPLOYMENT_CONTRACT.md "$BUILD_DIR/" 2>/dev/null || true
+    cp SUPPORTED_OPERATIONS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp UNSUPPORTED_PATTERNS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp PRECHECKS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp HEALTH_MODEL.md "$BUILD_DIR/" 2>/dev/null || true
+    cp PERSISTENCE_CONTRACT.md "$BUILD_DIR/" 2>/dev/null || true
+    cp BACKUP_RESTORE.md "$BUILD_DIR/" 2>/dev/null || true
+    cp RELEASE_CHANNELS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp UPGRADE_RUNBOOK.md "$BUILD_DIR/" 2>/dev/null || true
+    cp ROLLBACK_RUNBOOK.md "$BUILD_DIR/" 2>/dev/null || true
+    cp CUSTOMER_CONFIG_SURFACE.md "$BUILD_DIR/" 2>/dev/null || true
+    cp FILES_REQUIRING_SOURCE_EDITS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp QUICKSTART.md "$BUILD_DIR/" 2>/dev/null || true
+    cp CLIENT_DEPLOY_CHECKLIST.md "$BUILD_DIR/" 2>/dev/null || true
+    cp FIRST_BOOT_EXPECTATIONS.md "$BUILD_DIR/" 2>/dev/null || true
+    cp TROUBLESHOOTING_DEPLOY.md "$BUILD_DIR/" 2>/dev/null || true
     
     # Optional: nginx directory
     if [[ -d "nginx" ]]; then
@@ -204,6 +229,13 @@ main() {
     chmod +x "$BUILD_DIR/deploy.sh"
     chmod +x "$BUILD_DIR/install.sh"
     chmod +x "$BUILD_DIR/load-images.sh"
+    chmod +x "$BUILD_DIR/up"
+    chmod +x "$BUILD_DIR/scripts/validate-voice-deploy.sh"
+    chmod +x "$BUILD_DIR/scripts/preflight.sh"
+    chmod +x "$BUILD_DIR/scripts/healthcheck.sh"
+    chmod +x "$BUILD_DIR/scripts/backup.sh"
+    chmod +x "$BUILD_DIR/scripts/restore.sh"
+    chmod +x "$BUILD_DIR/scripts/start.sh"
     
     # Create ZIP
     info "Creating ZIP archive..."
