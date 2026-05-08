@@ -52,11 +52,15 @@ _compose_version_out="$("${VERALUX_DOCKER_BIN}" compose version 2>&1)" || {
   echo "Output from: ${VERALUX_DOCKER_BIN} compose version"
   echo "$_compose_version_out" | head -n 8
   echo ""
-  echo "On Debian/Ubuntu, install the plugin package, then verify:"
-  echo "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
-  echo "  ${VERALUX_DOCKER_BIN} compose version"
+  echo "Fix options:"
+  echo "  A) Add Docker’s official apt repository (so docker-compose-plugin exists), then:"
+  echo "       https://docs.docker.com/engine/install/ubuntu/"
+  echo "       sudo apt-get install -y docker-compose-plugin"
   echo ""
-  echo "If you use Docker’s official repo, the same package name applies. Then re-run this script."
+  echo "  B) Install the Compose v2 binary as a CLI plugin (works without that apt package):"
+  echo "       sudo \"${SCRIPT_DIR}/install-docker-compose-plugin.sh\""
+  echo ""
+  echo "  Then: ${VERALUX_DOCKER_BIN} compose version"
   exit 1
 }
 unset _compose_version_out
