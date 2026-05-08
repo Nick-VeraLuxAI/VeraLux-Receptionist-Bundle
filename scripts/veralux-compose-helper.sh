@@ -2,20 +2,34 @@
 # Shared by start-production.sh, stop-production.sh, status-production.sh
 # Docker Compose v2 plugin only — never invoke docker-compose v1.
 
-# Sourced env files sometimes prepend a PATH with a `docker` shim; prefer the real Engine CLI.
+# Pick a docker(1) that has `docker compose` (v2 plugin). Order matters for Docker Desktop on Linux:
+# Desktop often installs /usr/local/bin/docker with compose; sudo may hit /usr/bin/docker (no plugin).
+#
+# Override: export VERALUX_DOCKER_BIN=/full/path/to/docker before start-production.sh
 veralux_resolve_docker_bin() {
+  if [[ -n "${VERALUX_DOCKER_BIN:-}" && -x "${VERALUX_DOCKER_BIN}" ]]; then
+    printf '%s\n' "${VERALUX_DOCKER_BIN}"
+    return 0
+  fi
   local d
-  for d in /usr/bin/docker /bin/docker; do
-    if [[ -x "$d" ]]; then
+  for d in /usr/local/bin/docker /usr/bin/docker /bin/docker; do
+    if [[ -x "$d" ]] && "$d" compose version &>/dev/null; then
       printf '%s\n' "$d"
       return 0
     fi
   done
   d="$(PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" command -v docker 2>/dev/null || true)"
-  if [[ -n "$d" && -x "$d" ]]; then
+  if [[ -n "$d" && -x "$d" ]] && "$d" compose version &>/dev/null; then
     printf '%s\n' "$d"
     return 0
   fi
+  # Last resort: first existing binary (caller may still fail compose preflight)
+  for d in /usr/local/bin/docker /usr/bin/docker /bin/docker; do
+    if [[ -x "$d" ]]; then
+      printf '%s\n' "$d"
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -42,7 +56,7 @@ veralux_compose() {
   }
   local docker_bin
   docker_bin="$(veralux_resolve_docker_bin)" || {
-    echo "[error] docker CLI not found (tried /usr/bin/docker, /bin/docker, then PATH)" >&2
+    echo "[error] docker CLI not found (tried VERALUX_DOCKER_BIN, /usr/local/bin/docker, /usr/bin/docker, PATH)" >&2
     return 1
   }
   "$docker_bin" compose \

@@ -19,7 +19,7 @@ Repo **`.env` is development-only.** Production never relies on whichever Git ch
 
 ### Compose stack
 
-- **Prerequisite:** **`docker compose version`** must succeed (Compose **v2** CLI plugin). If `apt install docker-compose-plugin` is missing from your apt indexes, install Docker from Docker’s [Ubuntu install guide](https://docs.docker.com/engine/install/ubuntu/) **or** run **`sudo ./scripts/install-docker-compose-plugin.sh`** (downloads the official plugin binary).
+- **Prerequisite:** **`docker compose version`** must succeed (Compose **v2** CLI plugin). **Docker Desktop (Linux):** your user CLI often has compose; **`sudo`** may use **`/usr/bin/docker`** without the plugin — set **`export VERALUX_DOCKER_BIN="$(command -v docker)"`** before **`sudo -E`** `./scripts/start-production.sh`, or install the plugin for the system binary (`install-docker-compose-plugin.sh` or Docker’s apt repo). If `apt install docker-compose-plugin` is missing from Ubuntu’s indexes alone, see the [Docker Engine install guide](https://docs.docker.com/engine/install/ubuntu/) **or** **`sudo ./scripts/install-docker-compose-plugin.sh`**.
 - **Core:** root `docker-compose.yml` (`-p veralux`).
 - **Production overlay:** `docker-compose.production.yml` adds `env_file` via `${VERALUX_COMPOSE_ENV_FILE}`; `start-production.sh` loads variables with `set -a; source …` (no `docker compose --env-file`).
 
