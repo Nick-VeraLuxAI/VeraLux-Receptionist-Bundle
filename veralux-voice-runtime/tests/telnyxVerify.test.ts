@@ -5,6 +5,18 @@ import { setTestEnv } from './testEnv';
 
 setTestEnv();
 
+test('parseTelnyxWebhookSigningPublicKey accepts Telnyx-style raw Ed25519 (32-byte base64)', async () => {
+  const { parseTelnyxWebhookSigningPublicKey } = await import('../src/telnyx/telnyxVerify');
+  const { publicKey } = crypto.generateKeyPairSync('ed25519');
+  const spki = publicKey.export({ type: 'spki', format: 'der' }) as Buffer;
+  const raw32 = spki.subarray(-32);
+  const b64 = raw32.toString('base64');
+  const parsed = parseTelnyxWebhookSigningPublicKey(b64);
+  assert.ok(parsed);
+  const reExported = parsed.export({ type: 'spki', format: 'der' }) as Buffer;
+  assert.deepEqual(reExported, spki);
+});
+
 test('telnyxVerify rejects missing signature', async () => {
   const { verifyTelnyxSignature } = await import('../src/telnyx/telnyxVerify');
 

@@ -40,12 +40,25 @@ function parseBoolEnv(value: string | undefined): boolean | undefined {
   return undefined;
 }
 
-function parsePublicKey(publicKey: string): crypto.KeyObject {
-  if (publicKey.includes('BEGIN PUBLIC KEY')) {
-    return crypto.createPublicKey(publicKey);
+/**
+ * Telnyx Mission Control often shows the Ed25519 webhook signing public key as
+ * **base64 (or hex) of the raw 32-byte key**, not PEM and not full SPKI DER.
+ * Node's `createPublicKey({ type: 'spki' })` expects DER SPKI; wrap raw keys with RFC 8410 prefix.
+ */
+const ED25519_RAW_PUBLIC_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
+
+export function parseTelnyxWebhookSigningPublicKey(publicKey: string): crypto.KeyObject {
+  const trimmed = publicKey.trim();
+  if (trimmed.includes('BEGIN PUBLIC KEY')) {
+    return crypto.createPublicKey(trimmed);
   }
 
-  const keyBuffer = Buffer.from(publicKey, isHex(publicKey) ? 'hex' : 'base64');
+  const keyBuffer = Buffer.from(trimmed, isHex(trimmed) ? 'hex' : 'base64');
+  if (keyBuffer.length === 32) {
+    const spki = Buffer.concat([ED25519_RAW_PUBLIC_SPKI_PREFIX, keyBuffer]);
+    return crypto.createPublicKey({ key: spki, format: 'der', type: 'spki' });
+  }
+
   return crypto.createPublicKey({ key: keyBuffer, format: 'der', type: 'spki' });
 }
 
@@ -178,7 +191,7 @@ export function verifyTelnyxSignature({
       return { ok: false, skipped: false, reason: 'public_key_missing' };
     }
 
-    const publicKey = parsePublicKey(publicKeyRaw);
+    const publicKey = parseTelnyxWebhookSigningPublicKey(publicKeyRaw);
     const signatureBuffer = Buffer.from(trimmedSignature, isHex(trimmedSignature) ? 'hex' : 'base64');
     const ok = crypto.verify(null, message, publicKey, signatureBuffer);
     return { ok, skipped: false, reason: ok ? undefined : 'signature_mismatch' };
