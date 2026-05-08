@@ -47,10 +47,19 @@ VERALUX_DOCKER_BIN="$(veralux_resolve_docker_bin)" || {
   echo "[error] docker CLI not found (checked /usr/bin/docker, /bin/docker, then PATH)"
   exit 1
 }
-"${VERALUX_DOCKER_BIN}" compose version >/dev/null 2>&1 || {
-  echo "[error] docker compose plugin is required (${VERALUX_DOCKER_BIN} compose version failed)"
+_compose_version_out="$("${VERALUX_DOCKER_BIN}" compose version 2>&1)" || {
+  echo "[error] Docker Compose v2 plugin is not available for: ${VERALUX_DOCKER_BIN}"
+  echo "Output from: ${VERALUX_DOCKER_BIN} compose version"
+  echo "$_compose_version_out" | head -n 8
+  echo ""
+  echo "On Debian/Ubuntu, install the plugin package, then verify:"
+  echo "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin"
+  echo "  ${VERALUX_DOCKER_BIN} compose version"
+  echo ""
+  echo "If you use Docker’s official repo, the same package name applies. Then re-run this script."
   exit 1
 }
+unset _compose_version_out
 
 MERGED_ENV_TMP=""
 
