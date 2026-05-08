@@ -33,7 +33,7 @@ if [[ -f "$VOICE_ENV" && -f "${PROD_ROOT}/docker-compose.production.yml" ]]; the
   else
     # shellcheck source=veralux-compose-helper.sh
     source "${SCRIPT_DIR}/veralux-compose-helper.sh"
-    veralux_compose_prepare_env "$VOICE_ENV"
+    export VERALUX_COMPOSE_ENV_FILE="$VOICE_ENV"
     veralux_compose ps 2>/dev/null || true
   fi
 fi

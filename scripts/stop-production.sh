@@ -17,7 +17,10 @@ if [[ ! -f "${SCRIPT_DIR}/veralux-compose-helper.sh" ]]; then
 fi
 # shellcheck source=veralux-compose-helper.sh
 source "${SCRIPT_DIR}/veralux-compose-helper.sh"
-veralux_compose_prepare_env "$VOICE_ENV"
+# Do not `source` the voice env here: operator files may contain prose or unquoted spaces
+# (bash would execute stray words — e.g. "are: command not found"). Compose stop only needs
+# the env_file path for YAML interpolation.
+export VERALUX_COMPOSE_ENV_FILE="$VOICE_ENV"
 
 if [[ -f "${PROD_ROOT}/docker-compose.production.yml" ]]; then
   echo "[info] docker compose stop (project veralux)"
