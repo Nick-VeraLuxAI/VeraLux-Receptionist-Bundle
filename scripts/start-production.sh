@@ -265,6 +265,15 @@ fi
 echo "[info] PROD_ROOT=$PROD_ROOT"
 echo "[info] Compose profile=$PROFILE TTS_MODE=$TTS_MODE local_llm_stack=${LOCAL_LLM_STACK} (from effective env)"
 
+if [[ "$LOCAL_LLM_STACK" != 1 ]]; then
+  _bu_warn="$(grep -E '^BRAIN_USE_LOCAL=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  _br_warn="$(grep -E '^BRAIN_URL=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+  if [[ -n "${_br_warn}" ]] && [[ "${_br_warn}" == *"://brain"* ]] && [[ "${_bu_warn}" != "true" && "${_bu_warn}" != "1" && "${_bu_warn}" != "yes" ]]; then
+    echo "[warn] BRAIN_URL points at the compose service \"brain\" but profile llm is off — GET /health/voice will fail until vllm-qwen + brain are up."
+    echo "       Set VERALUX_ENABLE_LOCAL_LLM=1 (or sync latest start-production.sh + merged env), or unset BRAIN_URL / set BRAIN_USE_LOCAL=true to skip HTTP brain checks."
+  fi
+fi
+
 if [[ "${TTS_MODE}" == "chatterbox_http" ]]; then
   hflen="$(grep '^HF_TOKEN=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | wc -c | tr -d ' ')"
   if [[ "${hflen:-0}" -lt 12 ]]; then
