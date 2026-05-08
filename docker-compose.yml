@@ -1,8 +1,13 @@
 # Veralux Receptionist - Docker Compose Configuration
 #
 # ---------------------------------------------------------------------------
-# PRODUCTION-LIKE START (required for voice):  ./deploy.sh up   or   ./up
-# Optional: .env.internal (see .env.internal.example) — merged by deploy.sh for overrides.
+# PRODUCTION (Ubuntu / VeraTitan): authoritative tree is `/opt/veralux/veralux-voice-runtime`.
+# Use `/etc/veralux/voice-runtime.env` + `scripts/start-production.sh` (see PRODUCTION_TOPOLOGY.md).
+# Ingress: systemd `cloudflared` + `/etc/cloudflared/config.yml` (not the optional Docker cloudflared).
+#
+# DEVELOPMENT: repo `.env` / `.env.internal` only — never treat a random Git clone as production truth.
+#
+# OPTIONAL: `./deploy.sh up` merges `.env.internal` when present (see deploy.sh).
 # ---------------------------------------------------------------------------
 # Do NOT use plain `docker compose up -d` as your primary startup: Whisper,
 # XTTS, Kokoro, and Qwen TTS run under Compose profiles (gpu/cpu). deploy.sh
@@ -70,7 +75,7 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
-      - API_KEY=${API_KEY}
+      - API_KEY=${API_KEY:-${ADMIN_API_KEY}}
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
@@ -150,9 +155,9 @@ services:
         condition: service_healthy
       control:
         condition: service_healthy
-    # Readiness: Redis + Whisper + TTS HTTP /health (see veralux-voice-runtime GET /health/ready). Allow long GPU/CPU model load.
+    # Voice readiness: GET /health/voice (503 when STT/TTS unreachable). Liveness: GET /health/live.
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health/ready"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4001/health/voice"]
       interval: 20s
       timeout: 12s
       retries: 8
@@ -335,19 +340,20 @@ services:
       - veralux-network
 
   # =============================================================================
-  # Tunnel Service (Optional — use ./deploy.sh tunnel cloudflare | ngrok, or --profile cloudflare | ngrok)
+  # Tunnel Service (legacy token tunnel — ./deploy.sh may use --profile docker-cloudflared-legacy ; production prefers systemd cloudflared)
   # =============================================================================
 
   # Option A: Cloudflare Tunnel (recommended for production)
   cloudflared:
     # Pin in .env for production; default matches CI deploy-validation.
+    # Prefer systemd `cloudflared` + `/etc/cloudflared/config.yml` on production hosts (see PRODUCTION_TOPOLOGY.md).
+    # This service remains for dev/CI token tunnels only — do not stack two tunnels on the same hostnames.
     image: cloudflare/cloudflared:${CLOUDFLARED_TAG:-2026.2.0}
     container_name: veralux-cloudflared
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - tunnel
-      - cloudflare
+      - docker-cloudflared-legacy
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     environment:
       - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}

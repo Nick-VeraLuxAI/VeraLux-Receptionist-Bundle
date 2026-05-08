@@ -1,0 +1,51 @@
+# Production overlay — merge with docker-compose.yml
+#
+# Container env_file path is taken from the host environment so operators can point at:
+#   - /etc/veralux/voice-runtime.env (fully provisioned host), or
+#   - a merged file (see scripts/start-production.sh), without editing committed YAML.
+#
+# Example:
+#   export VERALUX_COMPOSE_ENV_FILE=/etc/veralux/voice-runtime.env
+#   docker compose --env-file "$VERALUX_COMPOSE_ENV_FILE" \
+#     -f docker-compose.yml -f docker-compose.production.yml -p veralux --profile gpu up -d …
+#
+# Do not commit secrets. Repo `.env` is development-only.
+
+x-voice-env: &voice-env
+  - ${VERALUX_COMPOSE_ENV_FILE:?export VERALUX_COMPOSE_ENV_FILE to the voice env file path}
+
+services:
+  control:
+    env_file: *voice-env
+  runtime:
+    env_file: *voice-env
+    environment:
+      # Main compose defaults `STT_DEBUG_DIR` when unset (${VAR:-path}); unset must win in production NODE_ENV.
+      - STT_DEBUG_DIR=
+      - AMRWB_DEBUG_DIR=
+      - AUDIO_DIAGNOSTICS=false
+      - STT_DEBUG_DUMP_WHISPER_WAVS=false
+      - STT_DEBUG_DUMP_PCM16=false
+      - STT_DEBUG_DUMP_RX_WAV=false
+      - STT_DEBUG_DUMP_FAR_END_REF=false
+      - STT_DEBUG_AEC_NEAR_OUT_WAV=false
+  postgres:
+    env_file: *voice-env
+  redis:
+    env_file: *voice-env
+  whisper-gpu:
+    env_file: *voice-env
+  whisper-cpu:
+    env_file: *voice-env
+  kokoro-gpu:
+    env_file: *voice-env
+  kokoro-cpu:
+    env_file: *voice-env
+  xtts-gpu:
+    env_file: *voice-env
+  xtts-cpu:
+    env_file: *voice-env
+  chatterbox-gpu:
+    env_file: *voice-env
+  qwen3-tts-gpu:
+    env_file: *voice-env

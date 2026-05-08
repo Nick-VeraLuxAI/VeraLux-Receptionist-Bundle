@@ -34,11 +34,17 @@ GET /health/live
 ```
 Returns 200 if the process is running. Use for Kubernetes liveness probe.
 
-### Readiness Probe
+### Strict voice readiness
+```
+GET /health/voice
+```
+Returns **503** when Redis, Whisper `GET /health`, or the configured TTS `GET /health` fails; also **503** when required STT/TTS URLs are missing/misconfigured. Optional: if **`BRAIN_URL`** is set, probes **`{BRAIN_URL}/health`**. **Prefer this for production Docker healthchecks** once the running image includes the route.
+
+### Readiness Probe (also strict when voice deps enabled)
 ```
 GET /health/ready
 ```
-Returns **200** when Redis is reachable and, if **`HEALTH_VOICE_DEPENDENCIES=true`** (default in production), Whisper and the configured TTS backend respond on their **`/health`** URLs. Returns **503** otherwise. Use for Kubernetes readiness and for Docker Compose (this repo’s **`runtime`** service).
+When **`HEALTH_VOICE_DEPENDENCIES=true`**, matches **`GET /health/voice`** (503 if STT/TTS not actually reachable). Returns **503** if Redis is down.
 
 Set **`HEALTH_VOICE_DEPENDENCIES=false`** only for CI or redis-only stacks; then readiness is Redis-only and **`GET /health`** skips voice probes (`voice_dependencies_checked: false`).
 

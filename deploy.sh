@@ -268,12 +268,12 @@ cmd_up() {
     # Start services
     dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d "$@"
     
-    # `docker rm` above drops veralux-cloudflared; plain compose up omits profile `cloudflare`.
-    # Bring tunnel back if .env has a token so Error 1033 does not persist after deploy.sh up.
+    # `docker rm` above drops veralux-cloudflared; plain compose omits profile `docker-cloudflared-legacy`.
+    # Production: use systemd cloudflared + /etc/cloudflared/config.yml (see PRODUCTION_TOPOLOGY.md).
     if cloudflare_token_configured; then
-        info "Restarting Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN is set)..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared 2>/dev/null || \
-            warn "cloudflared did not start — set CLOUDFLARED_TAG in .env and verify the tunnel token."
+        info "Restarting Docker Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN is set; legacy profile)..."
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared 2>/dev/null || \
+            warn "Docker cloudflared did not start — use systemd tunnel on production, or set CLOUDFLARED_TAG and verify the tunnel token."
     fi
     
     echo ""
@@ -385,7 +385,7 @@ cmd_update() {
     fi
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-cloudflared 2>/dev/null)" == "true" ]]; then
         info "Pulling cloudflared image..."
-        _update_pull_profile cloudflare cloudflared
+        _update_pull_profile docker-cloudflared-legacy cloudflared
     fi
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-ngrok 2>/dev/null)" == "true" ]]; then
         info "Pulling ngrok image..."
@@ -474,7 +474,7 @@ cmd_update() {
     # 7. Update tunnels if active (both profiles are used in the wild)
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-cloudflared 2>/dev/null)" == "true" ]]; then
         info "Updating Cloudflare Tunnel..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d --no-deps cloudflared
+        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared
     fi
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-ngrok 2>/dev/null)" == "true" ]]; then
         info "Updating ngrok..."
@@ -541,7 +541,7 @@ cmd_tunnel() {
             # Remove any leftover containers to avoid name conflicts
             docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
                 veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
-            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile cloudflare up -d
+            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d
             success "Cloudflare Tunnel started!"
             echo ""
             info "Your public URL is configured in the Cloudflare dashboard."

@@ -66,7 +66,7 @@ If `TTS_MODE` is **not** one of the four values above, `./deploy.sh` passes **no
 
 | Usage | Compose mechanism |
 |-------|-------------------|
-| Cloudflare Tunnel | `.env` contains non-empty `CLOUDFLARE_TUNNEL_TOKEN`; `./deploy.sh up` also runs `--profile cloudflare` for service `cloudflared`. |
+| Cloudflare Tunnel (Docker, legacy) | `.env` contains non-empty `CLOUDFLARE_TUNNEL_TOKEN`; `./deploy.sh up` may run **`--profile docker-cloudflared-legacy`**. **Managed production** prefers **systemd** `cloudflared` (`/etc/cloudflared/config.yml`) — avoid duplicating tunnels. |
 | ngrok | `./deploy.sh tunnel ngrok` (profile `ngrok`, service `ngrok`). |
 | Local LLM (vLLM + brain) | `docker compose --profile llm` **in addition** to normal flow—**not** wired into `./deploy.sh up` by default; operators must start `vllm-qwen` and `brain` per `.env.example` and set `BRAIN_URL` on the runtime. |
 
@@ -115,7 +115,7 @@ From the **repository root**:
 - `.env` exists (if missing, `deploy.sh` copies `.env.example` to `.env` and **exits 0** after printing required edits—no stack started).
 - Docker daemon reachable.
 
-**Post-start (optional but contract-defined for tunnel):** If `CLOUDFLARE_TUNNEL_TOKEN` matches `CLOUDFLARE_TUNNEL_TOKEN=.` (non-empty value) in `.env`, `deploy.sh up` also runs `cloudflared` under `--profile cloudflare`.
+**Post-start (legacy Docker tunnel):** If `CLOUDFLARE_TUNNEL_TOKEN` is non-empty in `.env`, `deploy.sh up` attempts `cloudflared` under **`--profile docker-cloudflared-legacy`**. Omit the token when using systemd-only ingress (see PRODUCTION_TOPOLOGY.md).
 
 **Not supported as the primary startup path:** `docker compose up` without `./deploy.sh`, because audio profiles will not match this contract unless the operator manually passes the same `--profile` flags `deploy.sh` would pass.
 

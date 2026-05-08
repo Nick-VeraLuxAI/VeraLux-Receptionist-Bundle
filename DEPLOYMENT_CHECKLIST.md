@@ -1,5 +1,13 @@
 # Deployment Checklist
 
+## Production hosts (Ubuntu / managed)
+
+- [ ] Tree installed at `/opt/veralux/veralux-voice-runtime` and kept in sync with this repository.
+- [ ] Secrets and tunables live only in **`/etc/veralux/voice-runtime.env`** (never a random Git clone `.env`).
+- [ ] Run **systemd** `cloudflared` with `/etc/cloudflared/config.yml` (no duplicate Docker tunnel for the same hostnames).
+- [ ] Bring-up: `scripts/start-production.sh` — validate: `./scripts/validate-voice-topology.sh $VERALUX_COMPOSE_ENV_FILE`
+- [ ] See **PRODUCTION_TOPOLOGY.md**, **PRODUCTION_HARDENING_REPORT.md**, **.env.production.example**.
+
 ## Pre-Deploy
 
 - [ ] Set production env vars (minimum):

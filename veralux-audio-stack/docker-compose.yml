@@ -1,18 +1,24 @@
 # veralux-audio-stack: Kokoro TTS, Coqui XTTS, Faster-Whisper
 # Production-ready: TLS, rate limiting, health checks, resource limits, logging
 #
-# Usage:
-#   cp .env.example .env && edit .env
-#   docker compose up -d                    # all services
-#   docker compose up -d xtts whisper       # skip Kokoro
+# Default (no profiles): **Whisper only** joins external `veralux-network` with DNS alias `whisper`
+# plus the internal `audio-stack` bridge. Use this alongside the main receptionist compose, or run
+# `scripts/start-production.sh` which starts STT/TTS from the primary `docker-compose.yml` instead.
 #
-# For Kokoro, put kokoro-v1.0.onnx and voices-v1.0.bin in ./kokoro-models/
-# For GPU, use: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Optional profiles:
+#   --profile traefik   Reverse proxy / ACME (not required when Cloudflare terminates TLS upstream)
+#   --profile kokoro    Kokoro CPU TTS (**requires `./kokoro-models/`** ONNX + voices file)
+#   --profile xtts      Coqui XTTS
+#
+# For GPU on this stack: docker compose -f docker-compose.yml -f docker-compose.gpu.yml ...
+#
+# ── Production network: attach to the same compose project network as runtime (`veralux-network`) ──
 
 services:
-  # Reverse proxy with TLS
   traefik:
     image: traefik:v3.0
+    profiles:
+      - traefik
     ports:
       - "80:80"
       - "443:443"
@@ -25,7 +31,6 @@ services:
       - ACME_EMAIL=${ACME_EMAIL:-admin@example.com}
     labels:
       - "traefik.enable=true"
-      # Dashboard (optional, comment out for production)
       - "traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.dashboard.service=api@internal"
       - "traefik.http.routers.dashboard.entrypoints=websecure"
@@ -41,6 +46,8 @@ services:
 
   kokoro:
     image: ghcr.io/nick-veraluxai/kokoro:${VERSION:-0.1.0}
+    profiles:
+      - kokoro
     build:
       context: .
       dockerfile: Dockerfile.kokoro
@@ -71,10 +78,15 @@ services:
         max-file: "5"
     restart: unless-stopped
     networks:
-      - audio-stack
+      audio-stack: {}
+      veralux-network:
+        aliases:
+          - kokoro
 
   xtts:
     image: ghcr.io/nick-veraluxai/xtts:${VERSION:-0.1.0}
+    profiles:
+      - xtts
     build:
       context: .
       dockerfile: Dockerfile.xtts
@@ -112,7 +124,10 @@ services:
         max-file: "5"
     restart: unless-stopped
     networks:
-      - audio-stack
+      audio-stack: {}
+      veralux-network:
+        aliases:
+          - xtts
 
   whisper:
     image: ghcr.io/nick-veraluxai/whisper:${VERSION:-0.1.0}
@@ -147,11 +162,17 @@ services:
         max-file: "5"
     restart: unless-stopped
     networks:
-      - audio-stack
+      audio-stack: {}
+      veralux-network:
+        aliases:
+          - whisper
 
 networks:
   audio-stack:
     driver: bridge
+  veralux-network:
+    name: veralux-network
+    external: true
 
 volumes:
   xtts-cache:

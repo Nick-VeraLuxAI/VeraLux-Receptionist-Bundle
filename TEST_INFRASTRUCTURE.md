@@ -2,6 +2,8 @@
 
 This repo uses isolated Docker test services to avoid conflicts with running dev/prod stacks.
 
+**Production** uses `docker-compose.yml` + `docker-compose.production.yml` and `/etc/veralux/voice-runtime.env` (see **PRODUCTION_TOPOLOGY.md**) — do **not** point production at `docker-compose.test.yml` unless you are explicitly testing.
+
 ## Services and Ports
 
 - Postgres test: `127.0.0.1:55432`
