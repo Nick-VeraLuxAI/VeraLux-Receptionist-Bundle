@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getRedisClient } from '../redis/client';
 import { env } from '../env';
 import { log } from '../log';
+import { incDependencyUnavailable } from '../metrics';
 
 export const healthRouter = Router();
 
@@ -24,6 +25,7 @@ async function checkRedis(): Promise<{ ok: boolean; latency_ms?: number; error?:
     await redis.ping();
     return { ok: true, latency_ms: Date.now() - start };
   } catch (error) {
+    incDependencyUnavailable('redis');
     return { ok: false, error: error instanceof Error ? error.message : 'unknown', latency_ms: Date.now() - start };
   }
 }
@@ -37,6 +39,7 @@ async function checkUrl(url: string, timeout = 5000): Promise<{ ok: boolean; lat
     clearTimeout(timeoutId);
     return { ok: response.ok, latency_ms: Date.now() - start };
   } catch (error) {
+    incDependencyUnavailable('provider_http');
     return { ok: false, error: error instanceof Error ? error.message : 'unknown', latency_ms: Date.now() - start };
   }
 }

@@ -17,6 +17,7 @@ import { reportCallEnd } from '../controlPlane';
 import { clearTelnyxCodecSession } from '../audio/codecDecode';
 import { releaseFarEndBuffer } from '../audio/farEndReference';
 import { releaseAecProcessor } from '../audio/aecProcessor';
+import { recordTenantUsageCallEnd } from '../limits/tenantUsage';
 
 const DEFAULT_IDLE_TTL_MINUTES = 10;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -463,6 +464,9 @@ export class SessionManager {
 
     const metrics = session.getMetrics();
     const durationMs = Date.now() - metrics.createdAt.getTime();
+    if (session.tenantId) {
+      void recordTenantUsageCallEnd(session.tenantId, session.callControlId, durationMs);
+    }
 
     // Tier 5: per-call metrics for production hardening
     const emptyPct =

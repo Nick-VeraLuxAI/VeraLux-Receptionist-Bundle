@@ -9,7 +9,7 @@
  *     which resolves tenant_memberships automatically
  */
 
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import {
   getOwnerPasscodeHash,
   getOwnerPortalCredentialRow,
@@ -27,8 +27,75 @@ import {
 
 // ── Passcode hashing ────────────────────────────────
 
-export function hashPasscode(passcode: string): string {
+const LEGACY_SHA256_RE = /^[0-9a-f]{64}$/i;
+const BCRYPT_PREFIX_RE = /^\$2[aby]\$/;
+
+function legacyHashPasscode(passcode: string): string {
   return createHash("sha256").update(passcode.trim()).digest("hex");
+}
+
+function safeLegacyCompare(stored: string, incoming: string): boolean {
+  const a = Buffer.from(stored.trim().toLowerCase(), "utf8");
+  const b = Buffer.from(legacyHashPasscode(incoming).toLowerCase(), "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+async function getArgon2(): Promise<any | null> {
+  try {
+    const importer = new Function("m", "return import(m)") as (m: string) => Promise<any>;
+    return await importer("argon2");
+  } catch {
+    return null;
+  }
+}
+
+async function hashPasscodeModern(passcode: string): Promise<string> {
+  const normalized = passcode.trim();
+  const argon2 = await getArgon2();
+  if (argon2) {
+    const timeCost = Number.parseInt(process.env.OWNER_PASSCODE_ARGON2_TIME_COST || "3", 10);
+    const memoryCost = Number.parseInt(process.env.OWNER_PASSCODE_ARGON2_MEMORY_KB || "65536", 10);
+    const parallelism = Number.parseInt(process.env.OWNER_PASSCODE_ARGON2_PARALLELISM || "1", 10);
+    return argon2.hash(normalized, {
+      type: argon2.argon2id,
+      timeCost,
+      memoryCost,
+      parallelism,
+    });
+  }
+
+  const bcryptjs = await import("bcryptjs");
+  const rounds = Number.parseInt(process.env.OWNER_PASSCODE_BCRYPT_ROUNDS || "12", 10);
+  const salt = await bcryptjs.genSalt(rounds);
+  return bcryptjs.hash(normalized, salt);
+}
+
+async function verifyModernPasscode(stored: string, passcode: string): Promise<boolean> {
+  if (stored.startsWith("$argon2")) {
+    const argon2 = await getArgon2();
+    if (!argon2) return false;
+    try {
+      return await argon2.verify(stored, passcode.trim());
+    } catch {
+      return false;
+    }
+  }
+
+  if (BCRYPT_PREFIX_RE.test(stored)) {
+    try {
+      const bcryptjs = await import("bcryptjs");
+      return await bcryptjs.compare(passcode.trim(), stored);
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+export async function hashPasscode(passcode: string): Promise<string> {
+  return hashPasscodeModern(passcode);
 }
 
 export async function verifyOwnerPasscode(
@@ -37,14 +104,25 @@ export async function verifyOwnerPasscode(
 ): Promise<boolean> {
   const stored = await getOwnerPasscodeHash(tenantId);
   if (!stored) return false;
-  return stored === hashPasscode(passcode);
+  const normalized = stored.trim();
+
+  if (LEGACY_SHA256_RE.test(normalized)) {
+    const ok = safeLegacyCompare(normalized, passcode);
+    if (ok) {
+      const upgraded = await hashPasscodeModern(passcode);
+      await upsertOwnerPasscode(tenantId, upgraded);
+    }
+    return ok;
+  }
+
+  return verifyModernPasscode(normalized, passcode);
 }
 
 export async function setOwnerPasscode(
   tenantId: string,
   passcode: string
 ): Promise<void> {
-  await upsertOwnerPasscode(tenantId, hashPasscode(passcode));
+  await upsertOwnerPasscode(tenantId, await hashPasscodeModern(passcode));
 }
 
 // ── JWT signing ─────────────────────────────────────

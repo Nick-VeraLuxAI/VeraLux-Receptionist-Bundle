@@ -143,6 +143,95 @@ const ttsCacheLookupsTotal = new client.Counter({
   registers: [register],
 });
 
+const providerTimeoutTotal = new client.Counter({
+  name: `${METRICS_PREFIX}provider_timeout_total`,
+  help: 'Provider request timeouts',
+  labelNames: ['provider'] as const,
+  registers: [register],
+});
+
+const providerCircuitOpenTotal = new client.Counter({
+  name: `${METRICS_PREFIX}provider_circuit_open_total`,
+  help: 'Provider circuit breaker open events',
+  labelNames: ['provider'] as const,
+  registers: [register],
+});
+
+const dependencyUnavailableTotal = new client.Counter({
+  name: `${METRICS_PREFIX}dependency_unavailable_total`,
+  help: 'Dependency unavailable checks',
+  labelNames: ['dependency'] as const,
+  registers: [register],
+});
+
+const webhookSignatureFailureTotal = new client.Counter({
+  name: `${METRICS_PREFIX}webhook_signature_failure_total`,
+  help: 'Webhook signature failures',
+  registers: [register],
+});
+
+const webhookReplayRejectedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}webhook_replay_rejected_total`,
+  help: 'Webhook replay rejections',
+  registers: [register],
+});
+
+const tenantAuthFailureTotal = new client.Counter({
+  name: `${METRICS_PREFIX}tenant_auth_failure_total`,
+  help: 'Tenant or scoped auth failures',
+  labelNames: ['surface'] as const,
+  registers: [register],
+});
+
+const usageLimitCheckedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}usage_limit_checked_total`,
+  help: 'Usage limit checks performed',
+  labelNames: ['tenant'] as const,
+  registers: [register],
+});
+
+const usageLimitAllowedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}usage_limit_allowed_total`,
+  help: 'Usage checks allowed',
+  labelNames: ['tenant'] as const,
+  registers: [register],
+});
+
+const usageLimitBlockedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}usage_limit_blocked_total`,
+  help: 'Usage checks blocked',
+  labelNames: ['tenant', 'reason'] as const,
+  registers: [register],
+});
+
+const usageSoftOverageTotal = new client.Counter({
+  name: `${METRICS_PREFIX}usage_soft_overage_total`,
+  help: 'Soft overage events',
+  labelNames: ['tenant'] as const,
+  registers: [register],
+});
+
+const usageHardCapReachedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}usage_hard_cap_reached_total`,
+  help: 'Usage hard cap reached events',
+  labelNames: ['tenant'] as const,
+  registers: [register],
+});
+
+const featureDeniedByPlanTotal = new client.Counter({
+  name: `${METRICS_PREFIX}feature_denied_by_plan_total`,
+  help: 'Feature usage denied by plan',
+  labelNames: ['tenant', 'feature'] as const,
+  registers: [register],
+});
+
+const tenantBillingSuspendedTotal = new client.Counter({
+  name: `${METRICS_PREFIX}tenant_billing_suspended_total`,
+  help: 'Calls blocked due to suspended billing status',
+  labelNames: ['tenant'] as const,
+  registers: [register],
+});
+
 // ---------- helpers ----------
 
 function nowNs(): bigint {
@@ -299,6 +388,58 @@ export function incTtsCacheLookup(outcome: 'lru_hit' | 'redis_hit' | 'miss'): vo
   } catch {
     // swallow
   }
+}
+
+export function incProviderTimeout(provider: string): void {
+  providerTimeoutTotal.inc({ provider: provider || 'unknown' });
+}
+
+export function incProviderCircuitOpen(provider: string): void {
+  providerCircuitOpenTotal.inc({ provider: provider || 'unknown' });
+}
+
+export function incDependencyUnavailable(dependency: string): void {
+  dependencyUnavailableTotal.inc({ dependency: dependency || 'unknown' });
+}
+
+export function incWebhookSignatureFailure(): void {
+  webhookSignatureFailureTotal.inc();
+}
+
+export function incWebhookReplayRejected(): void {
+  webhookReplayRejectedTotal.inc();
+}
+
+export function incTenantAuthFailure(surface: string): void {
+  tenantAuthFailureTotal.inc({ surface: surface || 'unknown' });
+}
+
+export function incUsageLimitChecked(tenant: string): void {
+  usageLimitCheckedTotal.inc({ tenant: tenant || 'unknown' });
+}
+
+export function incUsageLimitAllowed(tenant: string): void {
+  usageLimitAllowedTotal.inc({ tenant: tenant || 'unknown' });
+}
+
+export function incUsageLimitBlocked(tenant: string, reason: string): void {
+  usageLimitBlockedTotal.inc({ tenant: tenant || 'unknown', reason: reason || 'unknown' });
+}
+
+export function incUsageSoftOverage(tenant: string): void {
+  usageSoftOverageTotal.inc({ tenant: tenant || 'unknown' });
+}
+
+export function incUsageHardCapReached(tenant: string): void {
+  usageHardCapReachedTotal.inc({ tenant: tenant || 'unknown' });
+}
+
+export function incFeatureDeniedByPlan(tenant: string, feature: string): void {
+  featureDeniedByPlanTotal.inc({ tenant: tenant || 'unknown', feature: feature || 'unknown' });
+}
+
+export function incTenantBillingSuspended(tenant: string): void {
+  tenantBillingSuspendedTotal.inc({ tenant: tenant || 'unknown' });
 }
 
 export function recordCallMetrics(opts: {

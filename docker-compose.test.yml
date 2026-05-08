@@ -1,0 +1,44 @@
+name: veralux-test
+
+services:
+  postgres-test:
+    image: postgres:16
+    container_name: veralux-test-postgres
+    environment:
+      POSTGRES_DB: veralux_test
+      POSTGRES_USER: veralux_test
+      POSTGRES_PASSWORD: veralux_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U veralux_test -d veralux_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data:rw
+    networks:
+      - veralux-test-network
+
+  redis-test:
+    image: redis:7
+    container_name: veralux-test-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 3s
+    tmpfs:
+      - /data:rw
+    networks:
+      - veralux-test-network
+
+networks:
+  veralux-test-network:
+    name: veralux-test-network
+    driver: bridge

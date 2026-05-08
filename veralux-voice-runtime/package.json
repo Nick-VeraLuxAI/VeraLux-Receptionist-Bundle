@@ -14,7 +14,8 @@
     "tenantcfg": "tsx scripts/tenantcfg.ts",
     "register-tenant": "tsx scripts/register-tenant.ts",
     "whisper:replay": "tsx scripts/whisper_replay.ts",
-    "test": "tsx --test",
+    "test": "tsx --test --test-force-exit",
+    "test:production-readiness": "../scripts/test-infra.sh wait && REDIS_URL=${REDIS_URL:-redis://127.0.0.1:56379} tsx --test --test-force-exit tests/tenantUsageLimits.test.ts tests/callFlow.integration.test.ts tests/webhookReplayGuard.test.ts tests/redaction.test.ts tests/sessionManager.test.ts",
     "test:integration": "tsx --test tests/callFlow.integration.test.ts",
     "load-test": "tsx scripts/load-test.ts",
     "load-test:calls": "tsx scripts/concurrent-calls-test.ts",
@@ -23,6 +24,7 @@
     "benchmark:tts-gpu": "TTS_BENCH_REQUIRE_GPU=true tsx scripts/benchmark-tts-backends.ts",
     "load-test:e2e-ai": "tsx scripts/pipeline-load-test.ts --mode full",
     "load-test:e2e-chatterbox": "tsx scripts/pipeline-load-test.ts --mode full --tts-backend chatterbox",
+    "pilot:acceptance": "tsx scripts/pilot-acceptance-harness.ts",
     "bench:qwen3-tts-latency": "tsx scripts/benchmark-qwen3-tts-latency.ts",
     "build": "tsc -p tsconfig.json && npm run copy-audio-assets",
     "copy-audio-assets": "mkdir -p dist/audio/vendor/amrwb && cp -R src/audio/vendor/amrwb/amrwb.js src/audio/vendor/amrwb/amrwb.wasm dist/audio/vendor/amrwb/"

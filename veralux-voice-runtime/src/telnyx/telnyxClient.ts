@@ -2,6 +2,8 @@ import { env } from '../env';
 import { log } from '../log';
 import { diagnosticsEnabled } from '../diagnostics/audioProbe';
 import { TelnyxRequestOptions } from './types';
+import { incProviderCircuitOpen, incProviderTimeout } from '../metrics';
+import { withCircuitBreaker } from '../providers/circuitBreaker';
 
 export interface TelnyxPreparedRequest {
   url: string;
@@ -133,11 +135,18 @@ async function callControlRequest(
       payload = JSON.stringify(body);
     }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: payload,
-      signal: controller.signal,
+    const response = await withCircuitBreaker({
+      key: 'telnyx_call_control',
+      failureThreshold: 4,
+      openMs: 15_000,
+      onOpen: () => incProviderCircuitOpen('telnyx_call_control'),
+      action: () =>
+        fetch(url, {
+          method: 'POST',
+          headers,
+          body: payload,
+          signal: controller.signal,
+        }),
     });
 
     const responseBody = await safeReadBody(response);
@@ -218,6 +227,9 @@ async function callControlRequest(
 
     return responseBody;
   } catch (error) {
+    if (isAbortError(error)) {
+      incProviderTimeout('telnyx_call_control');
+    }
     const errorStatus = (error as { status?: number }).status;
     const errorBody = (error as { responseBody?: unknown }).responseBody;
     if (errorStatus === 422 && isCallEndedResponse(errorStatus, errorBody ?? error)) {
@@ -445,7 +457,7 @@ export class TelnyxClient {
       {
         event: 'telnyx_streaming_start',
         call_control_id: callControlId,
-        stream_url: streamUrl,
+        stream_url: redactedStreamUrl,
         ...this.logContext,
       },
       'telnyx streaming start requested',

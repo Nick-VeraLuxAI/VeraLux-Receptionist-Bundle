@@ -42,3 +42,18 @@ export function getRedisClient(): Redis {
 export function setRedisClient(client: Redis | null): void {
   singleton = client;
 }
+
+export async function closeRedisClient(): Promise<void> {
+  if (!singleton) return;
+  const client = singleton;
+  singleton = null;
+  try {
+    await client.quit();
+  } catch {
+    try {
+      client.disconnect(false);
+    } catch {
+      // ignore close errors in test shutdown paths
+    }
+  }
+}

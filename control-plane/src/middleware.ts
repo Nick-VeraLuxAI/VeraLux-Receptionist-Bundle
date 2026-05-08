@@ -3,6 +3,7 @@
  */
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { randomUUID } from "crypto";
+import { redactControlPlaneLogValue } from "./observability/redaction";
 
 // ────────────────────────────────────────────────
 // Request ID / Correlation ID Middleware
@@ -62,8 +63,8 @@ function formatLog(level: LogLevel, message: string, context?: LogContext): stri
   const logObj = {
     timestamp,
     level,
-    message,
-    ...context,
+    message: redactControlPlaneLogValue(message),
+    ...(redactControlPlaneLogValue(context || {}) as Record<string, unknown>),
     svc: "control",
   };
   return JSON.stringify(logObj);

@@ -1,5 +1,6 @@
 import "./env";
 import express, { type Request, type Response, type NextFunction } from "express";
+import { timingSafeEqual } from "crypto";
 import dotenv from "dotenv";
 import { createServer, type AddressInfo } from "net";
 import path from "path";
@@ -71,12 +72,29 @@ import {
   getTenantIdByPortalEmail,
   getOwnerPortalCredentialRow,
   upsertOwnerPortalCredentials,
+  getTenantLimits,
+  upsertTenantLimits,
+  resetTenantLimitsToPlanDefaults,
+  setTenantBillingStatus,
+  getTenantUsageSnapshot,
+  getTenantBillingSummary,
+  recordTenantCallStarted,
+  recordTenantCallEnded,
 } from "./db";
 import { rateLimit } from "./rateLimit";
+import { ipRateLimit } from "./middleware/ipRateLimit";
 import { closeRedis as closeRateLimitRedis } from "./redis";
 import { normalizePhoneNumber } from "./utils/phone";
 import { isUuid } from "./utils/validation";
 import { parsePricingInfo, createForwardingProfile } from "./llmContext";
+import {
+  tenantLimitsSchema,
+  planTierSchema,
+  billingStatusSchema,
+  getPlanDefaults,
+  RECOMMENDED_DEFAULT_PLAN_TIER,
+} from "./planLimits";
+import { checkFeatureEntitlement, type FeatureKey } from "./featureEntitlements";
 import {
   verifyOwnerPasscode,
   setOwnerPasscode,
@@ -856,6 +874,30 @@ function ensureRuntimeAdminEnabled(res: express.Response): boolean {
   return true;
 }
 
+async function syncTenantRuntimeConfigForLimits(tenantId: string): Promise<void> {
+  if (!ENABLE_RUNTIME_ADMIN) return;
+  const tenant = tenants.getOrCreate(tenantId);
+  let existing: RuntimeTenantConfig | null = null;
+  try {
+    existing = await getTenantConfig(tenantId);
+  } catch {
+    existing = null;
+  }
+  const limits = await getTenantLimits(tenantId);
+  const parsed = buildTenantRuntimeConfig(tenant, existing, limits);
+  await publishTenantConfig(tenantId, parsed);
+}
+
+async function trySyncTenantRuntimeConfigForLimits(tenantId: string): Promise<boolean> {
+  try {
+    await syncTenantRuntimeConfigForLimits(tenantId);
+    return true;
+  } catch (error) {
+    logger.warn("limits runtime sync failed", { tenantId, err: error });
+    return false;
+  }
+}
+
 function ensureTenantAccess(
   req: AuthedRequest,
   res: express.Response,
@@ -869,6 +911,32 @@ function ensureTenantAccess(
   if (ctx.isSuperAdmin) return true;
   if (!ctx.tenantId || ctx.tenantId !== tenantId) {
     res.status(403).json({ error: "tenant_forbidden" });
+    return false;
+  }
+  return true;
+}
+
+async function requireTenantFeature(
+  req: AuthedRequest,
+  res: express.Response,
+  tenantId: string,
+  feature:
+    | "advancedAnalytics"
+    | "customWorkflows"
+    | "calendarIntegration"
+    | "crmIntegration"
+    | "smsFollowup"
+    | "callRecording"
+    | "multiLocation"
+): Promise<boolean> {
+  if (!ensureTenantAccess(req, res, tenantId)) return false;
+  const entitlement = await checkFeatureEntitlement(tenantId, feature as FeatureKey, {
+    path: req.path,
+    method: req.method,
+    requestId: getRequestId(req),
+  });
+  if (!entitlement.allowed) {
+    res.status(403).json({ error: entitlement.reason, feature });
     return false;
   }
   return true;
@@ -1006,16 +1074,25 @@ const INSTALLER_USERNAME = process.env.INSTALLER_USERNAME || "VeraLux";
 const INSTALLER_PASSWORD =
   (process.env.INSTALLER_PASSWORD || "").trim() || (process.env.ADMIN_API_KEY || "").trim() || "";
 
-app.post("/admin-auth", (req, res) => {
+const INSTALLER_AUTH_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 20 });
+const OWNER_LOGIN_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 25 });
+
+function timingSafeTextEqual(a: string, b: string): boolean {
+  const left = Buffer.from(String(a), "utf8");
+  const right = Buffer.from(String(b), "utf8");
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+app.post("/admin-auth", INSTALLER_AUTH_RATE_LIMIT, (req, res) => {
   const { username, password } = req.body || {};
 
   if (!username || !password) {
     return res.status(400).json({ success: false, error: "Username and password are required" });
   }
 
-  // Constant-time-ish comparison to avoid timing attacks
-  const userOk = username === INSTALLER_USERNAME;
-  const passOk = password === INSTALLER_PASSWORD;
+  const userOk = timingSafeTextEqual(String(username), INSTALLER_USERNAME);
+  const passOk = timingSafeTextEqual(String(password), INSTALLER_PASSWORD);
 
   if (userOk && passOk) {
     return res.json({ success: true });
@@ -1028,7 +1105,7 @@ app.post("/admin-auth", (req, res) => {
    Owner Portal – public auth (no adminGuard)
    ──────────────────────────────────────────────── */
 
-app.post("/api/owner/login", async (req, res) => {
+app.post("/api/owner/login", OWNER_LOGIN_RATE_LIMIT, async (req, res) => {
   try {
     const body = req.body || {};
     const emailRaw = typeof body.email === "string" ? body.email : "";
@@ -1615,12 +1692,16 @@ app.post("/api/admin/prompts", async (req, res) => {
 app.get("/api/admin/forwarding-profiles", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-  res.json({ profiles: tenant.forwardingProfiles });
+  void requireTenantFeature(req as AuthedRequest, res, tenant.id, "multiLocation").then((ok) => {
+    if (!ok) return;
+    res.json({ profiles: tenant.forwardingProfiles });
+  });
 });
 
 app.post("/api/admin/forwarding-profiles", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "multiLocation"))) return;
   const raw = req.body?.profiles;
   const profiles = Array.isArray(raw)
     ? raw
@@ -1644,12 +1725,16 @@ app.post("/api/admin/forwarding-profiles", async (req, res) => {
 app.get("/api/admin/pricing", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-  res.json(tenant.pricing);
+  void requireTenantFeature(req as AuthedRequest, res, tenant.id, "crmIntegration").then((ok) => {
+    if (!ok) return;
+    res.json(tenant.pricing);
+  });
 });
 
 app.post("/api/admin/pricing", async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "crmIntegration"))) return;
   const parsed = parsePricingInfo(req.body);
   const updated = tenants.setPricing(tenant.id, parsed);
   if (!updated) return res.status(404).json({ error: "tenant_not_found" });
@@ -2222,7 +2307,8 @@ app.post("/api/tts/config", async (req, res) => {
   if (ENABLE_RUNTIME_ADMIN) {
     try {
       const existing = await getTenantConfig(tenant.id);
-      const parsed = buildTenantRuntimeConfig(tenant, existing);
+      const tenantLimits = await getTenantLimits(tenant.id);
+      const parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits);
       await publishTenantConfig(tenant.id, parsed);
       runtimePublish = { ok: true };
     } catch (err: unknown) {
@@ -2568,7 +2654,10 @@ app.get("/api/admin/health", (req, res) => {
 app.get("/api/admin/analytics", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-  res.json(tenant.analytics.snapshot());
+  void requireTenantFeature(req as AuthedRequest, res, tenant.id, "advancedAnalytics").then((ok) => {
+    if (!ok) return;
+    res.json(tenant.analytics.snapshot());
+  });
 });
 
 /**
@@ -2613,7 +2702,7 @@ app.get("/api/admin/calls", (req, res) => {
  * POST endpoint for the voice runtime to report call state updates.
  * Accepts: { tenantId, callId, action: "start" | "update" | "end", callState?: CallState }
  */
-app.post("/api/runtime/calls", adminGuard("admin"), (req, res) => {
+app.post("/api/runtime/calls", adminGuard("admin"), async (req, res) => {
   const { tenantId, callId, action, callState } = req.body as {
     tenantId?: string;
     callId?: string;
@@ -2633,9 +2722,14 @@ app.post("/api/runtime/calls", adminGuard("admin"), (req, res) => {
   const tenant = tenants.getOrCreate(tenantId);
 
   if (action === "start") {
+    const limits = await getTenantLimits(tenantId);
+    if (limits.billingStatus === "suspended" || limits.billingStatus === "canceled") {
+      return res.status(403).json({ error: "tenant_billing_suspended" });
+    }
     const callerId = callState?.callerId || undefined;
     const call = tenant.calls.createCall(callerId);
     tenant.analytics.recordNewCall();
+    await recordTenantCallStarted(tenantId);
     return res.json({ status: "ok", callId: call.id });
   }
 
@@ -2660,14 +2754,21 @@ app.post("/api/runtime/calls", adminGuard("admin"), (req, res) => {
 
     // Fire workflow event bus (async, don't block response)
     if (endingCall) {
+      const durationMs =
+        endingCall.createdAt
+          ? Date.now() - endingCall.createdAt
+          : undefined;
+      await recordTenantCallEnded({
+        tenantId,
+        durationMs,
+        fallbackUsed: String(req.body?.replySource || "").includes("fallback"),
+      });
       const workflowEvent: CallEndedEvent = {
         type: "call_ended",
         tenantId,
         callId,
         callerId: endingCall.callerId,
-        durationMs: endingCall.createdAt
-          ? Date.now() - endingCall.createdAt
-          : undefined,
+        durationMs,
         turns: endingCall.history as any,
         transcript: req.body.transcript,
         lead: endingCall.lead as any,
@@ -2712,7 +2813,148 @@ app.get(
   })
 );
 
-app.post("/api/admin/tenants", (req, res) => {
+const tenantLimitsPatchSchema = tenantLimitsSchema.partial().extend({
+  planTier: planTierSchema.optional(),
+  billingStatus: billingStatusSchema.optional(),
+});
+
+app.get(
+  "/api/admin/tenants/:tenantId/limits",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const limits = await getTenantLimits(tenantId);
+    res.json({ tenantId, limits });
+  }),
+);
+
+app.patch(
+  "/api/admin/tenants/:tenantId/limits",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const parsed = tenantLimitsPatchSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_limits", details: parsed.error.issues });
+    }
+    const patch = parsed.data as Record<string, unknown>;
+    if (patch.transcriptRetention === false) {
+      return res.status(400).json({ error: "invalid_limits", message: "transcriptRetention cannot be disabled for safety/audit baseline" });
+    }
+    const updatedBy = req.ctx?.idpSub || req.ctx?.userId || "admin";
+    const limits = await upsertTenantLimits(tenantId, parsed.data, updatedBy);
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "tenant_limits_updated",
+      path: req.path,
+      tenantId,
+      status: "ok",
+    });
+    res.json({ tenantId, limits, runtimeSyncOk });
+  }),
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/limits/reset-to-plan-defaults",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const planTierRaw = typeof req.body?.planTier === "string" ? req.body.planTier : RECOMMENDED_DEFAULT_PLAN_TIER;
+    const planTierParsed = planTierSchema.safeParse(planTierRaw);
+    if (!planTierParsed.success) {
+      return res.status(400).json({ error: "invalid_plan_tier" });
+    }
+    const updatedBy = req.ctx?.idpSub || req.ctx?.userId || "admin";
+    const limits = await resetTenantLimitsToPlanDefaults(tenantId, planTierParsed.data, updatedBy);
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "tenant_limits_reset_to_plan_defaults",
+      path: req.path,
+      tenantId,
+      status: "ok",
+    });
+    res.json({ tenantId, limits, runtimeSyncOk });
+  }),
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/billing-status",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const statusParsed = billingStatusSchema.safeParse(req.body?.billingStatus);
+    if (!statusParsed.success) {
+      return res.status(400).json({ error: "invalid_billing_status" });
+    }
+    const updatedBy = req.ctx?.idpSub || req.ctx?.userId || "admin";
+    const limits = await setTenantBillingStatus(tenantId, statusParsed.data, updatedBy);
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "tenant_billing_status_updated",
+      path: req.path,
+      tenantId,
+      status: "ok",
+    });
+    res.json({ tenantId, limits, runtimeSyncOk });
+  }),
+);
+
+app.get(
+  "/api/admin/tenants/:tenantId/usage",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const usage = await getTenantUsageSnapshot(tenantId);
+    const limits = await getTenantLimits(tenantId);
+    const overageMinutes = Math.max(0, usage.monthlyBillableMinutes - limits.includedMonthlyMinutes);
+    res.json({
+      tenantId,
+      usage,
+      overageMinutes,
+      hardCapRemainingMinutes: Math.max(0, limits.maxMonthlyMinutesHardCap - usage.monthlyBillableMinutes),
+      includedMinutesRemaining: Math.max(0, limits.includedMonthlyMinutes - usage.monthlyBillableMinutes),
+    });
+  }),
+);
+
+app.get(
+  "/api/admin/tenants/:tenantId/billing-summary",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const month = typeof req.query.month === "string" && /^\d{4}-\d{2}$/.test(req.query.month)
+      ? req.query.month
+      : new Date().toISOString().slice(0, 7);
+    const summary = await getTenantBillingSummary(tenantId, month);
+    res.json({ tenantId, summary });
+  }),
+);
+
+app.post("/api/admin/tenants", adminGuard("admin"), async (req: AuthedRequest, res) => {
   const { id, name, numbers, businessNumber } = req.body as {
     id?: string;
     name?: string;
@@ -2734,7 +2976,20 @@ app.post("/api/admin/tenants", (req, res) => {
       .filter(Boolean);
   }
 
-  const updated = tenants.upsertMeta(id.trim(), {
+  const tenantId = id.trim();
+  if (!(req.ctx?.isSuperAdmin ?? false) && req.ctx?.tenantId && req.ctx.tenantId !== tenantId) {
+    return res.status(403).json({ error: "tenant_forbidden" });
+  }
+
+  const limits = await getTenantLimits(tenantId);
+  if (numberList && numberList.length > limits.maxPhoneNumbers) {
+    return res.status(400).json({
+      error: "max_phone_numbers_exceeded",
+      message: `This plan allows up to ${limits.maxPhoneNumbers} phone numbers.`,
+    });
+  }
+
+  const updated = tenants.upsertMeta(tenantId, {
     name: typeof name === "string" ? name : undefined,
     numbers: numberList,
     businessNumber: typeof businessNumber === "string" ? businessNumber : undefined,
@@ -2924,7 +3179,8 @@ app.post(
 
     let parsed: RuntimeTenantConfig;
     try {
-      parsed = buildTenantRuntimeConfig(tenant, existing);
+      const tenantLimits = await getTenantLimits(tenantId);
+      parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits);
     } catch (err: unknown) {
       if (err instanceof BuildRuntimeConfigError) {
         return res.status(400).json({
@@ -3403,6 +3659,7 @@ const adminAuthToken = "";
 app.get("/api/admin/workflows", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const workflows = await listWorkflows(tenant.id);
   res.json({ workflows });
 }));
@@ -3411,6 +3668,7 @@ app.get("/api/admin/workflows", asyncHandler(async (req, res) => {
 app.post("/api/admin/workflows", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const { name, triggerType, triggerConfig, steps, adminLocked } = req.body || {};
   if (!name || !triggerType) {
     return res.status(400).json({ error: "name and triggerType are required" });
@@ -3432,6 +3690,7 @@ app.post("/api/admin/workflows", asyncHandler(async (req, res) => {
 app.put("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const { id } = req.params;
   const existing = await getWorkflow(id);
   if (!existing || existing.tenantId !== tenant.id) {
@@ -3448,6 +3707,7 @@ app.put("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
 app.delete("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const { id } = req.params;
   const existing = await getWorkflow(id);
   if (!existing || existing.tenantId !== tenant.id) {
@@ -3461,6 +3721,7 @@ app.delete("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
 app.post("/api/admin/workflows/:id/test", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const { id } = req.params;
   const workflow = await getWorkflow(id);
   if (!workflow || workflow.tenantId !== tenant.id) {
@@ -3518,6 +3779,7 @@ app.delete("/api/admin/leads/:id", asyncHandler(async (req, res) => {
 app.get("/api/admin/workflows/settings", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const settings = await getWorkflowSettings(tenant.id);
   res.json(settings);
 }));
@@ -3526,6 +3788,7 @@ app.get("/api/admin/workflows/settings", asyncHandler(async (req, res) => {
 app.patch("/api/admin/workflows/settings", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
   const { ownerCanEdit } = req.body || {};
   const settings = await updateWorkflowSettings(tenant.id, {
     ownerCanEdit: ownerCanEdit !== undefined ? !!ownerCanEdit : undefined,

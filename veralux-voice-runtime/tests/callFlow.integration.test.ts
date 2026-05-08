@@ -185,7 +185,7 @@ describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () =>
     const callControlId = generateCallControlId();
     const payload = createWebhookPayload('call.initiated', callControlId);
 
-    const { status, body } = await postWebhook(`${ctx.baseUrl}/webhooks/telnyx`, payload);
+    const { status, body } = await postWebhook(`${ctx.baseUrl}/v1/telnyx/webhook`, payload);
 
     assert.strictEqual(status, 200);
     assert.deepStrictEqual(body, { ok: true });
@@ -196,13 +196,13 @@ describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () =>
 
     // First initiate
     await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.initiated', callControlId)
     );
 
     // Then answer with tenant in client_state
     const payload = createWebhookPayload('call.answered', callControlId, TEST_TENANT_ID);
-    const { status, body } = await postWebhook(`${ctx.baseUrl}/webhooks/telnyx`, payload);
+    const { status, body } = await postWebhook(`${ctx.baseUrl}/v1/telnyx/webhook`, payload);
 
     assert.strictEqual(status, 200);
     assert.deepStrictEqual(body, { ok: true });
@@ -213,21 +213,21 @@ describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () =>
 
     // 1. call.initiated
     const initiated = await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.initiated', callControlId)
     );
     assert.strictEqual(initiated.status, 200, 'call.initiated should succeed');
 
     // 2. call.answered
     const answered = await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.answered', callControlId, TEST_TENANT_ID)
     );
     assert.strictEqual(answered.status, 200, 'call.answered should succeed');
 
     // 3. call.hangup
     const hangup = await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.hangup', callControlId, TEST_TENANT_ID, {
         hangup_cause: 'normal_clearing',
         hangup_source: 'caller',
@@ -244,27 +244,72 @@ describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () =>
 
     // Setup call
     await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.initiated', callControlId)
     );
     await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.answered', callControlId, TEST_TENANT_ID)
     );
 
     // Playback started
     const started = await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.playback.started', callControlId, TEST_TENANT_ID)
     );
     assert.strictEqual(started.status, 200, 'call.playback.started should succeed');
 
     // Playback ended
     const ended = await postWebhook(
-      `${ctx.baseUrl}/webhooks/telnyx`,
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
       createWebhookPayload('call.playback.ended', callControlId, TEST_TENANT_ID)
     );
     assert.strictEqual(ended.status, 200, 'call.playback.ended should succeed');
+  });
+
+  it('should dedupe duplicate webhook event ids', async () => {
+    const callControlId = generateCallControlId();
+    const sharedEventId = `evt_dup_${Math.random().toString(36).slice(2, 12)}`;
+    const payload = {
+      data: {
+        event_type: 'call.initiated',
+        id: sharedEventId,
+        occurred_at: new Date().toISOString(),
+        payload: {
+          call_control_id: callControlId,
+          from: '+15559999999',
+          to: TEST_DID,
+          direction: 'incoming',
+        },
+      },
+    };
+
+    const first = await postWebhook(`${ctx.baseUrl}/v1/telnyx/webhook`, payload);
+    const second = await postWebhook(`${ctx.baseUrl}/v1/telnyx/webhook`, payload);
+    assert.strictEqual(first.status, 200);
+    assert.strictEqual(second.status, 200);
+    assert.deepStrictEqual(second.body, { ok: true, duplicate: true });
+  });
+
+  it('should tolerate reordered webhook events', async () => {
+    const callControlId = generateCallControlId();
+    // Send answered before initiated to simulate event reordering.
+    const answeredFirst = await postWebhook(
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
+      createWebhookPayload('call.answered', callControlId, TEST_TENANT_ID),
+    );
+    const initiatedSecond = await postWebhook(
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
+      createWebhookPayload('call.initiated', callControlId, TEST_TENANT_ID),
+    );
+    const hangup = await postWebhook(
+      `${ctx.baseUrl}/v1/telnyx/webhook`,
+      createWebhookPayload('call.hangup', callControlId, TEST_TENANT_ID),
+    );
+
+    assert.strictEqual(answeredFirst.status, 200);
+    assert.strictEqual(initiatedSecond.status, 200);
+    assert.strictEqual(hangup.status, 200);
   });
 
   it('should return healthy status from /health', async () => {

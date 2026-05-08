@@ -2,11 +2,13 @@ import { Request, Router } from 'express';
 import { SessionManager } from '../calls/sessionManager';
 import { env } from '../env';
 import { release, tryAcquire } from '../limits/capacity';
+import { checkTenantUsageBeforeCall, recordTenantUsageCallStart } from '../limits/tenantUsage';
 import { log } from '../log';
 import { describeWavHeader, parseWavInfo } from '../audio/wavInfo';
 import { runPlaybackPipeline } from '../audio/playbackPipeline';
 import { attachAudioMeta, getAudioMeta, probeWav } from '../diagnostics/audioProbe';
 import { startStageTimer } from '../metrics';
+import { incWebhookReplayRejected, incWebhookSignatureFailure } from '../metrics';
 import { storeWav } from '../storage/audioStore';
 import { normalizeE164, resolveTenantId } from '../tenants/tenantResolver';
 import { loadTenantConfig, getWebhookSecret } from '../tenants/tenantConfig';
@@ -16,6 +18,11 @@ import {
   extractTelnyxEventMetaFromRawBody,
   verifyTelnyxSignature,
 } from '../telnyx/telnyxVerify';
+import {
+  claimWebhookEventId,
+  claimWebhookSignature,
+  guardedClaim,
+} from '../telnyx/webhookReplayGuard';
 import { TelnyxWebhookPayload } from '../telnyx/types';
 import { synthesizeSpeech } from '../tts';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
@@ -629,6 +636,19 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
             return;
           }
 
+          const usageGate = await checkTenantUsageBeforeCall({ tenantId, tenantConfig });
+          if (!usageGate.ok) {
+            await playMessageAndHangup({
+              callControlId,
+              message: usageGate.message,
+              reason: usageGate.reason,
+              requestId,
+              tenantId,
+              ttsConfig: tenantConfig.tts,
+            });
+            return;
+          }
+
           const capDefaults = {
             tenantConcurrency: tenantConfig.caps.maxConcurrentCallsTenant,
             tenantRpm: tenantConfig.caps.maxCallsPerMinuteTenant,
@@ -770,6 +790,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
                   requestId,
                   pstnAlreadyAnswered: true,
                 });
+                void recordTenantUsageCallStart(tenantId);
               } finally {
                 sessionManager.endCapacityHold(callControlId);
                 capacityHoldInFlight.delete(callControlId);
@@ -796,6 +817,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
             requestId,
             pstnAlreadyAnswered: false,
           });
+          void recordTenantUsageCallStart(tenantId);
           break;
         }
         case 'call.answered': {
@@ -972,6 +994,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     }
 
     if (!signatureCheck.ok) {
+      incWebhookSignatureFailure();
       log.warn(
         {
           requestId,
@@ -979,11 +1002,32 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
           call_control_id: rawMeta.callControlId,
           tenant_id: rawMeta.tenantId,
           action_taken: 'reject_invalid_signature',
+          verify_reason: signatureCheck.reason,
           used_tenant_secret: !!tenantSecret,
         },
         'telnyx webhook ack',
       );
       res.status(401).json({ error: 'invalid_signature' });
+      return;
+    }
+
+    const replayAllowed = await guardedClaim(
+      () => claimWebhookSignature(signature, timestamp),
+      { requestId, event_type: rawMeta.eventType, call_control_id: rawMeta.callControlId, replay_key_type: 'signature' },
+    );
+    if (!replayAllowed) {
+      incWebhookReplayRejected();
+      log.warn(
+        {
+          requestId,
+          event_type: rawMeta.eventType,
+          call_control_id: rawMeta.callControlId,
+          tenant_id: rawMeta.tenantId,
+          action_taken: 'reject_signature_replay',
+        },
+        'telnyx webhook replay rejected',
+      );
+      res.status(401).json({ error: 'replay_rejected' });
       return;
     }
 
@@ -999,6 +1043,36 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
       payload?.data?.payload && typeof payload.data.payload === 'object'
         ? (payload.data.payload as Record<string, unknown>)
         : undefined;
+    const eventId =
+      payload &&
+      typeof payload === 'object' &&
+      payload.data &&
+      typeof payload.data === 'object' &&
+      typeof (payload.data as { id?: unknown }).id === 'string'
+        ? String((payload.data as { id: string }).id).trim()
+        : '';
+
+    if (eventId) {
+      const firstSeen = await guardedClaim(
+        () => claimWebhookEventId(eventId),
+        { requestId, event_type: eventType, call_control_id: callControlId, replay_key_type: 'event_id' },
+      );
+      if (!firstSeen) {
+        log.info(
+          {
+            requestId,
+            event_type: eventType,
+            call_control_id: callControlId,
+            tenant_id: tenantId,
+            event_id: eventId,
+            action_taken: 'dedupe_duplicate_event',
+          },
+          'telnyx duplicate webhook ignored',
+        );
+        res.status(200).json({ ok: true, duplicate: true });
+        return;
+      }
+    }
 
     const actionTaken = determineAction(eventType, callControlId);
     if (callControlId) {
@@ -1027,6 +1101,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
         call_control_id: callControlId,
         tenant_id: tenantId,
         action_taken: actionTaken,
+        event_id: eventId || undefined,
       },
       'telnyx webhook ack',
     );

@@ -88,6 +88,7 @@ const EnvSchema = z.object({
   WEBRTC_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
   WEBRTC_ALLOWED_ORIGINS: z.preprocess(emptyToUndefined, z.string().optional()),
   AUDIO_DIAGNOSTICS: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  ALLOW_PROD_DEBUG_CAPTURE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   /**
    * When true (default), `GET /health/ready` checks Whisper + TTS HTTP `/health` in addition to Redis.
    * Set `false` for CI or redis-only gates (operators should leave default on in production).
@@ -100,6 +101,19 @@ const EnvSchema = z.object({
   TELNYX_STREAM_TRACK: z.enum(['inbound_track', 'outbound_track', 'both_tracks']).default('inbound_track'),
   TELNYX_STREAM_CODEC: z.preprocess(emptyToUndefined, z.string().optional()),
   TELNYX_SKIP_SIGNATURE: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  TELNYX_SIGNATURE_MAX_SKEW_SECONDS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().max(3600).default(300),
+  ),
+  TELNYX_SIGNATURE_REPLAY_TTL_SECONDS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().max(86_400).default(600),
+  ),
+  TELNYX_WEBHOOK_IDEMPOTENCY_TTL_SECONDS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().max(86_400).default(3600),
+  ),
+  TELNYX_WEBHOOK_REPLAY_PREFIX: z.preprocess(emptyToUndefined, z.string().default('telnyxreplay')),
   TELNYX_ACCEPT_CODECS: z.preprocess(emptyToUndefined, z.string().default('PCMU')),
   TELNYX_STREAM_RESTART_MAX: z.preprocess(emptyToUndefined, z.coerce.number().int().nonnegative().default(1)),
   TELNYX_INGEST_HEALTH_GRACE_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().nonnegative().default(1200)),
@@ -363,6 +377,11 @@ const EnvSchema = z.object({
   CONTROL_PLANE_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** API key for control plane auth (ADMIN_API_KEY). Required when CONTROL_PLANE_URL is set. */
   CONTROL_PLANE_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /**
+   * API key accepted by runtime voice-control endpoints.
+   * Falls back to CONTROL_PLANE_API_KEY if unset.
+   */
+  VOICE_CONTROL_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
   /* ───────────────────────── Redis / Capacity ───────────────────────── */
   REDIS_URL: z.string().min(1),
@@ -435,3 +454,33 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+const verifyOverride = process.env.TELNYX_VERIFY_SIGNATURES?.trim().toLowerCase();
+const signaturesExplicitlyDisabled = verifyOverride === 'false' || verifyOverride === '0' || verifyOverride === 'no';
+
+if (env.NODE_ENV === 'production') {
+  if (env.TELNYX_SKIP_SIGNATURE || signaturesExplicitlyDisabled) {
+    throw new Error(
+      'Insecure Telnyx webhook config in production: signature verification cannot be disabled.',
+    );
+  }
+  if (!(env.VOICE_CONTROL_API_KEY?.trim() || env.CONTROL_PLANE_API_KEY?.trim())) {
+    throw new Error(
+      'VOICE_CONTROL_API_KEY (or CONTROL_PLANE_API_KEY) is required in production to protect /v1/calls voice-control routes.',
+    );
+  }
+  const debugFlagsEnabled =
+    env.AUDIO_DIAGNOSTICS ||
+    env.STT_DEBUG_DUMP_WHISPER_WAVS ||
+    env.STT_DEBUG_DUMP_PCM16 ||
+    env.STT_DEBUG_DUMP_RX_WAV ||
+    env.STT_DEBUG_DUMP_FAR_END_REF ||
+    env.STT_DEBUG_AEC_NEAR_OUT_WAV ||
+    !!env.STT_DEBUG_DIR ||
+    !!env.AMRWB_DEBUG_DIR;
+  if (debugFlagsEnabled && !env.ALLOW_PROD_DEBUG_CAPTURE) {
+    throw new Error(
+      'Debug capture/logging flags are enabled in production. Disable debug flags or set ALLOW_PROD_DEBUG_CAPTURE=true explicitly.',
+    );
+  }
+}

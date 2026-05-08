@@ -1108,6 +1108,72 @@
           </div>
           <div id="cf-token-status" class="small" style="margin-top: 8px; min-height: 16px"></div>
         </section>
+        <section class="panel">
+          <h2>Tenant Plan &amp; Limits</h2>
+          <p class="small muted">Server-enforced limits for paid client deployments. Changes take effect immediately.</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap;">
+            <label style="min-width:220px;">Plan Tier
+              <select id="limit-plan-tier">
+                <option value="starter">starter</option>
+                <option value="professional">professional</option>
+                <option value="premium">premium</option>
+                <option value="enterprise">enterprise</option>
+              </select>
+            </label>
+            <label style="min-width:220px;">Billing Status
+              <select id="limit-billing-status">
+                <option value="trial">trial</option>
+                <option value="active">active</option>
+                <option value="past_due">past_due</option>
+                <option value="suspended">suspended</option>
+                <option value="canceled">canceled</option>
+              </select>
+            </label>
+            <label style="min-width:220px;">Overage Mode
+              <select id="limit-overage-mode">
+                <option value="allow_and_bill">allow_and_bill</option>
+                <option value="throttle">throttle</option>
+                <option value="hard_stop">hard_stop</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:8px;">
+            <label>Concurrent calls <input id="limit-max-concurrent" type="number" min="1" /></label>
+            <label>Included monthly minutes <input id="limit-included-minutes" type="number" min="0" /></label>
+            <label>Monthly hard cap (minutes) <input id="limit-hard-cap" type="number" min="0" /></label>
+            <label>Daily calls <input id="limit-max-daily-calls" type="number" min="0" /></label>
+            <label>Monthly calls <input id="limit-max-monthly-calls" type="number" min="0" /></label>
+            <label>Max phone numbers <input id="limit-max-phone-numbers" type="number" min="0" /></label>
+            <label>Max integrations <input id="limit-max-integrations" type="number" min="0" /></label>
+            <label>Max locations <input id="limit-max-locations" type="number" min="0" /></label>
+            <label>Max admin users <input id="limit-max-admin-users" type="number" min="0" /></label>
+            <label>Max escalation contacts <input id="limit-max-escalation" type="number" min="0" /></label>
+            <label>KB size MB <input id="limit-max-kb-mb" type="number" min="0" /></label>
+            <label>Overage rate cents/min <input id="limit-overage-rate" type="number" min="0" /></label>
+          </div>
+          <h3 style="margin-top:12px;">Feature Flags</h3>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
+            <label><input id="limit-f-after-hours" type="checkbox" /> afterHoursMode</label>
+            <label><input id="limit-f-sms" type="checkbox" /> smsFollowup</label>
+            <label><input id="limit-f-calendar" type="checkbox" /> calendarIntegration</label>
+            <label><input id="limit-f-crm" type="checkbox" /> crmIntegration</label>
+            <label><input id="limit-f-analytics" type="checkbox" /> advancedAnalytics</label>
+            <label><input id="limit-f-recording" type="checkbox" /> callRecording</label>
+            <label><input id="limit-f-retention" type="checkbox" /> transcriptRetention</label>
+            <label><input id="limit-f-multiloc" type="checkbox" /> multiLocation</label>
+            <label><input id="limit-f-workflows" type="checkbox" /> customWorkflows</label>
+            <label><input id="limit-f-priority" type="checkbox" /> prioritySupport</label>
+          </div>
+          <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap;">
+            <button type="button" id="limit-save">Save limits</button>
+            <button type="button" class="secondary" id="limit-refresh">Reload limits</button>
+            <button type="button" class="secondary" id="limit-reset-plan">Reset to plan defaults</button>
+            <button type="button" class="secondary" id="limit-set-billing">Set billing status only</button>
+          </div>
+          <div id="limit-status" class="small" style="margin-top:6px;min-height:16px;"></div>
+          <h3 style="margin-top:12px;">Current Usage</h3>
+          <pre id="limit-usage" style="max-height:220px;overflow:auto;">Loading…</pre>
+        </section>
       </div>
 
       <!-- ── Workflows Tab ── -->
@@ -4077,6 +4143,7 @@
         loadLeads();
         loadWorkflowSettings();
         loadAdminQuickReplies();
+        loadTenantLimits();
       }
 
       // ── Subscription / Billing ──
@@ -4653,6 +4720,111 @@
         }
       }
 
+      function readIntField(id, fallback = 0) {
+        const v = parseInt($(id)?.value || "", 10);
+        return Number.isFinite(v) ? v : fallback;
+      }
+
+      async function loadTenantLimits() {
+        if (!currentTenantId) return;
+        try {
+          const data = await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/limits`);
+          const l = data.limits || {};
+          $("limit-plan-tier").value = l.planTier || "professional";
+          $("limit-billing-status").value = l.billingStatus || "active";
+          $("limit-overage-mode").value = l.overageMode || "allow_and_bill";
+          $("limit-max-concurrent").value = l.maxConcurrentCalls ?? "";
+          $("limit-included-minutes").value = l.includedMonthlyMinutes ?? "";
+          $("limit-hard-cap").value = l.maxMonthlyMinutesHardCap ?? "";
+          $("limit-max-daily-calls").value = l.maxDailyCalls ?? "";
+          $("limit-max-monthly-calls").value = l.maxMonthlyCalls ?? "";
+          $("limit-max-phone-numbers").value = l.maxPhoneNumbers ?? "";
+          $("limit-max-integrations").value = l.maxIntegrations ?? "";
+          $("limit-max-locations").value = l.maxLocations ?? "";
+          $("limit-max-admin-users").value = l.maxAdminUsers ?? "";
+          $("limit-max-escalation").value = l.maxEscalationContacts ?? "";
+          $("limit-max-kb-mb").value = l.maxKnowledgeBaseSizeMb ?? "";
+          $("limit-overage-rate").value = l.monthlyMinuteOverageRateCents ?? 0;
+          $("limit-f-after-hours").checked = !!l.afterHoursMode;
+          $("limit-f-sms").checked = !!l.smsFollowup;
+          $("limit-f-calendar").checked = !!l.calendarIntegration;
+          $("limit-f-crm").checked = !!l.crmIntegration;
+          $("limit-f-analytics").checked = !!l.advancedAnalytics;
+          $("limit-f-recording").checked = !!l.callRecording;
+          $("limit-f-retention").checked = !!l.transcriptRetention;
+          $("limit-f-multiloc").checked = !!l.multiLocation;
+          $("limit-f-workflows").checked = !!l.customWorkflows;
+          $("limit-f-priority").checked = !!l.prioritySupport;
+          $("limit-status").textContent = `Loaded. Updated by ${l.updatedBy || "system"} at ${l.updatedAt || "n/a"}.`;
+        } catch (err) {
+          $("limit-status").textContent = "Load failed: " + err.message;
+        }
+        await loadTenantUsage();
+      }
+
+      async function loadTenantUsage() {
+        if (!currentTenantId) return;
+        try {
+          const data = await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/usage`);
+          $("limit-usage").textContent = JSON.stringify(data, null, 2);
+        } catch (err) {
+          $("limit-usage").textContent = "Usage load failed: " + err.message;
+        }
+      }
+
+      async function saveTenantLimits() {
+        if (!currentTenantId) return;
+        const usageRaw = $("limit-usage").textContent || "";
+        try {
+          const usageJson = JSON.parse(usageRaw);
+          const active = Number(usageJson?.usage?.activeCalls || 0);
+          const newConcurrent = readIntField("limit-max-concurrent", 1);
+          if (newConcurrent < active && !confirm(`You are lowering concurrent limit below current usage (${active}). Continue?`)) {
+            return;
+          }
+        } catch (_) {}
+        const payload = {
+          planTier: $("limit-plan-tier").value,
+          billingStatus: $("limit-billing-status").value,
+          overageMode: $("limit-overage-mode").value,
+          maxConcurrentCalls: readIntField("limit-max-concurrent", 1),
+          includedMonthlyMinutes: readIntField("limit-included-minutes", 0),
+          maxMonthlyMinutesHardCap: readIntField("limit-hard-cap", 0),
+          maxDailyCalls: readIntField("limit-max-daily-calls", 0),
+          maxMonthlyCalls: readIntField("limit-max-monthly-calls", 0),
+          maxKnowledgeBaseSizeMb: readIntField("limit-max-kb-mb", 0),
+          maxIntegrations: readIntField("limit-max-integrations", 0),
+          maxLocations: readIntField("limit-max-locations", 0),
+          maxPhoneNumbers: readIntField("limit-max-phone-numbers", 0),
+          maxAdminUsers: readIntField("limit-max-admin-users", 0),
+          maxEscalationContacts: readIntField("limit-max-escalation", 0),
+          monthlyMinuteOverageRateCents: readIntField("limit-overage-rate", 0),
+          afterHoursMode: $("limit-f-after-hours").checked,
+          smsFollowup: $("limit-f-sms").checked,
+          calendarIntegration: $("limit-f-calendar").checked,
+          crmIntegration: $("limit-f-crm").checked,
+          advancedAnalytics: $("limit-f-analytics").checked,
+          callRecording: $("limit-f-recording").checked,
+          transcriptRetention: $("limit-f-retention").checked,
+          multiLocation: $("limit-f-multiloc").checked,
+          customWorkflows: $("limit-f-workflows").checked,
+          prioritySupport: $("limit-f-priority").checked,
+        };
+        try {
+          await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/limits`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          $("limit-status").textContent = "Limits saved (effective immediately).";
+          setStatus("Tenant limits saved", "ok");
+          await loadTenantLimits();
+        } catch (err) {
+          $("limit-status").textContent = "Save failed: " + err.message;
+          setStatus("Tenant limits save failed", "err");
+        }
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         window.__neuralConsole = window.__neuralConsole || { activity: 0, spine: 0 };
         const syncAll = $("refresh-all");
@@ -4846,6 +5018,40 @@
         // Cloudflare Tunnel
         const cfSave = $("cf-save-token");
         if (cfSave) cfSave.addEventListener("click", () => requireAuth(saveCloudflareToken));
+        $("limit-refresh")?.addEventListener("click", () => void loadTenantLimits());
+        $("limit-save")?.addEventListener("click", () => void saveTenantLimits());
+        $("limit-reset-plan")?.addEventListener("click", async () => {
+          if (!currentTenantId) return;
+          try {
+            await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/limits/reset-to-plan-defaults`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ planTier: $("limit-plan-tier").value }),
+            });
+            setStatus("Tenant limits reset to plan defaults", "ok");
+            await loadTenantLimits();
+          } catch (err) {
+            setStatus("Tenant limits reset failed: " + err.message, "err");
+          }
+        });
+        $("limit-set-billing")?.addEventListener("click", async () => {
+          if (!currentTenantId) return;
+          const nextStatus = $("limit-billing-status").value;
+          if ((nextStatus === "suspended" || nextStatus === "canceled") && !confirm(`Set billing status to ${nextStatus}? This can block calls immediately.`)) {
+            return;
+          }
+          try {
+            await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/billing-status`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ billingStatus: nextStatus }),
+            });
+            setStatus("Billing status updated", "ok");
+            await loadTenantLimits();
+          } catch (err) {
+            setStatus("Billing status update failed: " + err.message, "err");
+          }
+        });
 
         const cfToggle = $("cf-toggle-visibility");
         if (cfToggle) {

@@ -1,0 +1,57 @@
+name: Production Readiness
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "control-plane/**"
+      - "veralux-voice-runtime/**"
+      - "shared/**"
+      - "docker-compose.test.yml"
+      - "scripts/test-infra.sh"
+      - ".env.test.example"
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    services:
+      postgres-test:
+        image: postgres:16
+        env:
+          POSTGRES_DB: veralux_test
+          POSTGRES_USER: veralux_test
+          POSTGRES_PASSWORD: veralux_test
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd "pg_isready -U veralux_test -d veralux_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis-test:
+        image: redis:7
+        ports:
+          - 56379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://veralux_test:veralux_test@127.0.0.1:55432/veralux_test
+      REDIS_URL: redis://127.0.0.1:56379
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w @veralux/shared
+      - run: npm run test:production-readiness -w control-plane
+      - run: npm test -w control-plane
+      - run: npm run build -w control-plane
+      - run: npm run test:production-readiness -w veralux-voice-runtime
+      - run: npm test -w veralux-voice-runtime
+      - run: npm run build -w veralux-voice-runtime

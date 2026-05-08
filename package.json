@@ -17,6 +17,12 @@
     "logs:runtime": "bash scripts/logs.sh runtime",
     "logs:control": "bash scripts/logs.sh control",
     "logs:core": "bash scripts/logs.sh core",
-    "logs:help": "bash scripts/logs.sh --help"
+    "logs:help": "bash scripts/logs.sh --help",
+    "test:infra:up": "./scripts/test-infra.sh up",
+    "test:infra:wait": "./scripts/test-infra.sh wait",
+    "test:infra:reset": "./scripts/test-infra.sh reset",
+    "test:infra:status": "./scripts/test-infra.sh status",
+    "test:infra:down": "./scripts/test-infra.sh down",
+    "test:production-readiness": "npm run test:infra:wait && npm run test:production-readiness -w control-plane && npm run test:production-readiness -w veralux-voice-runtime"
   }
 }

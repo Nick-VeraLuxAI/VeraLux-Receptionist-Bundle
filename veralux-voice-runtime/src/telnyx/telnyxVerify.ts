@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 import { env } from '../env';
 
-const MAX_SKEW_SECONDS = 300;
-
 export interface TelnyxSignatureInput {
   rawBody: Buffer;
   signature: string;
@@ -19,6 +17,15 @@ export interface TelnyxEventMeta {
 export interface TelnyxSignatureCheck {
   ok: boolean;
   skipped: boolean;
+  reason?:
+    | 'skipped_by_config'
+    | 'missing_signature_or_timestamp'
+    | 'invalid_timestamp'
+    | 'timestamp_out_of_tolerance'
+    | 'missing_hmac_secret'
+    | 'signature_mismatch'
+    | 'public_key_missing'
+    | 'signature_parse_error';
 }
 
 function isHex(value: string): boolean {
@@ -127,24 +134,24 @@ export function verifyTelnyxSignature({
   const verifyOverride = parseBoolEnv(process.env.TELNYX_VERIFY_SIGNATURES);
   const skipVerify = verifyOverride === false || (verifyOverride !== true && env.TELNYX_SKIP_SIGNATURE);
   if (skipVerify) {
-    return { ok: true, skipped: true };
+    return { ok: true, skipped: true, reason: 'skipped_by_config' };
   }
 
   const trimmedSignature = signature?.trim() ?? '';
   const trimmedTimestamp = timestamp?.trim() ?? '';
   if (!trimmedSignature || !trimmedTimestamp) {
-    return { ok: false, skipped: false };
+    return { ok: false, skipped: false, reason: 'missing_signature_or_timestamp' };
   }
 
   const parsedTimestamp = Number.parseInt(trimmedTimestamp, 10);
   if (!Number.isFinite(parsedTimestamp)) {
-    return { ok: false, skipped: false };
+    return { ok: false, skipped: false, reason: 'invalid_timestamp' };
   }
 
   const now = Math.floor(Date.now() / 1000);
   const normalizedTimestamp = parsedTimestamp > 1_000_000_000_000 ? Math.floor(parsedTimestamp / 1000) : parsedTimestamp;
-  if (Math.abs(now - normalizedTimestamp) > MAX_SKEW_SECONDS) {
-    return { ok: false, skipped: false };
+  if (Math.abs(now - normalizedTimestamp) > env.TELNYX_SIGNATURE_MAX_SKEW_SECONDS) {
+    return { ok: false, skipped: false, reason: 'timestamp_out_of_tolerance' };
   }
 
   const message = Buffer.concat([
@@ -160,20 +167,22 @@ export function verifyTelnyxSignature({
   try {
     if (shouldUseHmac) {
       if (!secret) {
-        return { ok: false, skipped: false };
+        return { ok: false, skipped: false, reason: 'missing_hmac_secret' };
       }
-      return { ok: verifyHmacSignature(message, trimmedSignature, secret), skipped: false };
+      const ok = verifyHmacSignature(message, trimmedSignature, secret);
+      return { ok, skipped: false, reason: ok ? undefined : 'signature_mismatch' };
     }
 
     const publicKeyRaw = env.TELNYX_PUBLIC_KEY?.trim();
     if (!publicKeyRaw) {
-      return { ok: false, skipped: false };
+      return { ok: false, skipped: false, reason: 'public_key_missing' };
     }
 
     const publicKey = parsePublicKey(publicKeyRaw);
     const signatureBuffer = Buffer.from(trimmedSignature, isHex(trimmedSignature) ? 'hex' : 'base64');
-    return { ok: crypto.verify(null, message, publicKey, signatureBuffer), skipped: false };
+    const ok = crypto.verify(null, message, publicKey, signatureBuffer);
+    return { ok, skipped: false, reason: ok ? undefined : 'signature_mismatch' };
   } catch {
-    return { ok: false, skipped: false };
+    return { ok: false, skipped: false, reason: 'signature_parse_error' };
   }
 }

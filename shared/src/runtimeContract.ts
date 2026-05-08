@@ -254,6 +254,41 @@ const callForwardingSchema = z.object({
   timeoutSecs: z.number().int().min(5).max(600).optional(),
 });
 
+const usageFeatureFlagsSchema = z.object({
+  afterHoursMode: z.boolean(),
+  smsFollowup: z.boolean(),
+  calendarIntegration: z.boolean(),
+  crmIntegration: z.boolean(),
+  advancedAnalytics: z.boolean(),
+  callRecording: z.boolean(),
+  transcriptRetention: z.boolean(),
+  multiLocation: z.boolean(),
+  customWorkflows: z.boolean(),
+  prioritySupport: z.boolean(),
+});
+
+const usagePlanLimitsSchema = z.object({
+  planName: z.string().min(1),
+  planTier: z.enum(["starter", "professional", "premium", "enterprise"]),
+  billingStatus: z.enum(["trial", "active", "past_due", "suspended", "canceled"]),
+  overageMode: z.enum(["allow_and_bill", "throttle", "hard_stop"]),
+  monthlyMinuteOverageRateCents: z.number().int().min(0),
+  effectiveFrom: z.string().datetime().nullable().optional(),
+  effectiveUntil: z.string().datetime().nullable().optional(),
+  maxConcurrentCalls: z.number().int().positive(),
+  includedMonthlyMinutes: z.number().int().min(0),
+  maxMonthlyMinutesHardCap: z.number().int().min(0),
+  maxDailyCalls: z.number().int().min(0),
+  maxMonthlyCalls: z.number().int().min(0),
+  maxKnowledgeBaseSizeMb: z.number().int().min(0),
+  maxIntegrations: z.number().int().min(0),
+  maxLocations: z.number().int().min(0),
+  maxPhoneNumbers: z.number().int().min(0),
+  maxAdminUsers: z.number().int().min(0),
+  maxEscalationContacts: z.number().int().min(0),
+  features: usageFeatureFlagsSchema,
+});
+
 // ---------------------------------------------------------------------------
 // Main RuntimeTenantConfig schema
 // ---------------------------------------------------------------------------
@@ -303,6 +338,7 @@ const runtimeTenantConfigBaseSchema = z
      * that all map to the same `reply`.
      */
     quickReplies: z.array(quickReplyIntentSchema).max(200).optional(),
+    usageLimits: usagePlanLimitsSchema.optional(),
   })
   // passthrough allows the runtime to accept fields added by a newer control plane
   // without breaking validation

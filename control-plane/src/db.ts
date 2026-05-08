@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeE164 } from "./runtime/runtimeContract";
 import { syncRedisDidMapAfterTenantNumbersChange } from "./didMappingSync";
+import { getPlanDefaults, RECOMMENDED_DEFAULT_PLAN_TIER, type TenantLimits } from "./planLimits";
 
 const DEFAULT_DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -942,6 +943,311 @@ export async function upsertSubscription(
       ]
     );
     return rowToSubscription(res.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
+export interface TenantUsageSnapshot {
+  tenantId: string;
+  day: string;
+  month: string;
+  dailyCalls: number;
+  monthlyCalls: number;
+  monthlyBillableMinutes: number;
+  fallbackUsageCount: number;
+  activeCalls: number;
+}
+
+export interface TenantBillingSummary {
+  tenantId: string;
+  month: string;
+  planTier: string;
+  billingStatus: string;
+  includedMinutes: number;
+  billableMinutes: number;
+  overageMinutes: number;
+  estimatedOverageChargeCents: number;
+  callsCount: number;
+}
+
+function rowToTenantLimits(row: any): TenantLimits {
+  return {
+    planName: row.plan_name,
+    planTier: row.plan_tier,
+    billingStatus: row.billing_status,
+    overageMode: row.overage_mode,
+    monthlyMinuteOverageRateCents: row.monthly_minute_overage_rate_cents,
+    effectiveFrom: row.effective_from?.toISOString?.() ?? null,
+    effectiveUntil: row.effective_until?.toISOString?.() ?? null,
+    maxConcurrentCalls: row.max_concurrent_calls,
+    includedMonthlyMinutes: row.included_monthly_minutes,
+    maxMonthlyMinutesHardCap: row.max_monthly_minutes_hard_cap,
+    maxDailyCalls: row.max_daily_calls,
+    maxMonthlyCalls: row.max_monthly_calls,
+    maxKnowledgeBaseSizeMb: row.max_knowledge_base_size_mb,
+    maxIntegrations: row.max_integrations,
+    maxLocations: row.max_locations,
+    maxPhoneNumbers: row.max_phone_numbers,
+    maxAdminUsers: row.max_admin_users,
+    maxEscalationContacts: row.max_escalation_contacts,
+    afterHoursMode: row.after_hours_mode,
+    smsFollowup: row.sms_followup,
+    calendarIntegration: row.calendar_integration,
+    crmIntegration: row.crm_integration,
+    advancedAnalytics: row.advanced_analytics,
+    callRecording: row.call_recording,
+    transcriptRetention: row.transcript_retention,
+    multiLocation: row.multi_location,
+    customWorkflows: row.custom_workflows,
+    prioritySupport: row.priority_support,
+    updatedBy: row.updated_by ?? null,
+    updatedAt: row.updated_at?.toISOString?.() ?? null,
+  };
+}
+
+export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query("SELECT * FROM tenant_limits WHERE tenant_id = $1", [tenantId]);
+    if (res.rows[0]) return rowToTenantLimits(res.rows[0]);
+  } finally {
+    client.release();
+  }
+  return getPlanDefaults(RECOMMENDED_DEFAULT_PLAN_TIER);
+}
+
+export async function upsertTenantLimits(
+  tenantId: string,
+  limits: Partial<TenantLimits>,
+  updatedBy: string | null,
+): Promise<TenantLimits> {
+  const current = await getTenantLimits(tenantId);
+  const merged = { ...current, ...limits } as TenantLimits;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO tenant_limits (
+        tenant_id, plan_name, plan_tier, billing_status, overage_mode, monthly_minute_overage_rate_cents,
+        effective_from, effective_until,
+        max_concurrent_calls, included_monthly_minutes, max_monthly_minutes_hard_cap,
+        max_daily_calls, max_monthly_calls, max_knowledge_base_size_mb, max_integrations, max_locations,
+        max_phone_numbers, max_admin_users, max_escalation_contacts,
+        after_hours_mode, sms_followup, calendar_integration, crm_integration, advanced_analytics,
+        call_recording, transcript_retention, multi_location, custom_workflows, priority_support,
+        updated_by, updated_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,now()
+      )
+      ON CONFLICT (tenant_id) DO UPDATE SET
+        plan_name = EXCLUDED.plan_name,
+        plan_tier = EXCLUDED.plan_tier,
+        billing_status = EXCLUDED.billing_status,
+        overage_mode = EXCLUDED.overage_mode,
+        monthly_minute_overage_rate_cents = EXCLUDED.monthly_minute_overage_rate_cents,
+        effective_from = EXCLUDED.effective_from,
+        effective_until = EXCLUDED.effective_until,
+        max_concurrent_calls = EXCLUDED.max_concurrent_calls,
+        included_monthly_minutes = EXCLUDED.included_monthly_minutes,
+        max_monthly_minutes_hard_cap = EXCLUDED.max_monthly_minutes_hard_cap,
+        max_daily_calls = EXCLUDED.max_daily_calls,
+        max_monthly_calls = EXCLUDED.max_monthly_calls,
+        max_knowledge_base_size_mb = EXCLUDED.max_knowledge_base_size_mb,
+        max_integrations = EXCLUDED.max_integrations,
+        max_locations = EXCLUDED.max_locations,
+        max_phone_numbers = EXCLUDED.max_phone_numbers,
+        max_admin_users = EXCLUDED.max_admin_users,
+        max_escalation_contacts = EXCLUDED.max_escalation_contacts,
+        after_hours_mode = EXCLUDED.after_hours_mode,
+        sms_followup = EXCLUDED.sms_followup,
+        calendar_integration = EXCLUDED.calendar_integration,
+        crm_integration = EXCLUDED.crm_integration,
+        advanced_analytics = EXCLUDED.advanced_analytics,
+        call_recording = EXCLUDED.call_recording,
+        transcript_retention = EXCLUDED.transcript_retention,
+        multi_location = EXCLUDED.multi_location,
+        custom_workflows = EXCLUDED.custom_workflows,
+        priority_support = EXCLUDED.priority_support,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = now()
+      RETURNING *`,
+      [
+        tenantId,
+        merged.planName,
+        merged.planTier,
+        merged.billingStatus,
+        merged.overageMode,
+        merged.monthlyMinuteOverageRateCents,
+        merged.effectiveFrom ?? null,
+        merged.effectiveUntil ?? null,
+        merged.maxConcurrentCalls,
+        merged.includedMonthlyMinutes,
+        merged.maxMonthlyMinutesHardCap,
+        merged.maxDailyCalls,
+        merged.maxMonthlyCalls,
+        merged.maxKnowledgeBaseSizeMb,
+        merged.maxIntegrations,
+        merged.maxLocations,
+        merged.maxPhoneNumbers,
+        merged.maxAdminUsers,
+        merged.maxEscalationContacts,
+        merged.afterHoursMode,
+        merged.smsFollowup,
+        merged.calendarIntegration,
+        merged.crmIntegration,
+        merged.advancedAnalytics,
+        merged.callRecording,
+        merged.transcriptRetention,
+        merged.multiLocation,
+        merged.customWorkflows,
+        merged.prioritySupport,
+        updatedBy,
+      ],
+    );
+    return rowToTenantLimits(res.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
+export async function resetTenantLimitsToPlanDefaults(
+  tenantId: string,
+  planTier: TenantLimits["planTier"],
+  updatedBy: string | null,
+): Promise<TenantLimits> {
+  const defaults = getPlanDefaults(planTier);
+  return upsertTenantLimits(tenantId, defaults, updatedBy);
+}
+
+export async function setTenantBillingStatus(
+  tenantId: string,
+  billingStatus: TenantLimits["billingStatus"],
+  updatedBy: string | null,
+): Promise<TenantLimits> {
+  return upsertTenantLimits(tenantId, { billingStatus }, updatedBy);
+}
+
+function monthKey(now = new Date()): string {
+  return now.toISOString().slice(0, 7);
+}
+
+export async function recordTenantCallStarted(tenantId: string, at = new Date()): Promise<void> {
+  const day = at.toISOString().slice(0, 10);
+  const month = monthKey(at);
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO tenant_usage_daily (tenant_id, usage_date, calls_count, updated_at)
+       VALUES ($1, $2::date, 1, now())
+       ON CONFLICT (tenant_id, usage_date) DO UPDATE
+         SET calls_count = tenant_usage_daily.calls_count + 1, updated_at = now()`,
+      [tenantId, day],
+    );
+    await client.query(
+      `INSERT INTO tenant_usage_monthly (tenant_id, usage_month, calls_count, updated_at)
+       VALUES ($1, $2, 1, now())
+       ON CONFLICT (tenant_id, usage_month) DO UPDATE
+         SET calls_count = tenant_usage_monthly.calls_count + 1, updated_at = now()`,
+      [tenantId, month],
+    );
+  } finally {
+    client.release();
+  }
+}
+
+export async function recordTenantCallEnded(params: {
+  tenantId: string;
+  durationMs?: number;
+  fallbackUsed?: boolean;
+  providerUsage?: Record<string, number>;
+  at?: Date;
+}): Promise<void> {
+  const at = params.at ?? new Date();
+  const day = at.toISOString().slice(0, 10);
+  const month = monthKey(at);
+  const minutes = Math.max(0, Math.ceil((params.durationMs ?? 0) / 60000));
+  const fallbackInc = params.fallbackUsed ? 1 : 0;
+  const providerUsage = JSON.stringify(params.providerUsage ?? {});
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO tenant_usage_daily (tenant_id, usage_date, billable_minutes, fallback_usage_count, updated_at)
+       VALUES ($1, $2::date, $3, $4, now())
+       ON CONFLICT (tenant_id, usage_date) DO UPDATE
+         SET billable_minutes = tenant_usage_daily.billable_minutes + EXCLUDED.billable_minutes,
+             fallback_usage_count = tenant_usage_daily.fallback_usage_count + EXCLUDED.fallback_usage_count,
+             updated_at = now()`,
+      [params.tenantId, day, minutes, fallbackInc],
+    );
+    await client.query(
+      `INSERT INTO tenant_usage_monthly (tenant_id, usage_month, billable_minutes, fallback_usage_count, provider_usage, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, now())
+       ON CONFLICT (tenant_id, usage_month) DO UPDATE
+         SET billable_minutes = tenant_usage_monthly.billable_minutes + EXCLUDED.billable_minutes,
+             fallback_usage_count = tenant_usage_monthly.fallback_usage_count + EXCLUDED.fallback_usage_count,
+             provider_usage = tenant_usage_monthly.provider_usage || EXCLUDED.provider_usage,
+             updated_at = now()`,
+      [params.tenantId, month, minutes, fallbackInc, providerUsage],
+    );
+  } finally {
+    client.release();
+  }
+}
+
+export async function getTenantUsageSnapshot(tenantId: string, at = new Date()): Promise<TenantUsageSnapshot> {
+  const day = at.toISOString().slice(0, 10);
+  const month = monthKey(at);
+  const client = await pool.connect();
+  try {
+    const [daily, monthly, active] = await Promise.all([
+      client.query(
+        "SELECT calls_count, billable_minutes, fallback_usage_count FROM tenant_usage_daily WHERE tenant_id = $1 AND usage_date = $2::date",
+        [tenantId, day],
+      ),
+      client.query(
+        "SELECT calls_count, billable_minutes, fallback_usage_count FROM tenant_usage_monthly WHERE tenant_id = $1 AND usage_month = $2",
+        [tenantId, month],
+      ),
+      client.query("SELECT COUNT(*)::int AS n FROM calls WHERE tenant_id = $1 AND COALESCE(stage, '') <> 'end'", [tenantId]),
+    ]);
+    return {
+      tenantId,
+      day,
+      month,
+      dailyCalls: Number(daily.rows[0]?.calls_count ?? 0),
+      monthlyCalls: Number(monthly.rows[0]?.calls_count ?? 0),
+      monthlyBillableMinutes: Number(monthly.rows[0]?.billable_minutes ?? 0),
+      fallbackUsageCount: Number(monthly.rows[0]?.fallback_usage_count ?? 0),
+      activeCalls: Number(active.rows[0]?.n ?? 0),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function getTenantBillingSummary(tenantId: string, month: string): Promise<TenantBillingSummary> {
+  const limits = await getTenantLimits(tenantId);
+  const client = await pool.connect();
+  try {
+    const monthly = await client.query(
+      "SELECT calls_count, billable_minutes FROM tenant_usage_monthly WHERE tenant_id = $1 AND usage_month = $2",
+      [tenantId, month],
+    );
+    const callsCount = Number(monthly.rows[0]?.calls_count ?? 0);
+    const billableMinutes = Number(monthly.rows[0]?.billable_minutes ?? 0);
+    const overageMinutes = Math.max(0, billableMinutes - limits.includedMonthlyMinutes);
+    const estimatedOverageChargeCents = overageMinutes * limits.monthlyMinuteOverageRateCents;
+    return {
+      tenantId,
+      month,
+      planTier: limits.planTier,
+      billingStatus: limits.billingStatus,
+      includedMinutes: limits.includedMonthlyMinutes,
+      billableMinutes,
+      overageMinutes,
+      estimatedOverageChargeCents,
+      callsCount,
+    };
   } finally {
     client.release();
   }

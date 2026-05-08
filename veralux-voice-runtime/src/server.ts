@@ -15,6 +15,7 @@ import { attachAudioMeta, getAudioMeta, probeWav } from './diagnostics/audioProb
 import { healthRouter } from './routes/health';
 import { createTelnyxWebhookRouter } from './routes/telnyxWebhook';
 import { createWebRtcRouter } from './routes/webrtc';
+import { voiceControlGuard } from './security/voiceControlAuth';
 import { synthesizeSpeech } from './tts';
 import { metricsHandler, metricsMiddleware, startStageTimer } from './metrics';
 import { TelnyxClient } from './telnyx/telnyxClient';
@@ -1049,7 +1050,7 @@ export function buildServer(): { app: express.Express; server: http.Server; sess
    * GET /v1/calls/:callControlId/voice
    * Get voice mode info for an active call.
    */
-  app.get('/v1/calls/:callControlId/voice', (req, res) => {
+  app.get('/v1/calls/:callControlId/voice', voiceControlGuard, (req, res) => {
     const { callControlId } = req.params;
     const info = sessionManager.getVoiceModeInfo(callControlId);
 
@@ -1074,7 +1075,7 @@ export function buildServer(): { app: express.Express; server: http.Server; sess
    * Set voice mode for an active call (hot-swap).
    * Body: { mode: 'preset' | 'cloned', speakerWavUrl?: string }
    */
-  app.post('/v1/calls/:callControlId/voice', (req, res) => {
+  app.post('/v1/calls/:callControlId/voice', voiceControlGuard, (req, res) => {
     const { callControlId } = req.params;
     const body = req.body as { mode?: string; speakerWavUrl?: string };
 

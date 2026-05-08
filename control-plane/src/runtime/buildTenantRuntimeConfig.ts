@@ -1,5 +1,6 @@
 import type { TTSConfig } from "../config";
 import type { TenantContext } from "../tenants";
+import type { TenantLimits } from "../planLimits";
 import {
   normalizeE164,
   parseRuntimeTenantConfig,
@@ -207,7 +208,8 @@ function buildRuntimeTts(cfg: TTSConfig): RuntimeTenantConfig["tts"] {
  */
 export function buildTenantRuntimeConfig(
   tenant: TenantContext,
-  existing: RuntimeTenantConfig | null
+  existing: RuntimeTenantConfig | null,
+  tenantLimits?: TenantLimits | null,
 ): RuntimeTenantConfig {
   const numbers = tenant.meta.numbers || [];
   const dids: string[] = [];
@@ -242,7 +244,13 @@ export function buildTenantRuntimeConfig(
     contractVersion: "v1",
     tenantId: tenant.id,
     dids,
-    caps: existing?.caps ?? defaultCaps(),
+    caps: tenantLimits
+      ? {
+          maxConcurrentCallsTenant: Math.max(1, tenantLimits.maxConcurrentCalls),
+          maxCallsPerMinuteTenant: Math.max(1, Math.min(tenantLimits.maxDailyCalls || 1, existing?.caps?.maxCallsPerMinuteTenant ?? defaultCaps().maxCallsPerMinuteTenant)),
+          maxConcurrentCallsGlobal: existing?.caps?.maxConcurrentCallsGlobal ?? defaultCaps().maxConcurrentCallsGlobal,
+        }
+      : existing?.caps ?? defaultCaps(),
     stt: {
       mode: "whisper_http",
       whisperUrl,
@@ -260,6 +268,44 @@ export function buildTenantRuntimeConfig(
       : {}),
     ...(existing?.transferProfiles?.length ? { transferProfiles: existing.transferProfiles } : {}),
     ...(existing?.callForwarding ? { callForwarding: existing.callForwarding } : {}),
+    ...(tenantLimits
+      ? {
+          usageLimits: {
+            planName: tenantLimits.planName,
+            planTier: tenantLimits.planTier,
+            billingStatus: tenantLimits.billingStatus,
+            overageMode: tenantLimits.overageMode,
+            monthlyMinuteOverageRateCents: tenantLimits.monthlyMinuteOverageRateCents,
+            effectiveFrom: tenantLimits.effectiveFrom ?? undefined,
+            effectiveUntil: tenantLimits.effectiveUntil ?? undefined,
+            maxConcurrentCalls: tenantLimits.maxConcurrentCalls,
+            includedMonthlyMinutes: tenantLimits.includedMonthlyMinutes,
+            maxMonthlyMinutesHardCap: tenantLimits.maxMonthlyMinutesHardCap,
+            maxDailyCalls: tenantLimits.maxDailyCalls,
+            maxMonthlyCalls: tenantLimits.maxMonthlyCalls,
+            maxKnowledgeBaseSizeMb: tenantLimits.maxKnowledgeBaseSizeMb,
+            maxIntegrations: tenantLimits.maxIntegrations,
+            maxLocations: tenantLimits.maxLocations,
+            maxPhoneNumbers: tenantLimits.maxPhoneNumbers,
+            maxAdminUsers: tenantLimits.maxAdminUsers,
+            maxEscalationContacts: tenantLimits.maxEscalationContacts,
+            features: {
+              afterHoursMode: tenantLimits.afterHoursMode,
+              smsFollowup: tenantLimits.smsFollowup,
+              calendarIntegration: tenantLimits.calendarIntegration,
+              crmIntegration: tenantLimits.crmIntegration,
+              advancedAnalytics: tenantLimits.advancedAnalytics,
+              callRecording: tenantLimits.callRecording,
+              transcriptRetention: tenantLimits.transcriptRetention,
+              multiLocation: tenantLimits.multiLocation,
+              customWorkflows: tenantLimits.customWorkflows,
+              prioritySupport: tenantLimits.prioritySupport,
+            },
+          },
+        }
+      : existing?.usageLimits
+      ? { usageLimits: existing.usageLimits }
+      : {}),
   };
 
   if (!base.webhookSecret && !base.webhookSecretRef) {

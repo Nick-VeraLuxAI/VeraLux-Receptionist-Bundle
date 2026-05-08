@@ -1,6 +1,8 @@
 import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
 import { env } from '../env';
 import { log } from '../log';
+import { incProviderCircuitOpen, incProviderTimeout } from '../metrics';
+import { withCircuitBreaker } from '../providers/circuitBreaker';
 import { ConversationTurn } from '../calls/types';
 import type { TransferProfile } from '../tenants/tenantConfig';
 import { defaultBrainReply } from './defaultBrain';
@@ -237,25 +239,32 @@ export async function generateAssistantReply(
       'brain routed to http',
     );
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        tenantId: input.tenantId,
-        callControlId: input.callControlId,
-        transcript: input.transcript,
-        history: input.history,
-        ...(input.transferProfiles?.length
-          ? { transferProfiles: input.transferProfiles }
-          : {}),
-        ...(input.assistantContext &&
-        Object.keys(input.assistantContext).length > 0
-          ? { assistantContext: input.assistantContext }
-          : {}),
-      }),
-      signal: controller.signal,
+    const response = await withCircuitBreaker({
+      key: 'brain_http',
+      failureThreshold: 3,
+      openMs: 20_000,
+      onOpen: () => incProviderCircuitOpen('brain_http'),
+      action: () =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            tenantId: input.tenantId,
+            callControlId: input.callControlId,
+            transcript: input.transcript,
+            history: input.history,
+            ...(input.transferProfiles?.length
+              ? { transferProfiles: input.transferProfiles }
+              : {}),
+            ...(input.assistantContext &&
+            Object.keys(input.assistantContext).length > 0
+              ? { assistantContext: input.assistantContext }
+              : {}),
+          }),
+          signal: controller.signal,
+        }),
     });
 
     if (!response.ok) {
@@ -284,6 +293,12 @@ export async function generateAssistantReply(
     if (voiceDirective) result.voiceDirective = voiceDirective;
     return result;
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'AbortError' || /aborted|timeout/i.test(error.message))
+    ) {
+      incProviderTimeout('brain_http');
+    }
     log.error(
       {
         err: error,
@@ -331,26 +346,33 @@ export async function generateAssistantReplyStream(
       'brain routed to stream',
     );
 
-    const response = await fetch(streamUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({
-        tenantId: input.tenantId,
-        callControlId: input.callControlId,
-        transcript: input.transcript,
-        history: input.history,
-        ...(input.transferProfiles?.length
-          ? { transferProfiles: input.transferProfiles }
-          : {}),
-        ...(input.assistantContext &&
-        Object.keys(input.assistantContext).length > 0
-          ? { assistantContext: input.assistantContext }
-          : {}),
-      }),
-      signal: controller.signal,
+    const response = await withCircuitBreaker({
+      key: 'brain_http_stream',
+      failureThreshold: 3,
+      openMs: 20_000,
+      onOpen: () => incProviderCircuitOpen('brain_http_stream'),
+      action: () =>
+        fetch(streamUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify({
+            tenantId: input.tenantId,
+            callControlId: input.callControlId,
+            transcript: input.transcript,
+            history: input.history,
+            ...(input.transferProfiles?.length
+              ? { transferProfiles: input.transferProfiles }
+              : {}),
+            ...(input.assistantContext &&
+            Object.keys(input.assistantContext).length > 0
+              ? { assistantContext: input.assistantContext }
+              : {}),
+          }),
+          signal: controller.signal,
+        }),
     });
 
     const contentType = response.headers.get('content-type') ?? '';
@@ -458,6 +480,12 @@ export async function generateAssistantReplyStream(
     if (voiceDirective) result.voiceDirective = voiceDirective;
     return result;
   } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'AbortError' || /aborted|timeout/i.test(error.message))
+    ) {
+      incProviderTimeout('brain_http_stream');
+    }
     log.warn(
       {
         err: error,

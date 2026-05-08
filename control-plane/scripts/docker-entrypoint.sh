@@ -16,7 +16,7 @@ fi
 
 # Allow x-admin-key auth in production (needed for admin dashboard)
 if [ -z "$ALLOW_ADMIN_API_KEY_IN_PROD" ]; then
-  export ALLOW_ADMIN_API_KEY_IN_PROD="true"
+  export ALLOW_ADMIN_API_KEY_IN_PROD="false"
 fi
 
 # Owner portal JWT: fall back to JWT_SECRET if ADMIN_JWT_SECRET not set

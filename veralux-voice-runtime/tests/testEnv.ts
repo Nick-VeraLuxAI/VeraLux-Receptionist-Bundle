@@ -1,5 +1,6 @@
 const defaults: Record<string, string> = {
   PORT: '3000',
+  VOICE_CONTROL_API_KEY: 'test-voice-control-key',
   TELNYX_API_KEY: 'test',
   PUBLIC_BASE_URL: 'http://localhost:3000',
   TELNYX_PUBLIC_KEY: 'test',
@@ -14,7 +15,7 @@ const defaults: Record<string, string> = {
   STT_MIN_SECONDS: '1.0',
   STT_SILENCE_MIN_SECONDS: '.5',
   DEAD_AIR_MS: '2000',
-  REDIS_URL: 'redis://localhost:6379',
+  REDIS_URL: 'redis://127.0.0.1:56379',
   GLOBAL_CONCURRENCY_CAP: '30',
   TENANT_CONCURRENCY_CAP_DEFAULT: '5',
   TENANT_CALLS_PER_MIN_CAP_DEFAULT: '10',
