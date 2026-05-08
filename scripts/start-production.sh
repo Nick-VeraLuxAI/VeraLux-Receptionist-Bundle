@@ -33,7 +33,7 @@ if [[ ! -f "$VOICE_ENV" ]]; then
   exit 1
 fi
 
-docker compose version >/dev/null 2>&1 || {
+command docker compose version >/dev/null 2>&1 || {
   echo "[error] docker compose plugin is required"
   exit 1
 }
@@ -131,7 +131,7 @@ stop_split_audio_stack() {
   local f="${PROD_ROOT}/veralux-audio-stack/docker-compose.yml"
   if [[ -f "$f" ]]; then
     echo "[info] Stopping legacy compose project veralux-audio-stack (split STT/TTS network)"
-    docker compose -p veralux-audio-stack -f "$f" down 2>/dev/null || true
+    command docker compose -p veralux-audio-stack -f "$f" down 2>/dev/null || true
   fi
 }
 
@@ -186,6 +186,11 @@ set -a
 source "$EFFECTIVE_ENV"
 set +a
 
+# `compose` is a common legacy alias for docker-compose v1; env files may also set compose=...
+# That breaks a helper named compose() — callers would run docker-compose instead of docker compose.
+unset -f compose 2>/dev/null || true
+unset compose 2>/dev/null || true
+
 RUNTIME_PORT="$(grep -E '^RUNTIME_PORT=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr -d '\r')"
 RUNTIME_PORT="${RUNTIME_PORT:-4001}"
 
@@ -212,17 +217,18 @@ clear_stopped_name_conflicts
 stop_split_audio_stack
 stop_docker_cloudflared
 
-compose() {
-  docker compose \
+veralux_compose() {
+  # `command` avoids a user `alias docker=…` breaking the CLI; literal `compose` is the v2 subcommand.
+  command docker compose \
     -f "${PROD_ROOT}/docker-compose.yml" \
     -f "${PROD_ROOT}/docker-compose.production.yml" \
     -p veralux \
     "$@"
 }
 
-echo "[info] Docker Compose: $(docker compose version --short 2>/dev/null || docker compose version)"
+echo "[info] Docker Compose: $(command docker compose version --short 2>/dev/null || command docker compose version)"
 echo "[info] Building runtime image (health /health/voice)…"
-compose build runtime
+veralux_compose build runtime
 
 BASE_SVC=(postgres redis control)
 AUDIO_SVC=()
@@ -251,13 +257,13 @@ else
 fi
 
 echo "[info] Starting core + audio (${BASE_SVC[*]} ${AUDIO_SVC[*]} runtime) …"
-compose "--profile" "$PROFILE" up -d "${BASE_SVC[@]}" "${AUDIO_SVC[@]}" runtime
+veralux_compose "--profile" "$PROFILE" up -d "${BASE_SVC[@]}" "${AUDIO_SVC[@]}" runtime
 
 wait_runtime_voice || true
 
 echo ""
 echo "[info] Compose status (veralux project):"
-compose ps
+veralux_compose ps
 
 echo ""
 bash "${DEFAULT_REPO_ROOT}/scripts/validate-voice-topology.sh" "${EFFECTIVE_ENV}" || true
