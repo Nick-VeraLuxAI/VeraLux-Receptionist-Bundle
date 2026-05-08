@@ -28,8 +28,12 @@ echo ""
 echo ""
 echo "=== compose ps ($PROJECT) ==="
 if [[ -f "$VOICE_ENV" && -f "${PROD_ROOT}/docker-compose.production.yml" ]]; then
-  # shellcheck source=veralux-compose-helper.sh
-  source "${SCRIPT_DIR}/veralux-compose-helper.sh"
-  veralux_compose_prepare_env "$VOICE_ENV"
-  veralux_compose ps 2>/dev/null || true
+  if [[ ! -f "${SCRIPT_DIR}/veralux-compose-helper.sh" ]]; then
+    echo "[error] Missing ${SCRIPT_DIR}/veralux-compose-helper.sh — sync from VeraLux-Receptionist-Bundle."
+  else
+    # shellcheck source=veralux-compose-helper.sh
+    source "${SCRIPT_DIR}/veralux-compose-helper.sh"
+    veralux_compose_prepare_env "$VOICE_ENV"
+    veralux_compose ps 2>/dev/null || true
+  fi
 fi

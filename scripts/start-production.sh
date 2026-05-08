@@ -16,6 +16,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+if [[ ! -f "${SCRIPT_DIR}/veralux-compose-helper.sh" ]]; then
+  echo "[error] Missing ${SCRIPT_DIR}/veralux-compose-helper.sh — this tree is not a full copy of VeraLux-Receptionist-Bundle."
+  echo "  /opt is often a rsync target, not a git clone. Sync scripts from your clone, e.g.:"
+  echo "    sudo rsync -a --delete \"\$HOME/Documents/GitHub/VeraLux-Receptionist-Bundle/\" /opt/veralux/veralux-voice-runtime/"
+  exit 1
+fi
+# shellcheck source=veralux-compose-helper.sh
+source "${SCRIPT_DIR}/veralux-compose-helper.sh"
+
 PROD_ROOT="${VERALUX_PROD_ROOT:-/opt/veralux/veralux-voice-runtime}"
 VOICE_ENV="${VERALUX_VOICE_ENV_FILE:-/etc/veralux/voice-runtime.env}"
 
@@ -33,8 +43,12 @@ if [[ ! -f "$VOICE_ENV" ]]; then
   exit 1
 fi
 
-command docker compose version >/dev/null 2>&1 || {
-  echo "[error] docker compose plugin is required"
+VERALUX_DOCKER_BIN="$(veralux_resolve_docker_bin)" || {
+  echo "[error] docker CLI not found (checked /usr/bin/docker, /bin/docker, then PATH)"
+  exit 1
+}
+"${VERALUX_DOCKER_BIN}" compose version >/dev/null 2>&1 || {
+  echo "[error] docker compose plugin is required (${VERALUX_DOCKER_BIN} compose version failed)"
   exit 1
 }
 
@@ -131,7 +145,9 @@ stop_split_audio_stack() {
   local f="${PROD_ROOT}/veralux-audio-stack/docker-compose.yml"
   if [[ -f "$f" ]]; then
     echo "[info] Stopping legacy compose project veralux-audio-stack (split STT/TTS network)"
-    command docker compose -p veralux-audio-stack -f "$f" down 2>/dev/null || true
+    local _db
+    _db="$(veralux_resolve_docker_bin)" || return 0
+    "${_db}" compose -p veralux-audio-stack -f "$f" down 2>/dev/null || true
   fi
 }
 
@@ -178,8 +194,6 @@ else
   warn_placeholder_secrets
 fi
 
-# shellcheck source=veralux-compose-helper.sh
-source "${SCRIPT_DIR}/veralux-compose-helper.sh"
 # Interpolation for `docker compose` (no `docker compose --env-file` — Compose v5 / Docker 29 safe).
 veralux_compose_prepare_env "$EFFECTIVE_ENV"
 
@@ -209,7 +223,7 @@ clear_stopped_name_conflicts
 stop_split_audio_stack
 stop_docker_cloudflared
 
-echo "[info] Docker Compose: $(command docker compose version --short 2>/dev/null || command docker compose version)"
+echo "[info] Docker Compose: $("${VERALUX_DOCKER_BIN}" compose version --short 2>/dev/null || "${VERALUX_DOCKER_BIN}" compose version)"
 echo "[info] Building runtime image (health /health/voice)…"
 veralux_compose build runtime
 

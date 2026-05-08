@@ -11,6 +11,10 @@ VOICE_ENV="${VERALUX_VOICE_ENV_FILE:-/etc/veralux/voice-runtime.env}"
   exit 1
 }
 
+if [[ ! -f "${SCRIPT_DIR}/veralux-compose-helper.sh" ]]; then
+  echo "[error] Missing ${SCRIPT_DIR}/veralux-compose-helper.sh — sync from VeraLux-Receptionist-Bundle (see start-production.sh header)."
+  exit 1
+fi
 # shellcheck source=veralux-compose-helper.sh
 source "${SCRIPT_DIR}/veralux-compose-helper.sh"
 veralux_compose_prepare_env "$VOICE_ENV"
