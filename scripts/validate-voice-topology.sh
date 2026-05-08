@@ -63,4 +63,25 @@ case "$TTS_MODE" in
     ;;
 esac
 
+BRAIN_USE_LOCAL="$(grep -E '^BRAIN_USE_LOCAL=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+BRAIN_URL="$(grep -E '^BRAIN_URL=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+if [[ "$BRAIN_USE_LOCAL" != "true" && "$BRAIN_USE_LOCAL" != "1" && "$BRAIN_USE_LOCAL" != "yes" ]] && [[ "$BRAIN_URL" == *"://brain"* ]]; then
+  echo "--- runtime → DNS brain ---"
+  docker exec veralux-runtime getent hosts brain
+  echo "--- runtime → GET brain /health ---"
+  docker exec veralux-runtime wget -qO- --timeout=8 http://brain:3001/health | head -c 200 || {
+    echo "[fail] brain /health unreachable from runtime (is profile llm up?)"
+    exit 1
+  }
+  echo ""
+  if docker inspect veralux-brain &>/dev/null; then
+    echo "--- brain → GET vLLM /health ---"
+    docker exec veralux-brain wget -qO- --timeout=8 http://vllm-qwen:8000/health | head -c 200 || {
+      echo "[fail] vllm /health unreachable from brain container"
+      exit 1
+    }
+    echo ""
+  fi
+fi
+
 echo "[ok] validate-voice-topology passed (WHISPER_URL in env is $WHISPER_URL)"

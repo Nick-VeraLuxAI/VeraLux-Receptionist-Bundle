@@ -107,8 +107,13 @@ require_nonplaceholder() {
 check_required_secrets() {
   local keys=(
     POSTGRES_PASSWORD JWT_SECRET ADMIN_API_KEY SECRET_ENCRYPTION_KEY MEDIA_STREAM_TOKEN
-    TELNYX_API_KEY TELNYX_PUBLIC_KEY OPENAI_API_KEY
+    TELNYX_API_KEY TELNYX_PUBLIC_KEY
   )
+  local llm_provider
+  llm_provider="$(grep -E '^LLM_PROVIDER=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  if [[ "$llm_provider" != "local" ]]; then
+    keys+=(OPENAI_API_KEY)
+  fi
   local k
   for k in "${keys[@]}"; do
     require_nonplaceholder "$k"
@@ -118,8 +123,13 @@ check_required_secrets() {
 warn_placeholder_secrets() {
   local keys=(
     POSTGRES_PASSWORD JWT_SECRET ADMIN_API_KEY MEDIA_STREAM_TOKEN SECRET_ENCRYPTION_KEY
-    OPENAI_API_KEY TELNYX_API_KEY TELNYX_PUBLIC_KEY
+    TELNYX_API_KEY TELNYX_PUBLIC_KEY
   )
+  local llm_provider
+  llm_provider="$(grep -E '^LLM_PROVIDER=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  if [[ "$llm_provider" != "local" ]]; then
+    keys+=(OPENAI_API_KEY)
+  fi
   local k warned=0
   local line val
   for k in "${keys[@]}"; do
@@ -188,15 +198,41 @@ parse_tts_mode() {
 }
 
 wait_runtime_voice() {
+  local max_attempts="${1:-90}"
   local i
-  for i in $(seq 1 90); do
+  for i in $(seq 1 "$max_attempts"); do
     if curl -sf "http://127.0.0.1:${RUNTIME_PORT:-4001}/health/voice" >/dev/null 2>&1; then
       echo "[ok] Runtime voice health is up"
       return 0
     fi
     sleep 2
   done
-  echo "[warn] Timeout waiting for GET /health/voice — check chatterbox logs and HF_TOKEN"
+  echo "[warn] Timeout waiting for GET /health/voice — check chatterbox logs, HF_TOKEN, and vLLM/brain if profile llm is enabled"
+  return 1
+}
+
+# Start vllm-qwen + brain when operators want on-host LLM for the voice runtime (HTTP brain).
+# Uses merged effective env file path (same as docker compose interpolation source).
+wants_local_llm_stack() {
+  local e="${1:?env file}"
+  local v bu brain_url
+  v="$(grep -E '^VERALUX_ENABLE_LOCAL_LLM=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  if [[ "$v" == "1" || "$v" == "true" || "$v" == "yes" ]]; then
+    return 0
+  fi
+  v="$(grep -E '^VERALUX_EXTRA_COMPOSE_PROFILES=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r' || true)"
+  if [[ "$v" == "llm" ]] || [[ ",${v}," == *",llm,"* ]]; then
+    return 0
+  fi
+  brain_url="$(grep -E '^BRAIN_URL=' "$e" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
+  bu="$(grep -E '^BRAIN_USE_LOCAL=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  [[ -n "$brain_url" ]] || return 1
+  if [[ "$bu" == "true" || "$bu" == "1" || "$bu" == "yes" ]]; then
+    return 1
+  fi
+  if [[ "$brain_url" == *"://brain"* ]] || [[ "$brain_url" == *"//brain."* ]]; then
+    return 0
+  fi
   return 1
 }
 
@@ -216,8 +252,18 @@ RUNTIME_PORT="${RUNTIME_PORT:-4001}"
 PROFILE="$(detect_profile)"
 TTS_MODE="$(parse_tts_mode)"
 
+LOCAL_LLM_STACK=0
+if wants_local_llm_stack "$EFFECTIVE_ENV"; then
+  if [[ "$PROFILE" != "gpu" ]]; then
+    echo "[error] Local vLLM + brain (compose profile llm) requires NVIDIA GPUs. This host resolved to cpu profile."
+    echo "  Fix: use a GPU machine, or disable the LLM stack (unset VERALUX_ENABLE_LOCAL_LLM / remove llm from VERALUX_EXTRA_COMPOSE_PROFILES / use BRAIN_USE_LOCAL=true without http://brain BRAIN_URL)."
+    exit 1
+  fi
+  LOCAL_LLM_STACK=1
+fi
+
 echo "[info] PROD_ROOT=$PROD_ROOT"
-echo "[info] Compose profile=$PROFILE TTS_MODE=$TTS_MODE (from effective env)"
+echo "[info] Compose profile=$PROFILE TTS_MODE=$TTS_MODE local_llm_stack=${LOCAL_LLM_STACK} (from effective env)"
 
 if [[ "${TTS_MODE}" == "chatterbox_http" ]]; then
   hflen="$(grep '^HF_TOKEN=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | wc -c | tr -d ' ')"
@@ -266,10 +312,22 @@ else
   esac
 fi
 
-echo "[info] Starting core + audio (${BASE_SVC[*]} ${AUDIO_SVC[*]} runtime) …"
-veralux_compose "--profile" "$PROFILE" up -d "${BASE_SVC[@]}" "${AUDIO_SVC[@]}" runtime
+LLM_SVC=()
+COMPOSE_PROFILE_ARGS=( "--profile" "$PROFILE" )
+if [[ "$LOCAL_LLM_STACK" == 1 ]]; then
+  COMPOSE_PROFILE_ARGS+=( "--profile" "llm" )
+  LLM_SVC=( vllm-qwen brain )
+  echo "[info] Local LLM: also applying compose profile llm (vllm-qwen + brain) …"
+fi
 
-wait_runtime_voice || true
+echo "[info] Starting core + audio (${BASE_SVC[*]} ${AUDIO_SVC[*]} ${LLM_SVC[*]} runtime) …"
+veralux_compose "${COMPOSE_PROFILE_ARGS[@]}" up -d "${BASE_SVC[@]}" "${AUDIO_SVC[@]}" "${LLM_SVC[@]}" runtime
+
+WAIT_VOICE_ATTEMPTS=90
+if [[ "$LOCAL_LLM_STACK" == 1 ]]; then
+  WAIT_VOICE_ATTEMPTS=240
+fi
+wait_runtime_voice "$WAIT_VOICE_ATTEMPTS" || true
 
 echo ""
 echo "[info] Compose status (veralux project):"

@@ -24,7 +24,7 @@ if [[ -f "${PROD_ROOT}/docker-compose.production.yml" ]]; then
   veralux_compose stop 2>/dev/null || true
 fi
 
-mapfile -t TO_STOP < <(docker ps -q --filter "name=veralux-runtime" --filter "name=veralux-control" --filter "name=veralux-whisper" --filter "name=veralux-chatterbox" --filter "name=veralux-kokoro" --filter "name=veralux-xtts" --filter "name=veralux-qwen3" --filter "name=veralux-postgres" --filter "name=veralux-redis" --filter "name=veralux-brain" --filter "name=veralux-cloudflared" 2>/dev/null || true)
+mapfile -t TO_STOP < <(docker ps -q --filter "name=veralux-runtime" --filter "name=veralux-control" --filter "name=veralux-whisper" --filter "name=veralux-chatterbox" --filter "name=veralux-kokoro" --filter "name=veralux-xtts" --filter "name=veralux-qwen3" --filter "name=veralux-postgres" --filter "name=veralux-redis" --filter "name=veralux-brain" --filter "name=veralux-vllm" --filter "name=veralux-cloudflared" 2>/dev/null || true)
 if [[ ${#TO_STOP[@]} -gt 0 ]]; then
   docker stop "${TO_STOP[@]}" >/dev/null 2>&1 || true
 fi

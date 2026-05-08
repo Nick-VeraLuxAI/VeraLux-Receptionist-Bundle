@@ -54,15 +54,30 @@ function whisperHealthUrl(): string | undefined {
   return env.WHISPER_URL.replace('/transcribe', '/health').replace('/v1/audio/transcriptions', '/health');
 }
 
+/**
+ * GET /health on brain-gpt4o lives at the service root (not under /reply).
+ * BRAIN_URL is often `http://brain:3001` or `http://brain:3001/reply` — normalize to base origin + `/health`.
+ * When BRAIN_USE_LOCAL is true, the runtime does not call the HTTP brain; skip the probe so
+ * a leftover BRAIN_URL does not fail readiness.
+ */
 function brainHealthUrl(): string | undefined {
+  if (env.BRAIN_USE_LOCAL) return undefined;
   const raw = env.BRAIN_URL?.trim();
   if (!raw) return undefined;
+  let base = raw.replace(/\/$/, '');
+  if (base.endsWith('/reply/stream')) {
+    base = base.replace(/\/reply\/stream$/, '');
+  } else if (base.endsWith('/reply')) {
+    base = base.replace(/\/reply$/, '');
+  }
   try {
-    const u = new URL(raw);
-    u.pathname = `${u.pathname.replace(/\/$/, '')}/health`;
+    const u = new URL(base);
+    u.pathname = '/health';
+    u.search = '';
+    u.hash = '';
     return u.toString();
   } catch {
-    return `${raw.replace(/\/$/, '')}/health`;
+    return `${base}/health`;
   }
 }
 

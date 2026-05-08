@@ -55,7 +55,7 @@ When **`HEALTH_VOICE_DEPENDENCIES=false`** (used in CI / redis-only test stacks)
 
 `KOKORO_URL` like `http://kokoro:7001/tts` is normalized to **`http://kokoro:7001/health`** for probes (fixed path on the Kokoro container).
 
-**Compose `runtime` healthcheck** uses **`GET /health/ready`**, with a long **`start_period`** so GPU/CPU model load can finish before failures count.
+**Compose `runtime` healthcheck** uses **`GET /health/voice`**, with a long **`start_period`** so GPU/CPU model load can finish before failures count.
 
 ---
 
@@ -74,10 +74,11 @@ When **`HEALTH_VOICE_DEPENDENCIES=false`** (used in CI / redis-only test stacks)
 
 ---
 
-## 5. Optional LLM (local brain)
+## 5. Optional LLM (vLLM + brain-gpt4o)
 
-- **Inside Compose:** **`brain`** healthcheck + **`depends_on`** on **`vllm-qwen`** cover gateway readiness vs vLLM.
-- **Host verification:** If **`BRAIN_USE_LOCAL=true`**, **`scripts/healthcheck.sh`** also requests **`http://127.0.0.1:${BRAIN_PORT}/health`** (default port **3001**). It does **not** probe vLLM on the host unless you add your own check (vLLM may only be reachable on **`VLLM_PORT`**).
+- **Compose:** Services **`vllm-qwen`** and **`brain`** use profile **`llm`**, attach to **`veralux-network`**, and are started by **`scripts/start-production.sh`** when **`VERALUX_ENABLE_LOCAL_LLM`**, **`VERALUX_EXTRA_COMPOSE_PROFILES`**, or a non-local **`BRAIN_URL`** targeting **`http://brain…`** is set (see **`deploy/production-env-fragment.env`**). **`brain`** `depends_on` **`vllm-qwen`** `service_healthy`; **`OPENAI_BASE_URL`** inside the brain container points at **`http://vllm-qwen:8000/v1`**.
+- **`GET /health/voice` (runtime):** When **`BRAIN_USE_LOCAL=false`** and **`BRAIN_URL`** is set, the runtime probes **`GET /health`** on the brain **origin** (strips a trailing **`/reply`** or **`/reply/stream`**). When **`BRAIN_USE_LOCAL=true`**, that HTTP brain probe is skipped (in-process keyword brain only).
+- **Host verification:** If **`BRAIN_USE_LOCAL=true`** and you run a brain container on the host, **`scripts/healthcheck.sh`** may request **`http://127.0.0.1:${BRAIN_PORT}/health`**. It does **not** probe vLLM on the host unless you add your own check (vLLM may only be reachable on **`VLLM_PORT`**).
 
 **OpenAI / remote LLM:** No container healthcheck; readiness of external APIs is **not** part of Docker or **`GET /health/ready`**.
 

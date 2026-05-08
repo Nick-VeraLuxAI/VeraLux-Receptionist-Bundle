@@ -49,3 +49,8 @@ services:
     env_file: *voice-env
   qwen3-tts-gpu:
     env_file: *voice-env
+  # Profile `llm`: vLLM + brain-gpt4o (see scripts/start-production.sh, deploy/production-env-fragment.env).
+  vllm-qwen:
+    env_file: *voice-env
+  brain:
+    env_file: *voice-env
