@@ -69,6 +69,8 @@ Production **Docker healthcheck** targets **`GET /health/voice`** (requires rebu
 
 ## Bring-up / shutdown
 
+Scripts under `scripts/` share **`veralux-compose-helper.sh`**: they load env with `set -a; source …` and run **`command docker compose`** (never `docker-compose` v1, never `docker compose --env-file`, which breaks some Docker Compose v5 installs).
+
 ```bash
 # After copying tree to /opt and permissions on /etc/veralux:
 export VERALUX_PROD_ROOT=/opt/veralux/veralux-voice-runtime

@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "${SCRIPT_DIR}/.." && pwd)"
 PROJECT="${VERALUX_COMPOSE_PROJECT:-veralux}"
+PROD_ROOT="${VERALUX_PROD_ROOT:-/opt/veralux/veralux-voice-runtime}"
+VOICE_ENV="${VERALUX_VOICE_ENV_FILE:-/etc/veralux/voice-runtime.env}"
+[[ -d "$PROD_ROOT" ]] || PROD_ROOT="$REPO"
+
+RUNTIME_PORT="$(grep -E '^RUNTIME_PORT=' "$VOICE_ENV" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
 RUNTIME_PORT="${RUNTIME_PORT:-4001}"
 
 echo "=== docker ps (veralux-*) ==="
@@ -20,11 +27,9 @@ echo ""
 
 echo ""
 echo "=== compose ps ($PROJECT) ==="
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROD_ROOT="${VERALUX_PROD_ROOT:-/opt/veralux/veralux-voice-runtime}"
-VOICE_ENV="${VERALUX_VOICE_ENV_FILE:-/etc/veralux/voice-runtime.env}"
-[[ -d "$PROD_ROOT" ]] || PROD_ROOT="$REPO"
 if [[ -f "$VOICE_ENV" && -f "${PROD_ROOT}/docker-compose.production.yml" ]]; then
-  docker compose --env-file "$VOICE_ENV" -f "${PROD_ROOT}/docker-compose.yml" -f "${PROD_ROOT}/docker-compose.production.yml" -p "$PROJECT" ps 2>/dev/null || true
+  # shellcheck source=veralux-compose-helper.sh
+  source "${SCRIPT_DIR}/veralux-compose-helper.sh"
+  veralux_compose_prepare_env "$VOICE_ENV"
+  veralux_compose ps 2>/dev/null || true
 fi

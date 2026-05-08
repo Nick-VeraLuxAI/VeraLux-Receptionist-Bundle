@@ -43,7 +43,7 @@ MERGED_ENV_TMP=""
 build_effective_env() {
   if [[ -f "$FRAGMENT" ]]; then
     MERGED_ENV_TMP="$(mktemp)"
-    python3 "${DEFAULT_REPO_ROOT}/scripts/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" >"$MERGED_ENV_TMP"
+    python3 "${SCRIPT_DIR}/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" >"$MERGED_ENV_TMP"
     EFFECTIVE_ENV="$MERGED_ENV_TMP"
     echo "[info] Effective compose env = merge($VOICE_ENV + deploy/production-env-fragment.env) (no secrets printed)"
   else
@@ -178,18 +178,10 @@ else
   warn_placeholder_secrets
 fi
 
-# docker-compose.production.yml uses ${VERALUX_COMPOSE_ENV_FILE:?} for per-service env_file paths.
-export VERALUX_COMPOSE_ENV_FILE="$EFFECTIVE_ENV"
-# Interpolation for `docker compose` (no `docker compose --env-file` — avoids plugin/CLI flag ordering bugs).
-set -a
-# shellcheck disable=SC1090
-source "$EFFECTIVE_ENV"
-set +a
-
-# `compose` is a common legacy alias for docker-compose v1; env files may also set compose=...
-# That breaks a helper named compose() — callers would run docker-compose instead of docker compose.
-unset -f compose 2>/dev/null || true
-unset compose 2>/dev/null || true
+# shellcheck source=veralux-compose-helper.sh
+source "${SCRIPT_DIR}/veralux-compose-helper.sh"
+# Interpolation for `docker compose` (no `docker compose --env-file` — Compose v5 / Docker 29 safe).
+veralux_compose_prepare_env "$EFFECTIVE_ENV"
 
 RUNTIME_PORT="$(grep -E '^RUNTIME_PORT=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | tr -d '\r')"
 RUNTIME_PORT="${RUNTIME_PORT:-4001}"
@@ -216,15 +208,6 @@ ensure_network
 clear_stopped_name_conflicts
 stop_split_audio_stack
 stop_docker_cloudflared
-
-veralux_compose() {
-  # `command` avoids a user `alias docker=…` breaking the CLI; literal `compose` is the v2 subcommand.
-  command docker compose \
-    -f "${PROD_ROOT}/docker-compose.yml" \
-    -f "${PROD_ROOT}/docker-compose.production.yml" \
-    -p veralux \
-    "$@"
-}
 
 echo "[info] Docker Compose: $(command docker compose version --short 2>/dev/null || command docker compose version)"
 echo "[info] Building runtime image (health /health/voice)…"
@@ -266,7 +249,7 @@ echo "[info] Compose status (veralux project):"
 veralux_compose ps
 
 echo ""
-bash "${DEFAULT_REPO_ROOT}/scripts/validate-voice-topology.sh" "${EFFECTIVE_ENV}" || true
+bash "${SCRIPT_DIR}/validate-voice-topology.sh" "${EFFECTIVE_ENV}" || true
 
 echo ""
 echo "[info] Voice health:"
