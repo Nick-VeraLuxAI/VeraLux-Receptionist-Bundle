@@ -5,8 +5,10 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "VERALUX_DOTENV=.env.development tsx watch src/index.ts",
+    "dev:prod": "VERALUX_DOTENV=.env tsx watch src/index.ts",
     "dev:log": "npm run dev 2>&1 | tee /tmp/runtime.log",
+    "init:dev-env": "bash scripts/init-dev-env-from-prod.sh",
     "start": "node dist/index.js",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",

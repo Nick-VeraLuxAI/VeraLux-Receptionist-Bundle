@@ -1,6 +1,7 @@
 import type { TTSConfig } from "../config";
 import type { TenantContext } from "../tenants";
 import type { TenantLimits } from "../planLimits";
+import { businessHoursSchema } from "@veralux/shared";
 import {
   normalizeE164,
   parseRuntimeTenantConfig,
@@ -52,7 +53,7 @@ function defaultAudio(
 
 function buildLlmContext(tenant: TenantContext): NonNullable<RuntimeTenantConfig["llmContext"]> {
   const prompts = tenant.config.getPrompts();
-  return {
+  const base: NonNullable<RuntimeTenantConfig["llmContext"]> = {
     forwardingProfiles: tenant.forwardingProfiles.map((p) => ({
       id: p.id,
       name: p.name,
@@ -73,8 +74,18 @@ function buildLlmContext(tenant: TenantContext): NonNullable<RuntimeTenantConfig
       schemaHint: prompts.schemaHint,
       policyPrompt: prompts.policyPrompt,
       voicePrompt: prompts.voicePrompt,
+      // Per-tenant opening greeting; published so the voice runtime can use it
+      // instead of the global env.GREETING_TEXT (Sprint 0 cohesion fix).
+      ...(prompts.greetingText && prompts.greetingText.trim()
+        ? { greetingText: prompts.greetingText }
+        : {}),
     },
   };
+  const bhParsed = businessHoursSchema.safeParse(tenant.businessHours);
+  if (bhParsed.success) {
+    (base as { businessHours?: unknown }).businessHours = bhParsed.data;
+  }
+  return base;
 }
 
 function buildRuntimeTts(cfg: TTSConfig): RuntimeTenantConfig["tts"] {

@@ -11,6 +11,11 @@
 #
 # Usage:
 #   sudo VERALUX_PROD_ROOT=/opt/veralux/veralux-voice-runtime ./scripts/start-production.sh
+# STT WAV / transcript capture (merges deploy/production-env-debug-stt.env last). On /opt, use this
+# (do not rely on start-production-debug-stt.sh until that file is rsync’d to the server):
+#   cd /opt/veralux/veralux-voice-runtime && sudo env VERALUX_STT_DEBUG=1 VERALUX_VOICE_ENV_FILE=/etc/veralux/voice-runtime.env ./scripts/start-production.sh
+# If sudo picks a docker without `compose`, force the same binary you use interactively:
+#   ... sudo env VERALUX_DOCKER_BIN="$(command -v docker)" VERALUX_STT_DEBUG=1 VERALUX_VOICE_ENV_FILE=/etc/veralux/voice-runtime.env ./scripts/start-production.sh
 # =============================================================================
 set -euo pipefail
 
@@ -44,7 +49,9 @@ if [[ ! -f "$VOICE_ENV" ]]; then
 fi
 
 VERALUX_DOCKER_BIN="$(veralux_resolve_docker_bin)" || {
-  echo "[error] docker CLI not found (checked /usr/bin/docker, /bin/docker, then PATH)"
+  echo "[error] No docker binary with a working 'docker compose' (v2 plugin) was found."
+  echo "  Install: sudo apt-get install -y docker-compose-plugin"
+  echo "  Or set:  export VERALUX_DOCKER_BIN=/path/to/docker   # one that supports: docker compose version"
   exit 1
 }
 _compose_version_out="$("${VERALUX_DOCKER_BIN}" compose version 2>&1)" || {
@@ -70,9 +77,21 @@ MERGED_ENV_TMP=""
 build_effective_env() {
   if [[ -f "$FRAGMENT" ]]; then
     MERGED_ENV_TMP="$(mktemp)"
-    python3 "${SCRIPT_DIR}/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" >"$MERGED_ENV_TMP"
+    DEBUG_STT="${PROD_ROOT}/deploy/production-env-debug-stt.env"
+    _st="${VERALUX_STT_DEBUG:-0}"
+    if [[ "${_st}" == "1" || "${_st}" == "true" || "${_st}" == "yes" ]]; then
+      if [[ -f "$DEBUG_STT" ]]; then
+        python3 "${SCRIPT_DIR}/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" "$DEBUG_STT" >"$MERGED_ENV_TMP"
+        echo "[info] Effective compose env = merge($VOICE_ENV + fragment + deploy/production-env-debug-stt.env) — STT WAV + call transcript JSON enabled (no secrets printed)"
+      else
+        echo "[warn] VERALUX_STT_DEBUG set but missing $DEBUG_STT — merging without STT debug bundle"
+        python3 "${SCRIPT_DIR}/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" >"$MERGED_ENV_TMP"
+      fi
+    else
+      python3 "${SCRIPT_DIR}/merge-voice-env.py" "$VOICE_ENV" "$FRAGMENT" >"$MERGED_ENV_TMP"
+      echo "[info] Effective compose env = merge($VOICE_ENV + deploy/production-env-fragment.env) (no secrets printed)"
+    fi
     EFFECTIVE_ENV="$MERGED_ENV_TMP"
-    echo "[info] Effective compose env = merge($VOICE_ENV + deploy/production-env-fragment.env) (no secrets printed)"
   else
     EFFECTIVE_ENV="$VOICE_ENV"
   fi

@@ -295,6 +295,249 @@ test("tenant A/B isolation over HTTP with tenant-scoped JWT", async (t) => {
   }
 });
 
+test("Sprint 0: GET /api/admin/tenants is scoped to JWT memberships", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantA = `s0a-${randomUUID().slice(0, 6)}`;
+  const tenantB = `s0b-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantA, "+15550100021");
+  await createTenant(tenantB, "+15550100022");
+
+  // Superadmin (master env key) sees both.
+  const adminAll = await req("/api/admin/tenants", { headers: adminHeaders() });
+  assert.equal(adminAll.status, 200);
+  const adminIds = (adminAll.body.tenants || []).map((m) => m.id);
+  assert.ok(adminIds.includes(tenantA), "superadmin lists tenantA");
+  assert.ok(adminIds.includes(tenantB), "superadmin lists tenantB");
+
+  // Tenant A JWT only sees tenantA.
+  const subA = `sub-s0-${randomUUID()}`;
+  await ensureMembership(tenantA, subA, "admin");
+  const jwtA = signJwt({ sub: subA, email: "a@example.com", role: "admin" }, JWT_SECRET);
+  const tenantAList = await req("/api/admin/tenants", {
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwtA}`,
+      "X-Active-Tenant": tenantA,
+      "X-Tenant-ID": tenantA,
+    },
+  });
+  assert.equal(tenantAList.status, 200);
+  const aIds = (tenantAList.body.tenants || []).map((m) => m.id);
+  assert.ok(aIds.includes(tenantA), "tenant A JWT can see its own tenant");
+  assert.ok(!aIds.includes(tenantB), "tenant A JWT cannot enumerate tenant B");
+});
+
+test("Sprint 0: DELETE /api/admin/leads/:id requires tenant match", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantA = `s0la-${randomUUID().slice(0, 6)}`;
+  const tenantB = `s0lb-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantA, "+15550100031");
+  await createTenant(tenantB, "+15550100032");
+
+  // Insert a lead directly into tenant B.
+  const leadId = randomUUID();
+  await pool.query(
+    `INSERT INTO leads (id, tenant_id, name, phone, raw_extract, created_at)
+     VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
+    [leadId, tenantB, "tenant-b-lead", "+15550009999", JSON.stringify({ caller: "tenantB" })],
+  );
+
+  // Superadmin acting in tenant A's context cannot delete tenant B's lead.
+  const wrongTenantDelete = await req(`/api/admin/leads/${leadId}`, {
+    method: "DELETE",
+    headers: adminHeaders(tenantA),
+  });
+  assert.equal(
+    wrongTenantDelete.status,
+    404,
+    "cross-tenant lead delete returns 404, never 200",
+  );
+
+  // Confirm lead still exists in DB.
+  const stillThere = await pool.query("SELECT id FROM leads WHERE id = $1", [leadId]);
+  assert.equal(stillThere.rows.length, 1, "tenant B lead must not be deleted by tenant A request");
+
+  // Correct tenant context succeeds.
+  const correctDelete = await req(`/api/admin/leads/${leadId}`, {
+    method: "DELETE",
+    headers: adminHeaders(tenantB),
+  });
+  assert.equal(correctDelete.status, 200);
+});
+
+test("Sprint 0: /api/runtime/calls and /api/runtime/analytics reject cross-tenant body tenantId", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantA = `s0ra-${randomUUID().slice(0, 6)}`;
+  const tenantB = `s0rb-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantA, "+15550100041");
+  await createTenant(tenantB, "+15550100042");
+
+  // Tenant A JWT (admin role) cannot publish call/analytics for tenant B.
+  const subA = `sub-runtime-${randomUUID()}`;
+  await ensureMembership(tenantA, subA, "admin");
+  const jwtA = signJwt({ sub: subA, email: "ra@example.com", role: "admin" }, JWT_SECRET);
+  const headersA = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${jwtA}`,
+    "X-Active-Tenant": tenantA,
+    "X-Tenant-ID": tenantA,
+  };
+
+  const xAnalytics = await req("/api/runtime/analytics", {
+    method: "POST",
+    headers: headersA,
+    body: JSON.stringify({ tenantId: tenantB, event: "call_started" }),
+  });
+  assert.equal(xAnalytics.status, 403, "cross-tenant analytics is forbidden");
+
+  const xCalls = await req("/api/runtime/calls", {
+    method: "POST",
+    headers: headersA,
+    body: JSON.stringify({ tenantId: tenantB, action: "start", callState: { callerId: "+15550009999" } }),
+  });
+  assert.equal(xCalls.status, 403, "cross-tenant call publish is forbidden");
+
+  // Same-tenant publish still works.
+  const okAnalytics = await req("/api/runtime/analytics", {
+    method: "POST",
+    headers: headersA,
+    body: JSON.stringify({ tenantId: tenantA, event: "call_started" }),
+  });
+  assert.equal(okAnalytics.status, 200, "same-tenant analytics succeeds");
+});
+
+test("Sprint 0: carrier-level Telnyx routes deny tenant JWT and require superadmin", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantId = `s0tx-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantId, "+15550100051");
+
+  // Tenant viewer JWT must be denied.
+  const subV = `sub-telnyxv-${randomUUID()}`;
+  await ensureMembership(tenantId, subV, "viewer");
+  const jwtV = signJwt({ sub: subV, email: "v@example.com", role: "viewer" }, JWT_SECRET);
+  const viewerHeaders = {
+    Authorization: `Bearer ${jwtV}`,
+    "X-Active-Tenant": tenantId,
+    "X-Tenant-ID": tenantId,
+  };
+
+  for (const path of [
+    "/api/admin/telnyx/status",
+    "/api/admin/telnyx/numbers",
+    "/api/admin/telnyx/connections",
+  ]) {
+    const r = await req(path, { headers: viewerHeaders });
+    assert.ok(
+      [401, 403].includes(r.status),
+      `tenant viewer must NOT reach ${path} (got ${r.status})`,
+    );
+  }
+
+  // Tenant admin JWT also denied (carrier infra is super-admin only).
+  const subA = `sub-telnyxa-${randomUUID()}`;
+  await ensureMembership(tenantId, subA, "admin");
+  const jwtA = signJwt({ sub: subA, email: "ta@example.com", role: "admin" }, JWT_SECRET);
+  const adminTenantHeaders = {
+    Authorization: `Bearer ${jwtA}`,
+    "X-Active-Tenant": tenantId,
+    "X-Tenant-ID": tenantId,
+  };
+  const tenantAdminProbe = await req("/api/admin/telnyx/status", { headers: adminTenantHeaders });
+  assert.equal(
+    tenantAdminProbe.status,
+    403,
+    "tenant-admin JWT must not probe carrier-level Telnyx config",
+  );
+});
+
+test("Sprint 0: Cloudflare token route is superadmin-only and write is disabled", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantId = `s0cf-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantId, "+15550100061");
+
+  // Tenant viewer JWT denied.
+  const subV = `sub-cfv-${randomUUID()}`;
+  await ensureMembership(tenantId, subV, "viewer");
+  const jwtV = signJwt({ sub: subV, email: "cv@example.com", role: "viewer" }, JWT_SECRET);
+  const denyGet = await req("/api/admin/cloudflare/token", {
+    headers: {
+      Authorization: `Bearer ${jwtV}`,
+      "X-Active-Tenant": tenantId,
+      "X-Tenant-ID": tenantId,
+    },
+  });
+  assert.ok(
+    [401, 403].includes(denyGet.status),
+    "tenant viewer JWT cannot read Cloudflare tunnel token status",
+  );
+
+  // Tenant admin JWT also denied (carrier-shared secret).
+  const subA = `sub-cfa-${randomUUID()}`;
+  await ensureMembership(tenantId, subA, "admin");
+  const jwtA = signJwt({ sub: subA, email: "ca@example.com", role: "admin" }, JWT_SECRET);
+  const denyTenantAdmin = await req("/api/admin/cloudflare/token", {
+    headers: {
+      Authorization: `Bearer ${jwtA}`,
+      "X-Active-Tenant": tenantId,
+      "X-Tenant-ID": tenantId,
+    },
+  });
+  assert.equal(
+    denyTenantAdmin.status,
+    403,
+    "tenant-admin JWT cannot read Cloudflare tunnel token status",
+  );
+
+  // Superadmin GET works.
+  const okGet = await req("/api/admin/cloudflare/token", { headers: adminHeaders() });
+  assert.equal(okGet.status, 200);
+  assert.equal(typeof okGet.body.hasToken, "boolean");
+
+  // POST is intentionally disabled even for superadmin.
+  const writeDisabled = await req("/api/admin/cloudflare/token", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({ token: "abc" }),
+  });
+  assert.equal(writeDisabled.status, 410, "in-app Cloudflare token write is disabled (set via env)");
+});
+
+test("Sprint 0: /api/tts/config rejects raw provider URL fields from non-superadmin", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantId = `s0tts-${randomUUID().slice(0, 6)}`;
+  await createTenant(tenantId, "+15550100071");
+
+  const subA = `sub-tts-${randomUUID()}`;
+  await ensureMembership(tenantId, subA, "admin");
+  const jwtA = signJwt({ sub: subA, email: "tts@example.com", role: "admin" }, JWT_SECRET);
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${jwtA}`,
+    "X-Active-Tenant": tenantId,
+    "X-Tenant-ID": tenantId,
+  };
+
+  for (const url of [
+    { kokoroUrl: "http://attacker.example.com:7001/tts" },
+    { qwen3TtsUrl: "http://attacker.example.com:7010" },
+    { coquiXttsUrl: "http://attacker.example.com:7002/tts" },
+    { chatterboxUrl: "http://attacker.example.com:7005" },
+    { xttsUrl: "http://attacker.example.com:7002/tts" },
+  ]) {
+    const r = await req("/api/tts/config", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ttsMode: "kokoro_http", ...url }),
+    });
+    assert.equal(
+      r.status,
+      403,
+      `non-superadmin must NOT submit raw provider URL: ${Object.keys(url)[0]}`,
+    );
+    assert.equal(r.body.error, "provider_url_admin_only");
+  }
+});
+
 test("cleanup integration resources", async () => {
   if (serverProc && !serverProc.killed) {
     await new Promise((resolve) => {

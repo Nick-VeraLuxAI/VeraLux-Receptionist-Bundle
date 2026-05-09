@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "node -e \"console.log('brain-gpt4o: no tests configured')\""
+    "test": "npm run build && node --test tests/systemPrompt.test.mjs"
   },
   "dependencies": {
     "@veralux/shared": "*",

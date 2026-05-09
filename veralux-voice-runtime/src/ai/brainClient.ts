@@ -1,4 +1,7 @@
-import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
+import {
+  ASSISTANT_VOICE_LLM_ERROR_FALLBACK,
+  type RuntimePromptConfig,
+} from '@veralux/shared';
 import { env } from '../env';
 import { log } from '../log';
 import { incProviderCircuitOpen, incProviderTimeout } from '../metrics';
@@ -10,6 +13,42 @@ import { defaultBrainReply } from './defaultBrain';
 /** Per-tenant context for the assistant: pricing, products, hours, policies, etc. Keys are section names; values are text. */
 export type AssistantContext = Record<string, string>;
 
+/**
+ * Tenant-specific prompts (system preamble, policy, voice/tone, schema hint).
+ * Edited via the admin/owner panels and published to Redis as
+ * `tenantcfg:<tenantId>.llmContext.prompts`. Forwarded to the brain so prompt
+ * edits actually change LLM behavior on real calls.
+ */
+export type AssistantPrompts = RuntimePromptConfig;
+
+function sanitizePrompts(p?: AssistantPrompts): AssistantPrompts | undefined {
+  if (!p) return undefined;
+  // Drop empty fields so we never wipe brain-side defaults with blanks.
+  const out: Partial<AssistantPrompts> = {};
+  if (typeof p.systemPreamble === 'string' && p.systemPreamble.trim()) {
+    out.systemPreamble = p.systemPreamble;
+  }
+  if (typeof p.schemaHint === 'string' && p.schemaHint.trim()) {
+    out.schemaHint = p.schemaHint;
+  }
+  if (typeof p.policyPrompt === 'string' && p.policyPrompt.trim()) {
+    out.policyPrompt = p.policyPrompt;
+  }
+  if (typeof p.voicePrompt === 'string' && p.voicePrompt.trim()) {
+    out.voicePrompt = p.voicePrompt;
+  }
+  if (typeof p.greetingText === 'string' && p.greetingText.trim()) {
+    out.greetingText = p.greetingText;
+  }
+  return Object.keys(out).length > 0 ? (out as AssistantPrompts) : undefined;
+}
+
+export type AssistantReplyForensics = {
+  turnId: string;
+  recordLlmRequestPayload: (body: Record<string, unknown>) => void | Promise<void>;
+  recordLlmResponse: (info: { text: string; source: AssistantReplySource }) => void | Promise<void>;
+};
+
 export interface AssistantReplyInput {
   tenantId?: string;
   callControlId: string;
@@ -19,6 +58,9 @@ export interface AssistantReplyInput {
   transferProfiles?: TransferProfile[];
   /** Context for answering: pricing, products, hours, policies, etc. (used by local and API brain). */
   assistantContext?: AssistantContext;
+  /** Tenant-edited prompts (system preamble / policy / tone / schema). Forwarded to the brain so admin/owner edits affect call behavior. */
+  prompts?: AssistantPrompts;
+  forensics?: AssistantReplyForensics;
 }
 
 export type AssistantReplySource =
@@ -204,6 +246,13 @@ export async function generateAssistantReply(
   input: AssistantReplyInput,
 ): Promise<AssistantReplyResult> {
   if (env.BRAIN_USE_LOCAL || !env.BRAIN_URL) {
+    await input.forensics?.recordLlmRequestPayload({
+      route: 'brain_local_default',
+      tenantId: input.tenantId,
+      callControlId: input.callControlId,
+      transcript: input.transcript,
+      history_turns: input.history.length,
+    });
     const text = defaultBrainReply({
       transcript: input.transcript,
       tenantId: input.tenantId,
@@ -220,6 +269,7 @@ export async function generateAssistantReply(
       },
       'brain routed to local default',
     );
+    await input.forensics?.recordLlmResponse({ text, source: 'brain_local_default' });
     return { text, source: 'brain_local_default' };
   }
 
@@ -239,6 +289,20 @@ export async function generateAssistantReply(
       'brain routed to http',
     );
 
+    const sanitizedPrompts = sanitizePrompts(input.prompts);
+    const requestBody: Record<string, unknown> = {
+      tenantId: input.tenantId,
+      callControlId: input.callControlId,
+      transcript: input.transcript,
+      history: input.history,
+      ...(input.transferProfiles?.length ? { transferProfiles: input.transferProfiles } : {}),
+      ...(input.assistantContext && Object.keys(input.assistantContext).length > 0
+        ? { assistantContext: input.assistantContext }
+        : {}),
+      ...(sanitizedPrompts ? { prompts: sanitizedPrompts } : {}),
+    };
+    await input.forensics?.recordLlmRequestPayload(requestBody);
+
     const response = await withCircuitBreaker({
       key: 'brain_http',
       failureThreshold: 3,
@@ -250,19 +314,7 @@ export async function generateAssistantReply(
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            tenantId: input.tenantId,
-            callControlId: input.callControlId,
-            transcript: input.transcript,
-            history: input.history,
-            ...(input.transferProfiles?.length
-              ? { transferProfiles: input.transferProfiles }
-              : {}),
-            ...(input.assistantContext &&
-            Object.keys(input.assistantContext).length > 0
-              ? { assistantContext: input.assistantContext }
-              : {}),
-          }),
+          body: JSON.stringify(requestBody),
           signal: controller.signal,
         }),
     });
@@ -291,6 +343,7 @@ export async function generateAssistantReply(
     };
     if (transfer) result.transfer = transfer;
     if (voiceDirective) result.voiceDirective = voiceDirective;
+    await input.forensics?.recordLlmResponse({ text: result.text, source: result.source });
     return result;
   } catch (error) {
     if (
@@ -308,7 +361,9 @@ export async function generateAssistantReply(
       },
       'brain reply failed',
     );
-    return { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' };
+    const fb = { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' as const };
+    await input.forensics?.recordLlmResponse(fb);
+    return fb;
   } finally {
     clearTimeout(timeout);
   }
@@ -346,6 +401,20 @@ export async function generateAssistantReplyStream(
       'brain routed to stream',
     );
 
+    const sanitizedPrompts = sanitizePrompts(input.prompts);
+    const streamRequestBody: Record<string, unknown> = {
+      tenantId: input.tenantId,
+      callControlId: input.callControlId,
+      transcript: input.transcript,
+      history: input.history,
+      ...(input.transferProfiles?.length ? { transferProfiles: input.transferProfiles } : {}),
+      ...(input.assistantContext && Object.keys(input.assistantContext).length > 0
+        ? { assistantContext: input.assistantContext }
+        : {}),
+      ...(sanitizedPrompts ? { prompts: sanitizedPrompts } : {}),
+    };
+    await input.forensics?.recordLlmRequestPayload({ ...streamRequestBody, route: 'brain_http_stream' });
+
     const response = await withCircuitBreaker({
       key: 'brain_http_stream',
       failureThreshold: 3,
@@ -358,19 +427,7 @@ export async function generateAssistantReplyStream(
             'Content-Type': 'application/json',
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify({
-            tenantId: input.tenantId,
-            callControlId: input.callControlId,
-            transcript: input.transcript,
-            history: input.history,
-            ...(input.transferProfiles?.length
-              ? { transferProfiles: input.transferProfiles }
-              : {}),
-            ...(input.assistantContext &&
-            Object.keys(input.assistantContext).length > 0
-              ? { assistantContext: input.assistantContext }
-              : {}),
-          }),
+          body: JSON.stringify(streamRequestBody),
           signal: controller.signal,
         }),
     });
@@ -478,6 +535,7 @@ export async function generateAssistantReplyStream(
     };
     if (transfer) result.transfer = transfer;
     if (voiceDirective) result.voiceDirective = voiceDirective;
+    await input.forensics?.recordLlmResponse({ text: result.text, source: result.source });
     return result;
   } catch (error) {
     if (
@@ -496,9 +554,11 @@ export async function generateAssistantReplyStream(
       'brain stream error',
     );
     if (sawTokens && fullText.trim()) {
-      return { text: fullText.trim(), source: 'brain_http_stream' };
+      const partial = { text: fullText.trim(), source: 'brain_http_stream' as const };
+      await input.forensics?.recordLlmResponse(partial);
+      return partial;
     }
-    return generateAssistantReply(input);
+    return generateAssistantReply({ ...input, forensics: undefined });
   } finally {
     clearTimeout(timeout);
   }

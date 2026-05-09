@@ -446,6 +446,112 @@
       .portal-activity__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text); }
       .portal-activity__hint { font-size: 12px; color: var(--muted); }
       .portal-activity__list { margin: 0; padding: 0; list-style: none; }
+      .portal-drawer {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        visibility: hidden;
+        pointer-events: none;
+      }
+      .portal-drawer.is-open {
+        visibility: visible;
+        pointer-events: auto;
+      }
+      .portal-drawer__backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .portal-drawer.is-open .portal-drawer__backdrop {
+        opacity: 1;
+      }
+      .portal-drawer__panel {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: min(440px, 100%);
+        max-width: 100%;
+        background: var(--surface);
+        border-left: 1px solid var(--border);
+        box-shadow: -12px 0 48px rgba(0, 0, 0, 0.35);
+        padding: 24px 22px;
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+        overflow-y: auto;
+      }
+      .portal-drawer.is-open .portal-drawer__panel {
+        transform: translateX(0);
+      }
+      .portal-drawer__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .portal-drawer__head h3 {
+        margin: 0;
+        font-size: 17px;
+      }
+      .portal-calls-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      .portal-calls-toolbar button.secondary {
+        padding: 8px 14px;
+        font-size: 13px;
+      }
+      .portal-call-row {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        text-align: left;
+        width: 100%;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+        transition: background 0.15s, border-color 0.15s;
+      }
+      .portal-call-row:hover {
+        background: rgba(255, 255, 255, 0.06);
+        border-color: rgba(201, 160, 78, 0.35);
+      }
+      .portal-call-row__top {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .portal-call-row__sub {
+        font-size: 12px;
+        color: var(--muted);
+        width: 100%;
+      }
+      .portal-pill-missed {
+        display: inline-block;
+        font-size: 11px;
+        font-weight: 600;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: rgba(248, 113, 113, 0.15);
+        color: #fca5a5;
+        margin-left: 8px;
+      }
+
       .portal-activity__list li {
         font-size: 14px; color: var(--text-soft);
         padding: 10px 0;
@@ -648,6 +754,9 @@
               <p class="portal-stat-card__value" id="overview-stat-services">—</p>
             </div>
           </div>
+          <p id="portal-runtime-sync-line" class="help" style="margin: -8px 0 20px; font-size: 13px; color: var(--muted)">
+            Voice runtime last synced: —
+          </p>
 
           <div class="portal-activity">
             <div class="portal-activity__head">
@@ -656,6 +765,20 @@
             </div>
             <ul id="overview-activity-list" class="portal-activity__list" hidden></ul>
             <p id="overview-activity-empty" class="portal-activity__empty">No leads yet—when callers leave their details, they’ll show up here. Your receptionist is ready to capture them.</p>
+          </div>
+
+          <div class="portal-activity" style="margin-top: 20px">
+            <div class="portal-activity__head">
+              <h2 class="portal-activity__title">Recent calls</h2>
+              <span class="portal-activity__hint">Masked caller ID · summary only</span>
+            </div>
+            <div class="portal-calls-toolbar">
+              <button type="button" class="secondary" id="portal-calls-filter-all">All</button>
+              <button type="button" class="secondary" id="portal-calls-filter-missed">Missed</button>
+              <button type="button" class="secondary" id="portal-calls-refresh">Refresh</button>
+            </div>
+            <p id="portal-calls-empty" class="portal-activity__empty" hidden>No calls on file yet.</p>
+            <ul id="portal-calls-list" class="portal-activity__list" style="padding: 0; list-style: none"></ul>
           </div>
 
           <details class="portal-acc" style="margin-top: 24px;">
@@ -737,6 +860,46 @@
             </details>
 
             <details class="portal-acc">
+              <summary class="portal-acc__summary">Business hours <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro" id="portal-bh-status-line">Loading…</p>
+                <div class="owner-panel-inner">
+                  <label for="portal-bh-timezone">IANA timezone</label>
+                  <input id="portal-bh-timezone" type="text" placeholder="America/New_York" autocomplete="off" />
+                  <label for="portal-bh-after" style="margin-top: 10px">After-hours message (optional)</label>
+                  <textarea id="portal-bh-after" rows="2" placeholder="Short message when you’re closed"></textarea>
+                  <table style="width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 13px">
+                    <thead>
+                      <tr>
+                        <th style="text-align: left; padding: 4px 6px">Day</th>
+                        <th style="text-align: left; padding: 4px 6px">Closed</th>
+                        <th style="text-align: left; padding: 4px 6px">Open</th>
+                        <th style="text-align: left; padding: 4px 6px">Close</th>
+                      </tr>
+                    </thead>
+                    <tbody id="portal-bh-tbody"></tbody>
+                  </table>
+                  <div class="row" style="margin-top: 12px">
+                    <button type="button" id="portal-bh-save">Save business hours</button>
+                  </div>
+                  <p id="portal-bh-msg" class="help" style="margin-top: 8px; min-height: 1.2em"></p>
+                </div>
+              </div>
+            </details>
+
+            <details class="portal-acc">
+              <summary class="portal-acc__summary">Go-live checklist <span class="portal-acc__chev">▾</span></summary>
+              <div class="portal-acc__body">
+                <p class="portal-acc__intro">
+                  Track a manual PSTN test from your phone. Automated test calls from this portal are not available yet.
+                </p>
+                <ul id="portal-handoff-checklist" class="owner-list" style="margin-bottom: 12px"></ul>
+                <button type="button" id="portal-mark-test-call">Mark test call completed</button>
+                <p id="portal-test-call-msg" class="help" style="margin-top: 8px"></p>
+              </div>
+            </details>
+
+            <details class="portal-acc">
               <summary class="portal-acc__summary">Quick replies <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
                 <p class="portal-acc__intro">
@@ -773,10 +936,10 @@
                   </select>
                   <p id="portal-tts-provider-blurb" class="help" style="margin-bottom: 12px;"></p>
 
-                  <div id="portal-tts-panel-url" style="margin-top: 8px">
-                    <label for="portal-ttsUrl" id="portal-tts-url-label">TTS server URL</label>
-                    <input id="portal-ttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
-                    <p id="portal-tts-url-hint" class="help" style="margin-top: 6px; display: none"></p>
+                  <div id="portal-tts-panel-url" style="margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03)">
+                    <p class="help" style="margin: 0">
+                      Voice engine endpoints are managed by your VeraLux account team. Pick a provider above and we'll route your calls to the supported backend. If you need a different engine, contact support.
+                    </p>
                   </div>
 
                   <div id="portal-tts-panel-chatterbox" style="display: none; margin-top: 14px">
@@ -1110,6 +1273,17 @@
         </div>
       </main>
 
+      <div id="portal-call-drawer" class="portal-drawer" aria-hidden="true">
+        <div class="portal-drawer__backdrop" id="portal-call-drawer-backdrop"></div>
+        <div class="portal-drawer__panel" role="dialog" aria-labelledby="portal-call-drawer-title">
+          <div class="portal-drawer__head">
+            <h3 id="portal-call-drawer-title">Call detail</h3>
+            <button type="button" class="secondary" id="portal-call-drawer-close">Close</button>
+          </div>
+          <div id="portal-call-drawer-body" class="help" style="font-size: 14px; line-height: 1.55; color: var(--text-soft)"></div>
+        </div>
+      </div>
+
       <footer class="owner-footer" id="vlx-portal-footer">
         <span id="vlx-portal-footer-inner"
           >Powered by <a href="https://veralux.ai" target="_blank" rel="noopener noreferrer">VeraLux AI</a></span
@@ -1129,6 +1303,8 @@
       let recentLeadsForOverview = [];
       let portalLeadTotalCount = 0;
       let liveSummaryTimer = null;
+      let portalCallsCache = [];
+      let portalCallsFilter = "all";
 
       function escapeHtml(s) {
         const d = document.createElement("div");
@@ -1446,8 +1622,327 @@
           loadPortalLeads(),
           loadPortalWorkflows(),
           loadPortalQuickReplies(),
+          loadPortalCalls(),
+          loadPortalBusinessHours(),
+          loadPortalRuntimeSync(),
         ]);
         refreshLiveSummary();
+        void loadPortalHandoffState();
+      }
+
+      function portalBhDefaults() {
+        const tz =
+          (typeof Intl !== "undefined" &&
+            Intl.DateTimeFormat &&
+            Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+          "America/New_York";
+        const day = { open: "09:00", close: "17:00" };
+        return {
+          timezone: tz,
+          weekly: {
+            mon: { ...day },
+            tue: { ...day },
+            wed: { ...day },
+            thu: { ...day },
+            fri: { ...day },
+            sat: { closed: true },
+            sun: { closed: true },
+          },
+          afterHoursMessage: "",
+        };
+      }
+
+      function mergePortalBhForEditor(stored) {
+        const d = portalBhDefaults();
+        if (!stored || typeof stored !== "object") return d;
+        const tz =
+          typeof stored.timezone === "string" && stored.timezone.trim()
+            ? stored.timezone.trim()
+            : d.timezone;
+        const weekly = { ...d.weekly };
+        const keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        for (const key of keys) {
+          const v = stored.weekly && stored.weekly[key];
+          if (!v) continue;
+          if (v.closed === true) weekly[key] = { closed: true };
+          else if (v.open && v.close)
+            weekly[key] = { open: String(v.open), close: String(v.close) };
+        }
+        const afterHoursMessage =
+          typeof stored.afterHoursMessage === "string" ? stored.afterHoursMessage : "";
+        return { timezone: tz, weekly, afterHoursMessage };
+      }
+
+      function renderPortalBhEditor(data) {
+        const tbody = $("portal-bh-tbody");
+        if (!tbody) return;
+        const tzEl = $("portal-bh-timezone");
+        const afterEl = $("portal-bh-after");
+        if (tzEl) tzEl.value = data.timezone || "";
+        if (afterEl) afterEl.value = data.afterHoursMessage || "";
+        const days = [
+          ["mon", "Mon"],
+          ["tue", "Tue"],
+          ["wed", "Wed"],
+          ["thu", "Thu"],
+          ["fri", "Fri"],
+          ["sat", "Sat"],
+          ["sun", "Sun"],
+        ];
+        tbody.innerHTML = days
+          .map(([key, label]) => {
+            const day = data.weekly[key];
+            const closed = !day || day.closed === true;
+            const open = closed ? "" : day.open || "";
+            const close = closed ? "" : day.close || "";
+            return `<tr data-day="${key}"><td>${label}</td><td><input type="checkbox" class="portal-bh-closed" ${
+              closed ? "checked" : ""
+            } /></td><td><input type="text" class="portal-bh-open" style="max-width:88px" value="${escapeHtml(
+              open,
+            )}" placeholder="09:00" /></td><td><input type="text" class="portal-bh-close" style="max-width:88px" value="${escapeHtml(
+              close,
+            )}" placeholder="17:00" /></td></tr>`;
+          })
+          .join("");
+        tbody.querySelectorAll("tr").forEach((tr) => {
+          const cb = tr.querySelector(".portal-bh-closed");
+          const o = tr.querySelector(".portal-bh-open");
+          const c = tr.querySelector(".portal-bh-close");
+          const sync = () => {
+            if (!cb || !o || !c) return;
+            if (cb.checked) {
+              o.value = "";
+              c.value = "";
+              o.disabled = true;
+              c.disabled = true;
+            } else {
+              o.disabled = false;
+              c.disabled = false;
+              if (!o.value) o.value = "09:00";
+              if (!c.value) c.value = "17:00";
+            }
+          };
+          cb?.addEventListener("change", sync);
+          sync();
+        });
+      }
+
+      function readPortalBhPayload() {
+        const timezone = ($("portal-bh-timezone")?.value || "").trim();
+        const afterHoursMessage = ($("portal-bh-after")?.value || "").trim();
+        const weekly = {};
+        document.querySelectorAll("#portal-bh-tbody tr").forEach((tr) => {
+          const key = tr.getAttribute("data-day");
+          if (!key) return;
+          const closed = tr.querySelector(".portal-bh-closed")?.checked;
+          if (closed) weekly[key] = { closed: true };
+          else {
+            weekly[key] = {
+              open: (tr.querySelector(".portal-bh-open")?.value || "").trim(),
+              close: (tr.querySelector(".portal-bh-close")?.value || "").trim(),
+            };
+          }
+        });
+        const out = { timezone, weekly };
+        if (afterHoursMessage) out.afterHoursMessage = afterHoursMessage;
+        return out;
+      }
+
+      async function loadPortalBusinessHours() {
+        const line = $("portal-bh-status-line");
+        if (!line) return;
+        line.textContent = "Loading…";
+        try {
+          const data = await apiFetch("/api/owner/business-hours");
+          const merged = mergePortalBhForEditor(data.businessHours);
+          renderPortalBhEditor(merged);
+          const open = data.openNow ? "Open now" : "Closed now";
+          const sum = String(data.summary || "")
+            .split("\n")
+            .slice(0, 2)
+            .join(" · ");
+          line.textContent = `${open}${sum ? " · " + sum : ""}`;
+        } catch (_) {
+          line.textContent = "Could not load business hours.";
+        }
+      }
+
+      async function savePortalBusinessHours() {
+        const msg = $("portal-bh-msg");
+        const line = $("portal-bh-status-line");
+        if (msg) msg.textContent = "";
+        try {
+          const payload = readPortalBhPayload();
+          const data = await apiFetch("/api/owner/business-hours", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          renderPortalBhEditor(mergePortalBhForEditor(data.businessHours));
+          const open = data.openNow ? "Open now" : "Closed now";
+          if (msg) msg.textContent = `${open} — saved.`;
+          const sum = String(data.summary || "")
+            .split("\n")
+            .slice(0, 2)
+            .join(" · ");
+          if (line) line.textContent = `${open}${sum ? " · " + sum : ""}`;
+        } catch (_) {
+          if (msg) msg.textContent = "Save failed — check timezone and HH:MM fields.";
+        }
+      }
+
+      async function loadPortalRuntimeSync() {
+        const el = $("portal-runtime-sync-line");
+        if (!el) return;
+        try {
+          const data = await apiFetch("/api/owner/voice-runtime-sync");
+          const iso = data.lastRuntimePublishedAt;
+          el.textContent = iso
+            ? `Voice runtime last synced: ${new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+            : "Voice runtime last synced: not published yet (your provider will push updates).";
+        } catch (_) {
+          el.textContent = "Voice runtime last synced: —";
+        }
+      }
+
+      async function loadPortalCalls() {
+        const list = $("portal-calls-list");
+        const empty = $("portal-calls-empty");
+        if (!list || !empty) return;
+        try {
+          const q = portalCallsFilter === "missed" ? "missed" : "all";
+          const data = await apiFetch(`/api/owner/calls?limit=50&filter=${encodeURIComponent(q)}`);
+          portalCallsCache = Array.isArray(data.calls) ? data.calls : [];
+          renderPortalCallsList();
+        } catch (_) {
+          portalCallsCache = [];
+          list.innerHTML = "";
+          empty.hidden = false;
+          empty.textContent = "Could not load calls.";
+        }
+      }
+
+      function renderPortalCallsList() {
+        const list = $("portal-calls-list");
+        const empty = $("portal-calls-empty");
+        if (!list || !empty) return;
+        const rows = portalCallsCache || [];
+        if (!rows.length) {
+          list.innerHTML = "";
+          empty.hidden = false;
+          empty.textContent = "No calls on file yet.";
+          return;
+        }
+        empty.hidden = true;
+        list.innerHTML = rows
+          .map((c) => {
+            const when = c.createdAt
+              ? new Date(c.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+              : "—";
+            const miss = c.missed ? '<span class="portal-pill-missed">Missed</span>' : "";
+            const sum = c.transcriptSummary
+              ? `<span class="portal-call-row__sub">${escapeHtml(truncate(c.transcriptSummary, 140))}</span>`
+              : "";
+            return `<li style="list-style:none">
+              <button type="button" class="portal-call-row" data-call-id="${escapeHtml(c.id)}">
+                <div class="portal-call-row__top">
+                  <span>${escapeHtml(c.callerDisplay || "Unknown")}${miss}</span>
+                  <span class="help" style="white-space:nowrap;font-weight:500">${escapeHtml(when)}</span>
+                </div>
+                <span class="portal-call-row__sub">Status: ${escapeHtml(String(c.stage || "unknown"))}</span>
+                ${sum}
+              </button>
+            </li>`;
+          })
+          .join("");
+        list.querySelectorAll("[data-call-id]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.getAttribute("data-call-id");
+            if (id) void openPortalCallDrawer(id);
+          });
+        });
+      }
+
+      function setPortalCallDrawer(open) {
+        const root = $("portal-call-drawer");
+        if (!root) return;
+        root.classList.toggle("is-open", open);
+        root.setAttribute("aria-hidden", open ? "false" : "true");
+      }
+
+      async function openPortalCallDrawer(callId) {
+        const body = $("portal-call-drawer-body");
+        if (!body) return;
+        body.textContent = "Loading…";
+        setPortalCallDrawer(true);
+        try {
+          const c = await apiFetch(`/api/owner/calls/${encodeURIComponent(callId)}`);
+          const when = c.createdAt
+            ? new Date(c.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+            : "—";
+          const sum = c.transcriptSummary
+            ? `<p style="margin:10px 0"><strong>Summary</strong><br />${escapeHtml(c.transcriptSummary)}</p>`
+            : "<p style=\"margin:10px 0\">No transcript summary stored for this call.</p>";
+          body.innerHTML = `<p><strong>Caller</strong><br />${escapeHtml(c.callerDisplay || "Unknown")}</p>
+            <p><strong>When</strong><br />${escapeHtml(when)}</p>
+            <p><strong>Status</strong><br />${escapeHtml(String(c.stage || "unknown"))}</p>
+            ${c.missed ? "<p><strong>Missed</strong><br />Yes</p>" : ""}
+            ${sum}`;
+        } catch (_) {
+          body.textContent = "Could not load this call.";
+        }
+      }
+
+      function closePortalCallDrawer() {
+        setPortalCallDrawer(false);
+      }
+
+      async function loadPortalHandoffState() {
+        const ul = $("portal-handoff-checklist");
+        if (!ul) return;
+        let testOk = false;
+        let testLine = "";
+        try {
+          const data = await apiFetch("/api/owner/operator-state");
+          const tc = data.operatorState && data.operatorState.testCall;
+          if (tc && tc.completedAt) {
+            testOk = true;
+            testLine = `${new Date(String(tc.completedAt)).toLocaleString()} (${tc.completedBy || "owner"})`;
+          }
+        } catch (_) {
+          /* ignore */
+        }
+        const g = $("p-greeting") ? $("p-greeting").value.trim().length >= 8 : false;
+        const t = forwardingProfiles.length > 0;
+        const items = [
+          { ok: g, label: "Greeting configured" },
+          { ok: t, label: "Transfer contact added" },
+          {
+            ok: testOk,
+            label: testOk && testLine ? `Test call completed — ${testLine}` : "Test call completed (manual)",
+          },
+        ];
+        ul.innerHTML = items
+          .map(
+            (row) =>
+              `<li><span>${row.ok ? "✓ " : "○ "}</span>${escapeHtml(row.label)}</li>`,
+          )
+          .join("");
+      }
+
+      async function markPortalTestCall() {
+        const msg = $("portal-test-call-msg");
+        if (msg) msg.textContent = "";
+        try {
+          await apiFetch("/api/owner/operator-test-call/complete", { method: "POST" });
+          if (msg) {
+            msg.style.color = "var(--success)";
+            msg.textContent = "Recorded. Thank you for validating with a live call.";
+          }
+          void loadPortalHandoffState();
+        } catch (_) {
+          if (msg) msg.textContent = "Could not save. Try again.";
+        }
       }
 
       // ── Billing ──
@@ -1609,6 +2104,7 @@
           });
           renderForwarding();
           refreshLiveSummary();
+          void loadPortalHandoffState();
         } catch (err) {
           console.error("saveForwarding:", err);
         }
@@ -1643,6 +2139,7 @@
           });
           $("prompt-status").textContent = "Saved!";
           refreshLiveSummary();
+          void loadPortalHandoffState();
           setTimeout(() => { $("prompt-status").textContent = ""; }, 3000);
         } catch (err) {
           $("prompt-status").textContent = "Save failed: " + err.message;
@@ -2003,39 +2500,10 @@
             mode === "chatterbox_http" ? "Reference voice sample (Chatterbox)" : "Clone from reference audio (Coqui XTTS)";
         }
 
-        const urlLabel = $("portal-tts-url-label");
-        if (urlLabel) {
-          urlLabel.textContent =
-            mode === "kokoro_http"
-              ? "Kokoro server URL"
-              : mode === "chatterbox_http"
-                ? "Chatterbox server URL"
-                : mode === "qwen3_tts_http"
-                  ? "Qwen3-TTS server URL"
-                  : "Coqui XTTS server URL";
-        }
-        const urlInput = $("portal-ttsUrl");
-        if (urlInput) {
-          urlInput.placeholder =
-            mode === "kokoro_http"
-              ? "http://127.0.0.1:7001/tts"
-              : mode === "chatterbox_http"
-                ? "http://127.0.0.1:7005"
-                : mode === "qwen3_tts_http"
-                  ? "http://veralux-qwen3-tts:7010"
-                  : "http://127.0.0.1:7002/tts";
-        }
-        const pUrlHint = $("portal-tts-url-hint");
-        if (pUrlHint) {
-          if (mode === "qwen3_tts_http") {
-            pUrlHint.style.display = "block";
-            pUrlHint.textContent =
-              "Preview runs from the control-plane container. Use http://veralux-qwen3-tts:7010 (or qwen3-tts) when the Qwen3 container is up. DNS errors mean qwen3-tts-gpu is not running — start with: docker compose --profile gpu up -d qwen3-tts-gpu";
-          } else {
-            pUrlHint.style.display = "none";
-            pUrlHint.textContent = "";
-          }
-        }
+        // Provider URL fields are admin-only; the portal no longer renders or
+        // submits raw STT/TTS endpoint URLs. The label/placeholder/hint code
+        // that used to reveal internal hostnames (e.g. veralux-qwen3-tts:7010)
+        // was removed in Sprint 0 to avoid leaking infrastructure topology.
 
         const vLabel = $("portal-tts-voice-id-label");
         const vHint = $("portal-tts-voice-id-hint");
@@ -2203,45 +2671,16 @@
         });
       }
 
-      const portalTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "", qwen3_tts_http: "" };
-      let portalTtsUrlBoundMode = "coqui_xtts";
-
-      function portalRefreshTtsUrlCacheFromCfg(cfg) {
-        const m = cfg.mode || cfg.ttsMode || "coqui_xtts";
-        portalTtsUrlByMode.coqui_xtts = (cfg.coquiXttsUrl || "").trim();
-        if (!portalTtsUrlByMode.coqui_xtts && m === "coqui_xtts") {
-          portalTtsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
-        }
-        portalTtsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
-        if (!portalTtsUrlByMode.kokoro_http && m === "kokoro_http") {
-          portalTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
-        }
-        portalTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
-        portalTtsUrlByMode.qwen3_tts_http = (cfg.qwen3TtsUrl || "").trim();
-      }
-
-      function portalApplyTtsUrlForMode(mode) {
-        const urlEl = $("portal-ttsUrl");
-        if (!urlEl) return;
-        urlEl.value = portalTtsUrlByMode[mode] || "";
-      }
-
+      // The portal no longer reads or writes per-mode TTS URLs. Provider
+      // endpoints are admin-curated and the backend rejects URL fields from
+      // non-superadmin callers. Only the provider mode (and per-mode tuning)
+      // is editable from the client portal.
       function onPortalTtsProviderModeChange() {
-        const modeEl = $("portal-ttsMode");
-        const urlEl = $("portal-ttsUrl");
-        if (urlEl && portalTtsUrlBoundMode && Object.prototype.hasOwnProperty.call(portalTtsUrlByMode, portalTtsUrlBoundMode)) {
-          portalTtsUrlByMode[portalTtsUrlBoundMode] = urlEl.value.trim();
-        }
-        if (modeEl) {
-          portalTtsUrlBoundMode = modeEl.value;
-          portalApplyTtsUrlForMode(modeEl.value);
-        }
         updatePortalTtsProviderPanels();
       }
 
       function portalRenderTtsConfig(cfg) {
         const modeEl = $("portal-ttsMode");
-        const urlEl = $("portal-ttsUrl");
         const presetEl = $("portal-ttsPreset");
         const rateEl = $("portal-ttsRate");
         const dm = $("portal-defaultVoiceMode");
@@ -2249,11 +2688,8 @@
         const cl = $("portal-clonedVoiceLabel");
         if (!presetEl || !rateEl) return;
 
-        portalRefreshTtsUrlCacheFromCfg(cfg);
         const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
         if (modeEl) modeEl.value = mode;
-        portalTtsUrlBoundMode = mode;
-        if (urlEl) portalApplyTtsUrlForMode(mode);
         const cb = $("portal-chatterboxVariant");
         if (cb && cfg.chatterboxVariant) cb.value = cfg.chatterboxVariant;
         presetEl.value = cfg.preset || "neutral";
@@ -2336,7 +2772,6 @@
         if (!validatePortalVoiceCloning()) return false;
         try {
           const modeEl = $("portal-ttsMode");
-          const urlEl = $("portal-ttsUrl");
           const presetEl = $("portal-ttsPreset");
           const voiceEl = $("portal-ttsVoiceId");
           const langEl = $("portal-ttsLanguage");
@@ -2346,13 +2781,16 @@
           const cl = $("portal-clonedVoiceLabel");
 
           const ttsMode = modeEl ? modeEl.value : "coqui_xtts";
-          const url = urlEl ? urlEl.value.trim() : "";
           const clonedUrl = cu ? cu.value.trim() : "";
           const clonedLabel = cl ? cl.value.trim() : "";
 
           const voiceId = voiceEl ? voiceEl.value.trim() || undefined : undefined;
           const language = langEl ? langEl.value.trim() || undefined : undefined;
 
+          // NOTE: provider URL fields (coquiXttsUrl, kokoroUrl, chatterboxUrl,
+          // qwen3TtsUrl, xttsUrl) are intentionally NOT included. They are
+          // admin-curated infrastructure; the backend rejects them from
+          // non-superadmin callers and the existing per-mode URL is preserved.
           const payload = {
             ttsMode,
             preset: presetEl ? presetEl.value : "neutral",
@@ -2363,7 +2801,6 @@
           };
 
           if (ttsMode === "coqui_xtts") {
-            payload.coquiXttsUrl = url || undefined;
             if (clonedUrl) payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
             const pcNum = (id) => {
               const el = $("portal-" + id);
@@ -2386,12 +2823,10 @@
             payload.coquiSpeed = pcNum("coquiSpeed");
             payload.coquiSplitSentences = pcTri("coquiSplitSentences");
           } else if (ttsMode === "chatterbox_http") {
-            payload.chatterboxUrl = url || undefined;
             const cv = $("portal-chatterboxVariant");
             if (cv && cv.value) payload.chatterboxVariant = cv.value;
             if (clonedUrl) payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
           } else if (ttsMode === "qwen3_tts_http") {
-            payload.qwen3TtsUrl = url || undefined;
             const pqi = $("portal-qwen3Instruct");
             if (pqi && pqi.value.trim()) payload.qwen3Instruct = pqi.value.trim();
             const pqStr = $("portal-qwen3Streaming");
@@ -2420,10 +2855,9 @@
             payload.qwen3SubtalkerTopK = pqNum("qwen3SubtalkerTopK");
             payload.qwen3SubtalkerTopP = pqNum("qwen3SubtalkerTopP");
             payload.qwen3SubtalkerTemperature = pqNum("qwen3SubtalkerTemperature");
-          } else {
-            payload.kokoroUrl = url || undefined;
-            payload.xttsUrl = url || undefined;
           }
+          // For kokoro_http (default branch) the portal sends only mode/preset/voice/lang/rate;
+          // the admin-curated KOKORO server URL is preserved server-side.
 
           const cfg = await apiFetch("/api/tts/config", {
             method: "POST",
@@ -2632,6 +3066,7 @@
                 "Done: voice form saved, then full config published to Redis. New calls should use your selected voice.";
               st.style.color = "var(--success)";
             }
+            void loadPortalRuntimeSync();
           } catch (e) {
             if (st) {
               st.textContent = String(e.message || e);
@@ -2663,6 +3098,20 @@
           const el = $(id);
           if (el) el.addEventListener("input", scheduleLiveSummary);
         });
+
+        $("portal-calls-filter-all")?.addEventListener("click", () => {
+          portalCallsFilter = "all";
+          void loadPortalCalls();
+        });
+        $("portal-calls-filter-missed")?.addEventListener("click", () => {
+          portalCallsFilter = "missed";
+          void loadPortalCalls();
+        });
+        $("portal-calls-refresh")?.addEventListener("click", () => void loadPortalCalls());
+        $("portal-bh-save")?.addEventListener("click", () => void savePortalBusinessHours());
+        $("portal-mark-test-call")?.addEventListener("click", () => void markPortalTestCall());
+        $("portal-call-drawer-close")?.addEventListener("click", () => closePortalCallDrawer());
+        $("portal-call-drawer-backdrop")?.addEventListener("click", () => closePortalCallDrawer());
 
         // Auto-refresh
         setInterval(loadAnalytics, 30000);

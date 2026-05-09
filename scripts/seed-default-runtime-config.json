@@ -34,7 +34,7 @@
     }
   },
   "assistantContext": {
-    "hours": "Tell callers you can help with general questions and routing; for exact hours they should leave a message if needed."
+    "hours": "We're open Monday through Friday, 9 AM to 5 PM Eastern. Closed weekends."
   },
   "quickReplies": []
 }

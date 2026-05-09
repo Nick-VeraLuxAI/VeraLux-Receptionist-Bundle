@@ -12,6 +12,8 @@ __pycache__/
 .env.internal
 **/.env
 **/.env.internal
+.env.development
+**/.env.development
 
 # Cloudflare tunnel credentials
 cloudflared/credentials.json

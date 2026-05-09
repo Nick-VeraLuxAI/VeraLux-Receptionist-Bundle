@@ -66,13 +66,21 @@ npm install
 ./scripts/dev_redis.sh
 ```
 
-3) Copy `.env.example` to `.env` and set any secrets (Telnyx keys, etc.). The example includes locked-in dev settings (STT debug dirs, Whisper URL, trace flags). The server creates `STT_DEBUG_DIR` and `AMRWB_DEBUG_DIR` at startup when set.
+3) **One env file for local dev:** copy your **production** voice env into `.env.development` (gitignored) and let the init script append host-friendly overrides (Redis, `/tmp` audio, STT WAV dumps, transcript JSON dir, verbose logs):
 
-4) Run the server:
+```bash
+npm run init:dev-env -w veralux-voice-runtime -- /etc/veralux/voice-runtime.env
+```
+
+Or from this directory: `npm run init:dev-env -- /path/to/voice-runtime.env`
+
+4) Run the server (`npm run dev` loads **only** `.env.development` via `VERALUX_DOTENV`):
 
 ```bash
 npm run dev
 ```
+
+To match production file layout on the same machine instead: `npm run dev:prod` (loads `.env`).
 
 To also tee output to `/tmp/runtime.log`: `npm run dev:log`.
 

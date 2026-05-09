@@ -3513,3 +3513,200 @@ ul {
 .ops-zone--hero .neural-hero__glow {
   display: none;
 }
+
+/* ── Overview operator dashboard ─────────────────────────────────── */
+.tenant-command-strip--compact {
+  padding-bottom: 10px;
+}
+
+.ops-dashboard {
+  max-width: var(--ops-layout-max, 1520px);
+  margin: 0 auto;
+  padding: 0 var(--app-pad-x, 24px) var(--app-pad-y-bottom, 48px);
+}
+
+.ops-dashboard__lede {
+  margin: 0 0 var(--ops-rhythm, 22px);
+  max-width: 78ch;
+  line-height: 1.5;
+}
+
+.ops-dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ops-rhythm, 22px);
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .ops-dashboard__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ops-dashboard-card {
+  border-radius: var(--radius-md, 14px);
+  padding: clamp(16px, 2vw, 22px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-deep);
+}
+
+.ops-dashboard-card__title {
+  margin: 6px 0 0;
+  font-size: clamp(1.15rem, 2vw, 1.35rem);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.ops-dashboard-card__lede {
+  margin: 8px 0 0;
+  line-height: 1.45;
+}
+
+.ops-dashboard-card--danger {
+  margin-top: var(--ops-rhythm, 22px);
+  border-color: rgba(196, 80, 80, 0.45);
+  background: linear-gradient(160deg, rgba(196, 80, 80, 0.12), rgba(10, 10, 12, 0.92));
+}
+
+.ops-dashboard-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.ops-dashboard-form input[type="text"],
+.ops-dashboard-form input[type="email"],
+.ops-dashboard-form input[type="password"],
+.ops-dashboard-form input[type="tel"] {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.ops-dashboard-field-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.ops-dashboard-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 28px;
+}
+
+.ops-dashboard-value {
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+.ops-dashboard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ops-dashboard-actions--split {
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.ops-dashboard-number-chips {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ops-dashboard-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.ops-dashboard-runtime-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 16px;
+  margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .ops-dashboard-runtime-kpis {
+    grid-template-columns: 1fr;
+  }
+}
+
+.signal-stats--compact {
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.signal-stats--compact .signal-stats__item {
+  min-width: 120px;
+}
+
+.ops-handoff-checklist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ops-handoff-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.ops-handoff-checklist li.is-done {
+  border-color: rgba(92, 184, 138, 0.35);
+  background: rgba(92, 184, 138, 0.08);
+}
+
+.ops-handoff-checklist li .ops-handoff-mark {
+  flex-shrink: 0;
+  width: 1.25em;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.ops-handoff-checklist li.is-done .ops-handoff-mark {
+  color: var(--success);
+}
+
+.ops-overview-advanced {
+  margin-top: calc(var(--ops-rhythm, 22px) + 8px);
+  padding: 12px 16px;
+  border-radius: var(--radius-md, 14px);
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.ops-overview-advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.ops-overview-advanced summary:hover {
+  color: var(--primary);
+}

@@ -19,6 +19,7 @@ import { voiceControlGuard } from './security/voiceControlAuth';
 import { synthesizeSpeech } from './tts';
 import { metricsHandler, metricsMiddleware, startStageTimer } from './metrics';
 import { TelnyxClient } from './telnyx/telnyxClient';
+import { ensureForensicsSession } from './observability/audioForensics';
 
 type RequestWithRawBody = Request & { rawBody?: Buffer; id?: string };
 
@@ -734,6 +735,16 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
     sessionManager.registerMediaConnection(callControlId, ws);
     sessionManager.onMediaWsConnected(callControlId);
     void initTelnyxRawPayloadCapture(callControlId);
+    void ensureForensicsSession(callControlId).then((sess) => {
+      if (!sess) return;
+      void sess.appendTimeline({
+        event: 'media_ws_connected',
+        wallClockMs: Date.now(),
+        audioClockMs: sess.mediaIngestAudioClockMs,
+        callControlId,
+        remote_address: request.socket.remoteAddress ?? null,
+      });
+    });
 
     const transportMode = sessionManager.getTransportMode(callControlId) ?? env.TRANSPORT_MODE;
     const ingest = new MediaIngest({
@@ -989,6 +1000,10 @@ export function buildServer(): { app: express.Express; server: http.Server; sess
   if (env.AMRWB_DEBUG_DIR) {
     fs.mkdirSync(env.AMRWB_DEBUG_DIR, { recursive: true });
     log.debug({ dir: env.AMRWB_DEBUG_DIR }, 'AMR-WB debug dir ensured');
+  }
+  if (env.CALL_TRANSCRIPT_DIR) {
+    fs.mkdirSync(env.CALL_TRANSCRIPT_DIR.trim(), { recursive: true });
+    log.debug({ dir: env.CALL_TRANSCRIPT_DIR }, 'call transcript dir ensured');
   }
   log.info(
     {

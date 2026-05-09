@@ -25,6 +25,7 @@ import {
   quickReplyIntentSchema,
   type RuntimeTenantConfig,
 } from "./runtime/runtimeContract";
+import { businessHoursSchema, evaluateBusinessHours } from "@veralux/shared";
 import {
   assertRuntimeRedisConfigured,
   getTenantConfig,
@@ -80,7 +81,10 @@ import {
   getTenantBillingSummary,
   recordTenantCallStarted,
   recordTenantCallEnded,
+  listCallsForTenantDb,
+  getCallByIdForTenantDb,
 } from "./db";
+import { maskCallerId, summarizeHistory, isMissedCallRow } from "./callSanitizer";
 import { rateLimit } from "./rateLimit";
 import { ipRateLimit } from "./middleware/ipRateLimit";
 import { closeRedis as closeRateLimitRedis } from "./redis";
@@ -352,6 +356,12 @@ interface RequestContext {
   email?: string;
   userId?: string;
   tenantId?: string;
+  /**
+   * All tenant ids the JWT principal is a member of. Used to scope multi-tenant
+   * read endpoints (e.g. GET /api/admin/tenants) for non-superadmin users.
+   * Undefined / empty for superadmin (treat as "all tenants").
+   */
+  tenantIds?: string[];
   isSuperAdmin: boolean;
   role: "superadmin" | "tenant-admin" | "tenant-viewer";
 }
@@ -566,6 +576,8 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
       if (memberships.length === 0) {
         return res.status(403).json({ error: "No tenant membership" });
       }
+
+      ctx.tenantIds = memberships.map((m) => m.tenant_id);
 
       let tenantIdForCtx: string | undefined;
 
@@ -2061,18 +2073,13 @@ app.get("/api/tts/config", (req, res) => {
   res.json(extendedCfg);
 });
 
-app.post("/api/tts/config", async (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+app.post("/api/tts/config", async (req: AuthedRequest, res) => {
+  const tenant = getTenantForAdmin(req, res);
   if (!tenant) return;
 
   const body = req.body as Partial<ExtendedTtsConfig> & Record<string, unknown>;
   const {
-    xttsUrl,
-    coquiXttsUrl,
-    kokoroUrl,
-    chatterboxUrl,
     chatterboxVariant,
-    qwen3TtsUrl,
     qwen3Instruct,
     voiceId,
     language,
@@ -2083,7 +2090,35 @@ app.post("/api/tts/config", async (req, res) => {
     clonedVoice,
   } = body;
 
-  // Determine the TTS URL based on mode
+  // Provider URL fields are infrastructure (point at internal STT/TTS hosts).
+  // They are admin-curated and must not be set by tenant clients via the portal.
+  // Reject any client request that tries to override them; superadmin (env/master/db
+  // admin key) may still set them via the admin console.
+  const RAW_PROVIDER_URL_FIELDS = [
+    "xttsUrl",
+    "coquiXttsUrl",
+    "kokoroUrl",
+    "chatterboxUrl",
+    "qwen3TtsUrl",
+  ] as const;
+  const clientSubmittedRawUrls = RAW_PROVIDER_URL_FIELDS.some(
+    (k) => typeof (body as any)[k] === "string" && (body as any)[k].trim().length > 0
+  );
+  const isSuperAdmin = req.ctx?.isSuperAdmin === true;
+  if (clientSubmittedRawUrls && !isSuperAdmin) {
+    return res.status(403).json({
+      error: "provider_url_admin_only",
+      message:
+        "Provider URLs (TTS engine endpoints) are infrastructure and can only be configured by a platform admin. Pick a provider mode and the platform will route to the configured backend.",
+    });
+  }
+  const xttsUrl = isSuperAdmin ? body.xttsUrl : undefined;
+  const coquiXttsUrl = isSuperAdmin ? body.coquiXttsUrl : undefined;
+  const kokoroUrl = isSuperAdmin ? body.kokoroUrl : undefined;
+  const chatterboxUrl = isSuperAdmin ? body.chatterboxUrl : undefined;
+  const qwen3TtsUrl = isSuperAdmin ? body.qwen3TtsUrl : undefined;
+
+  // Determine the TTS URL based on mode (admin-supplied or undefined → keep existing)
   const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl || qwen3TtsUrl;
   let ttsUrlValue: string | undefined;
   if (typeof urlCandidate === "string" && urlCandidate.trim().length > 0) {
@@ -2517,22 +2552,30 @@ app.post("/api/admin/telephony/secret", (req, res) => {
 });
 
 /* ────────────────────────────────────────────────
-   Admin – Cloudflare Tunnel Token
-   ──────────────────────────────────────────────── */
+   Admin – Cloudflare Tunnel Token (read-only status)
+   ────────────────────────────────────────────────
+   The Cloudflare tunnel token is global infrastructure used by the cloudflared
+   sidecar at process boot. It must be set out-of-band (env / orchestrator /
+   secret manager) before the tunnel starts; mutating process.env from a request
+   handler is unsafe (multi-worker incoherence, no persistence across restarts,
+   and previously was reachable by any tenant viewer JWT).
 
-app.get("/api/admin/cloudflare/token", (_req, res) => {
+   GET is restricted to superadmin and only reports whether a token is present.
+   POST is intentionally disabled and returns 410 with operator instructions. */
+
+app.get("/api/admin/cloudflare/token", adminGuard("admin"), (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   const current = (process.env.CLOUDFLARE_TUNNEL_TOKEN || "").trim();
   res.json({ hasToken: current.length > 0 });
 });
 
-app.post("/api/admin/cloudflare/token", (req, res) => {
-  const { token } = req.body as { token?: string };
-  const sanitized = sanitizeEnvValue(token);
-  if (!sanitized) {
-    return res.status(400).json({ error: "token_required" });
-  }
-  process.env.CLOUDFLARE_TUNNEL_TOKEN = sanitized;
-  res.json({ status: "ok", hasToken: true });
+app.post("/api/admin/cloudflare/token", adminGuard("admin"), (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
+  res.status(410).json({
+    error: "cloudflare_token_set_via_env",
+    message:
+      "Set CLOUDFLARE_TUNNEL_TOKEN in the deploy environment (.env / orchestrator secret) and restart the cloudflared sidecar. The control plane no longer mutates global process.env from a request handler.",
+  });
 });
 
 // ────────────────────────────────────────────────
@@ -2664,7 +2707,7 @@ app.get("/api/admin/analytics", (req, res) => {
  * POST endpoint for the voice runtime to report analytics events.
  * Accepts: { tenantId, event: "call_started" | "caller_message", text?: string }
  */
-app.post("/api/runtime/analytics", adminGuard("admin"), (req, res) => {
+app.post("/api/runtime/analytics", adminGuard("admin"), (req: AuthedRequest, res) => {
   const { tenantId, event, text } = req.body as {
     tenantId?: string;
     event?: string;
@@ -2674,6 +2717,10 @@ app.post("/api/runtime/analytics", adminGuard("admin"), (req, res) => {
   if (!tenantId || typeof tenantId !== "string") {
     return res.status(400).json({ error: "tenant_id_required" });
   }
+
+  // Tenant binding: only superadmin (env/master/db admin key, used by the voice runtime)
+  // may publish analytics for arbitrary tenants. JWT users are scoped to their own tenant.
+  if (!ensureTenantAccess(req, res, tenantId)) return;
 
   const tenant = tenants.getOrCreate(tenantId);
 
@@ -2702,7 +2749,7 @@ app.get("/api/admin/calls", (req, res) => {
  * POST endpoint for the voice runtime to report call state updates.
  * Accepts: { tenantId, callId, action: "start" | "update" | "end", callState?: CallState }
  */
-app.post("/api/runtime/calls", adminGuard("admin"), async (req, res) => {
+app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, res) => {
   const { tenantId, callId, action, callState } = req.body as {
     tenantId?: string;
     callId?: string;
@@ -2718,6 +2765,10 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req, res) => {
   if (!tenantId || typeof tenantId !== "string") {
     return res.status(400).json({ error: "tenant_id_required" });
   }
+
+  // Tenant binding: only superadmin (env/master/db admin key, used by the voice runtime)
+  // may publish call state for arbitrary tenants. JWT users are scoped to their own tenant.
+  if (!ensureTenantAccess(req, res, tenantId)) return;
 
   const tenant = tenants.getOrCreate(tenantId);
 
@@ -2789,8 +2840,20 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req, res) => {
    Admin – tenant registry
    ──────────────────────────────────────────────── */
 
-app.get("/api/admin/tenants", (_req, res) => {
-  res.json({ tenants: tenants.listMetas() });
+app.get("/api/admin/tenants", (req: AuthedRequest, res) => {
+  const ctx = req.ctx;
+  const all = tenants.listMetas();
+  // Superadmin (env/master/db admin key) sees everything.
+  if (ctx?.isSuperAdmin) {
+    return res.json({ tenants: all });
+  }
+  // JWT users see only the tenants they are a member of.
+  // ctx.tenantIds is populated by adminGuard from tenant_memberships.
+  const allowed = new Set(ctx?.tenantIds ?? (ctx?.tenantId ? [ctx.tenantId] : []));
+  if (allowed.size === 0) {
+    return res.status(403).json({ error: "tenant_context_missing" });
+  }
+  res.json({ tenants: all.filter((t) => allowed.has(t.id)) });
 });
 
 /** Client portal readiness: legacy passcode and/or email login. */
@@ -2812,6 +2875,198 @@ app.get(
     });
   })
 );
+
+app.get(
+  "/api/admin/tenants/:tenantId/business-hours",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const ctx = tenants.getOrCreate(tenantId);
+    const ev = evaluateBusinessHours(ctx.businessHours);
+    res.json({ businessHours: ctx.businessHours, openNow: ev.isOpen, summary: ev.summary });
+  }),
+);
+
+app.patch(
+  "/api/admin/tenants/:tenantId/business-hours",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const parsed = businessHoursSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_business_hours", details: parsed.error.issues });
+    }
+    tenants.setBusinessHours(tenantId, parsed.data);
+    const ev = evaluateBusinessHours(parsed.data);
+    res.json({ businessHours: parsed.data, openNow: ev.isOpen, summary: ev.summary });
+  }),
+);
+
+app.get(
+  "/api/admin/tenants/:tenantId/operator-state",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const ctx = tenants.getOrCreate(tenantId);
+    res.json({ operatorState: ctx.operatorState });
+  }),
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/operator-test-call/complete",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const who = req.ctx?.idpSub || req.ctx?.userId || "admin";
+    const ctx = tenants.mergeOperatorState(tenantId, {
+      testCall: { completedAt: new Date().toISOString(), completedBy: String(who) },
+    });
+    res.json({ operatorState: ctx.operatorState });
+  }),
+);
+
+app.get("/api/owner/business-hours", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const ctx = tenants.getOrCreate(session.tenantId);
+    const ev = evaluateBusinessHours(ctx.businessHours);
+    res.json({ businessHours: ctx.businessHours, openNow: ev.isOpen, summary: ev.summary });
+  } catch (err) {
+    console.error("GET /api/owner/business-hours error:", err);
+    res.status(500).json({ error: "business_hours_read_failed" });
+  }
+});
+
+app.patch("/api/owner/business-hours", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const parsed = businessHoursSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_business_hours", details: parsed.error.issues });
+    }
+    tenants.setBusinessHours(session.tenantId, parsed.data);
+    const ev = evaluateBusinessHours(parsed.data);
+    res.json({ businessHours: parsed.data, openNow: ev.isOpen, summary: ev.summary });
+  } catch (err) {
+    console.error("PATCH /api/owner/business-hours error:", err);
+    res.status(500).json({ error: "business_hours_write_failed" });
+  }
+});
+
+app.get("/api/owner/calls", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const lim = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const filter = typeof req.query.filter === "string" ? req.query.filter : "all";
+    const rows = await listCallsForTenantDb(session.tenantId, lim);
+    const mapped = rows.map((row) => ({
+      id: row.id,
+      callerDisplay: maskCallerId(row.caller_id),
+      stage: row.stage || "unknown",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      transcriptSummary: summarizeHistory(row.history),
+      missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
+    }));
+    const calls = filter === "missed" ? mapped.filter((c) => c.missed) : mapped;
+    res.json({ calls });
+  } catch (err) {
+    console.error("GET /api/owner/calls error:", err);
+    res.status(500).json({ error: "calls_read_failed" });
+  }
+});
+
+app.get("/api/owner/calls/:callId", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const callId = req.params.callId?.trim();
+    if (!callId) return res.status(400).json({ error: "call_id_required" });
+    const row = await getCallByIdForTenantDb(session.tenantId, callId);
+    if (!row) return res.status(404).json({ error: "call_not_found" });
+    res.json({
+      id: row.id,
+      callerDisplay: maskCallerId(row.caller_id),
+      stage: row.stage || "unknown",
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      transcriptSummary: summarizeHistory(row.history),
+      missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
+    });
+  } catch (err) {
+    console.error("GET /api/owner/calls/:callId error:", err);
+    res.status(500).json({ error: "call_read_failed" });
+  }
+});
+
+app.post("/api/owner/operator-test-call/complete", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const ctx = tenants.mergeOperatorState(session.tenantId, {
+      testCall: { completedAt: new Date().toISOString(), completedBy: "owner-portal" },
+    });
+    res.json({ operatorState: ctx.operatorState });
+  } catch (err) {
+    console.error("POST /api/owner/operator-test-call/complete error:", err);
+    res.status(500).json({ error: "operator_state_write_failed" });
+  }
+});
+
+app.get("/api/owner/operator-state", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const ctx = tenants.getOrCreate(session.tenantId);
+    res.json({ operatorState: ctx.operatorState });
+  } catch (err) {
+    console.error("GET /api/owner/operator-state error:", err);
+    res.status(500).json({ error: "operator_state_read_failed" });
+  }
+});
+
+app.get("/api/owner/voice-runtime-sync", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    try {
+      const cfg = await getTenantConfig(session.tenantId);
+      return res.json({
+        lastRuntimePublishedAt: cfg?.lastRuntimePublishedAt ?? null,
+      });
+    } catch {
+      return res.json({ lastRuntimePublishedAt: null });
+    }
+  } catch (err) {
+    console.error("GET /api/owner/voice-runtime-sync error:", err);
+    res.status(500).json({ error: "voice_runtime_sync_read_failed" });
+  }
+});
 
 const tenantLimitsPatchSchema = tenantLimitsSchema.partial().extend({
   planTier: planTierSchema.optional(),
@@ -3004,13 +3259,34 @@ app.post("/api/admin/tenants", adminGuard("admin"), async (req: AuthedRequest, r
 
 import * as telnyx from "./telnyx";
 
+/*
+ * Carrier-level Telnyx routes. These touch the entire Telnyx account (numbers,
+ * orders, connections) — they are NOT tenant-scoped. They must therefore be
+ * gated on superadmin/carrier authority, not the default viewer the
+ * /api/admin mount grants and not a tenant-admin JWT. Without this any tenant
+ * JWT could enumerate or mutate the shared carrier configuration.
+ *
+ * adminGuard("admin") blocks viewer JWTs; the additional requireSuperAdminCtx
+ * check below blocks tenant-admin JWTs from carrier-level mutation/probing.
+ */
+function requireSuperAdminCtx(
+  req: AuthedRequest,
+  res: express.Response
+): boolean {
+  if (req.ctx?.isSuperAdmin) return true;
+  res.status(403).json({ error: "carrier_admin_required" });
+  return false;
+}
+
 // Check Telnyx configuration status
-app.get("/api/admin/telnyx/status", (_req, res) => {
+app.get("/api/admin/telnyx/status", adminGuard("admin"), (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   res.json(telnyx.getConfigStatus());
 });
 
 // List all phone numbers in the Telnyx account
-app.get("/api/admin/telnyx/numbers", async (_req, res) => {
+app.get("/api/admin/telnyx/numbers", adminGuard("admin"), async (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
   }
@@ -3030,7 +3306,8 @@ app.get("/api/admin/telnyx/numbers", async (_req, res) => {
 });
 
 // Search for available numbers to purchase
-app.get("/api/admin/telnyx/available", async (req, res) => {
+app.get("/api/admin/telnyx/available", adminGuard("admin"), async (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
   }
@@ -3057,7 +3334,8 @@ app.get("/api/admin/telnyx/available", async (req, res) => {
 });
 
 // Provision an existing number (assign to app Telnyx connection)
-app.post("/api/admin/telnyx/provision", async (req, res) => {
+app.post("/api/admin/telnyx/provision", adminGuard("admin"), async (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
   }
@@ -3076,7 +3354,8 @@ app.post("/api/admin/telnyx/provision", async (req, res) => {
 });
 
 // Purchase a new number
-app.post("/api/admin/telnyx/purchase", async (req, res) => {
+app.post("/api/admin/telnyx/purchase", adminGuard("admin"), async (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
   }
@@ -3099,7 +3378,8 @@ app.post("/api/admin/telnyx/purchase", async (req, res) => {
 });
 
 // List available connections (for debugging/setup)
-app.get("/api/admin/telnyx/connections", async (_req, res) => {
+app.get("/api/admin/telnyx/connections", adminGuard("admin"), async (req: AuthedRequest, res) => {
+  if (!requireSuperAdminCtx(req, res)) return;
   if (!telnyx.isTelnyxConfigured()) {
     return res.status(400).json({ error: "telnyx_not_configured", message: "TELNYX_API_KEY not set" });
   }
@@ -3765,12 +4045,14 @@ app.get("/api/admin/leads", asyncHandler(async (req, res) => {
   res.json({ leads });
 }));
 
-// Delete a lead
+// Delete a lead. Always scoped to the active tenant so that one tenant cannot
+// delete another tenant's lead by guessing the UUID. Superadmin must select the
+// tenant via X-Tenant-ID like other admin endpoints.
 app.delete("/api/admin/leads/:id", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
   const { id } = req.params;
-  const deleted = await deleteLead(id);
+  const deleted = await deleteLead(id, tenant.id);
   if (!deleted) return res.status(404).json({ error: "Lead not found" });
   res.json({ success: true });
 }));

@@ -14,6 +14,7 @@
     "build": "npm run build:shared && npm run build -w control-plane && npm run build -w veralux-voice-runtime",
     "dev:control": "npm run build:shared && npm run dev:server -w control-plane",
     "dev:runtime": "npm run build:shared && npm run dev -w veralux-voice-runtime",
+    "init:runtime-dev-env": "npm run init:dev-env -w veralux-voice-runtime --",
     "logs:runtime": "bash scripts/logs.sh runtime",
     "logs:control": "bash scripts/logs.sh control",
     "logs:core": "bash scripts/logs.sh core",
@@ -23,6 +24,7 @@
     "test:infra:reset": "./scripts/test-infra.sh reset",
     "test:infra:status": "./scripts/test-infra.sh status",
     "test:infra:down": "./scripts/test-infra.sh down",
-    "test:production-readiness": "npm run test:infra:wait && npm run test:production-readiness -w control-plane && npm run test:production-readiness -w veralux-voice-runtime"
+    "test:production-readiness": "npm run test:infra:wait && npm run test:production-readiness -w control-plane && npm run test:production-readiness -w veralux-voice-runtime",
+    "test:pilot-smoke": "npm run test:pilot-smoke -w control-plane"
   }
 }

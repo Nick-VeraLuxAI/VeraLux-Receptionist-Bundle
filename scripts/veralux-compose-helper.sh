@@ -2,34 +2,47 @@
 # Shared by start-production.sh, stop-production.sh, status-production.sh
 # Docker Compose v2 plugin only — never invoke docker-compose v1.
 
-# Pick a docker(1) that has `docker compose` (v2 plugin). Order matters for Docker Desktop on Linux:
-# Desktop often installs /usr/local/bin/docker with compose; sudo may hit /usr/bin/docker (no plugin).
+# Pick a docker(1) that has `docker compose` (v2 plugin). Never return a docker without compose:
+# /usr/bin/docker from distro packages often lacks the plugin until docker-compose-plugin is installed.
 #
 # Override: export VERALUX_DOCKER_BIN=/full/path/to/docker before start-production.sh
 veralux_resolve_docker_bin() {
-  if [[ -n "${VERALUX_DOCKER_BIN:-}" && -x "${VERALUX_DOCKER_BIN}" ]]; then
-    printf '%s\n' "${VERALUX_DOCKER_BIN}"
-    return 0
-  fi
   local d
-  for d in /usr/local/bin/docker /usr/bin/docker /bin/docker; do
-    if [[ -x "$d" ]] && "$d" compose version &>/dev/null; then
-      printf '%s\n' "$d"
+  declare -A _vl_seen=()
+
+  _vl_docker_has_compose() {
+    d="${1:?}"
+    [[ -n "${_vl_seen[$d]:-}" ]] && return 1
+    _vl_seen[$d]=1
+    [[ -x "$d" ]] || return 1
+    "$d" compose version &>/dev/null
+  }
+
+  if [[ -n "${VERALUX_DOCKER_BIN:-}" && -x "${VERALUX_DOCKER_BIN}" ]]; then
+    if _vl_docker_has_compose "${VERALUX_DOCKER_BIN}"; then
+      printf '%s\n' "${VERALUX_DOCKER_BIN}"
       return 0
     fi
-  done
-  d="$(PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" command -v docker 2>/dev/null || true)"
-  if [[ -n "$d" && -x "$d" ]] && "$d" compose version &>/dev/null; then
-    printf '%s\n' "$d"
-    return 0
+    echo "[warn] VERALUX_DOCKER_BIN=${VERALUX_DOCKER_BIN} has no working 'docker compose' — trying others" >&2
   fi
-  # Last resort: first existing binary (caller may still fail compose preflight)
-  for d in /usr/local/bin/docker /usr/bin/docker /bin/docker; do
-    if [[ -x "$d" ]]; then
+
+  for d in /usr/local/bin/docker /usr/bin/docker /bin/docker /snap/bin/docker; do
+    if _vl_docker_has_compose "$d"; then
       printf '%s\n' "$d"
       return 0
     fi
   done
+
+  local search_path
+  search_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:${PATH:-}"
+  while IFS= read -r d; do
+    [[ -n "$d" ]] || continue
+    if _vl_docker_has_compose "$d"; then
+      printf '%s\n' "$d"
+      return 0
+    fi
+  done < <(PATH="$search_path" type -ap docker 2>/dev/null || true)
+
   return 1
 }
 

@@ -10,6 +10,7 @@ import { attachAudioMeta, diagnosticsEnabled, markAudioSpan, probePcm } from '..
 import type { AudioMeta } from '../diagnostics/audioProbe';
 import { env } from '../env';
 import { log } from '../log';
+import { encodePcm16MonoWav, forensicsTimeline, getForensicsSession } from '../observability/audioForensics';
 import { incMediaInboundSeqGapFrames } from '../metrics';
 import type { TransportMode } from '../transport/types';
 
@@ -975,6 +976,8 @@ export class MediaIngest {
   private pinnedCodec?: string;
 
   private frameSeq = 0;
+  /** Forensics: monotonic index for `002_decoded_pcm_*.wav` per decode batch. */
+  private forensicsDecodedBatch = 0;
   private captureState?: TelnyxMediaCaptureState;
 
   private codecState: TelnyxCodecState = {};
@@ -2083,6 +2086,41 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
       markAudioSpan('rx', meta);
     }
 
+    const fosIn = getForensicsSession(this.callControlId);
+    if (fosIn) {
+      const seqPart =
+        typeof seq === 'number' && Number.isFinite(seq)
+          ? String(seq).padStart(6, '0')
+          : String(fosIn.nextArtifactSeq()).padStart(6, '0');
+      const rawName = `audio/001_raw_telnyx_${seqPart}.bin`;
+      void fosIn.writeBinary(rawName, buffer).catch(() => undefined);
+      fosIn.appendManifestLine({
+        event: 'raw_telnyx_payload',
+        path: rawName,
+        codec: encoding,
+        seq: seq ?? null,
+        stream_id: this.activeStreamId ?? null,
+        timestamp: timestamp ?? null,
+        bytes: buffer.length,
+      });
+      const wall = Date.now();
+      const deltaWall = fosIn.mediaIngestLastWallMs > 0 ? wall - fosIn.mediaIngestLastWallMs : null;
+      fosIn.mediaIngestLastWallMs = wall;
+      forensicsTimeline(this.callControlId, {
+        event: 'media_payload_received',
+        wallClockMs: wall,
+        audioClockMs: fosIn.mediaIngestAudioClockMs,
+        deltaFromPreviousFrameMs: deltaWall,
+        codec: encoding,
+        seq: seq ?? null,
+        timestamp: timestamp ?? null,
+        streamId: this.activeStreamId ?? null,
+        sampleCount: buffer.length,
+        playbackActive: null,
+        listening: null,
+      });
+    }
+
     this.decodeChain = this.decodeChain
       .then(() => this.decodeAndEmit(buffer, encoding, timestamp, seq, payloadSource))
       .catch((err: unknown) => {
@@ -2327,6 +2365,31 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
 
     const sampleRateHz = decodeResult.sampleRateHz;
 
+    const fosDec = getForensicsSession(this.callControlId);
+    if (fosDec && pcm16.length > 0) {
+      this.forensicsDecodedBatch += 1;
+      const idx = String(this.forensicsDecodedBatch).padStart(3, '0');
+      const pcmBufFull = Buffer.from(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength);
+      void fosDec
+        .writeBinary(`audio/002_decoded_pcm_${idx}.wav`, encodePcm16MonoWav(pcmBufFull, sampleRateHz))
+        .catch(() => undefined);
+      const wallD = Date.now();
+      const deltaWallD = fosDec.mediaIngestLastWallMs > 0 ? wallD - fosDec.mediaIngestLastWallMs : null;
+      fosDec.mediaIngestLastWallMs = wallD;
+      forensicsTimeline(this.callControlId, {
+        event: 'payload_decoded',
+        wallClockMs: wallD,
+        audioClockMs: fosDec.mediaIngestAudioClockMs,
+        deltaFromPreviousFrameMs: deltaWallD,
+        codec: encoding,
+        seq: seq ?? null,
+        timestamp: timestamp ?? null,
+        streamId: this.activeStreamId ?? null,
+        sampleRateHz,
+        sampleCount: pcm16.length,
+      });
+    }
+
     if (
       this.pendingPcm &&
       this.pendingPcm.length > 0 &&
@@ -2389,6 +2452,38 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
         };
         attachAudioMeta(pcmBuffer, meta);
         probePcm('rx.decoded.pcm16', pcmBuffer, meta);
+      }
+
+      const fosEmit = getForensicsSession(this.callControlId);
+      if (fosEmit && slice.length > 0) {
+        fosEmit.mediaIngestChunkIndex += 1;
+        fosEmit.mediaIngestFrameIndex += 1;
+        const sliceMs = (slice.length / sampleRateHz) * 1000;
+        fosEmit.mediaIngestAudioClockMs += sliceMs;
+        const wallE = Date.now();
+        const deltaWallE = fosEmit.mediaIngestLastWallMs > 0 ? wallE - fosEmit.mediaIngestLastWallMs : null;
+        fosEmit.mediaIngestLastWallMs = wallE;
+        if (fosEmit.mediaIngestChunkIndex <= env.AUDIO_FORENSICS_MAX_EMIT_FRAMES) {
+          const pcmSliceBuf = Buffer.from(slice.buffer, slice.byteOffset, slice.byteLength);
+          void fosEmit
+            .writeBinary(
+              `audio/003_emit_frame_${String(fosEmit.mediaIngestChunkIndex).padStart(4, '0')}.wav`,
+              encodePcm16MonoWav(pcmSliceBuf, sampleRateHz),
+            )
+            .catch(() => undefined);
+        }
+        forensicsTimeline(this.callControlId, {
+          event: 'pcm_emitted_to_session',
+          wallClockMs: wallE,
+          audioClockMs: fosEmit.mediaIngestAudioClockMs,
+          deltaFromPreviousFrameMs: deltaWallE,
+          sampleRateHz,
+          sampleCount: slice.length,
+          frameIndex: fosEmit.mediaIngestFrameIndex,
+          chunkIndex: fosEmit.mediaIngestChunkIndex,
+          seq: seq ?? null,
+          timestamp: timestamp ?? null,
+        });
       }
 
       if (encoding === 'AMR-WB' && amrwbEmitDebugEnabled()) {

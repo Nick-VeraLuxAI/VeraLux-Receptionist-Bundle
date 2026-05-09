@@ -82,90 +82,129 @@
           <button type="button" class="tab" data-tab="billing">Billing</button>
           <button type="button" class="tab" data-tab="workflows">Workflows</button>
           <button type="button" class="tab" data-tab="settings">Settings</button>
-          <button type="button" class="cmd-sync" id="refresh-all">Sync stack</button>
+          <button type="button" class="cmd-sync" id="refresh-all" title="Reload all modules for the console (config, prompts, health, billing, audit) — not the same as publishing one business to the voice runtime">
+            Sync platform
+          </button>
         </nav>
         </div>
       </header>
 
-      <div class="tenant-command-strip" id="tenant-bar">
-        <div class="row" style="gap: 6px">
-          <div class="small micro-label">Business</div>
+      <div class="tenant-command-strip tenant-command-strip--compact" id="tenant-bar">
+        <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; width: 100%">
+          <div class="small micro-label" style="margin: 0">Active business</div>
           <select id="tenant-select" title="Each business has its own receptionist, prompts, and phone numbers"></select>
-          <button type="button" class="secondary" id="tenant-reload">Reload</button>
-        </div>
-        <div class="row" style="gap: 6px; flex-wrap: wrap">
-          <input id="tenant-new-id" type="text" placeholder="Business id (e.g. acme-corp)" style="min-width: 160px" title="Short ID for this business (used in config and URLs)" />
-          <input
-            id="tenant-new-numbers"
-            type="text"
-            placeholder="Inbound numbers, comma-separated (+15551234567) — edit or clear, then Save"
-            style="min-width: 260px"
-          />
-          <button type="button" id="tenant-create">Save business</button>
-        </div>
-        <div id="tenant-meta" class="small" style="width: 100%"></div>
-        <div id="tenant-numbers-manage" class="row" style="gap: 10px; flex-wrap: wrap; align-items: flex-start; width: 100%; margin-top: 8px">
-          <div class="small micro-label" style="width: 100%; margin: 0">Inbound lines on this profile</div>
-          <ul id="tenant-numbers-list" style="list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 200px"></ul>
-          <button type="button" class="secondary" id="tenant-clear-numbers" title="Remove every number from this business (routing stops until you add lines again)">
-            Clear all numbers
-          </button>
-        </div>
-
-        <div id="owner-portal-handoff" class="owner-portal-handoff" aria-labelledby="owner-portal-handoff-title">
-          <div>
-            <h3 id="owner-portal-handoff-title" class="owner-portal-handoff__title">Client portal handoff</h3>
-            <p class="small muted" style="margin: 6px 0 0; max-width: 72ch; line-height: 1.45">
-              The business owner signs in at the client portal (not this console). Add inbound line(s) above, then set their email and password here. Send them the portal link and let them know their password through a secure channel.
-            </p>
-          </div>
-          <div id="owner-portal-steps" class="owner-portal-handoff__steps" aria-live="polite"></div>
-          <div class="owner-portal-handoff__grid">
-            <div style="grid-column: 1 / -1">
-              <label class="micro-label" for="owner-portal-url">Client portal URL</label>
-              <div class="owner-portal-handoff__url-row">
-                <input id="owner-portal-url" type="text" readonly autocomplete="off" />
-                <button type="button" class="secondary" id="owner-portal-copy-url">Copy</button>
-                <button type="button" class="secondary" id="owner-portal-open">Open</button>
-              </div>
-            </div>
-            <div style="grid-column: 1 / -1">
-              <label class="micro-label" for="owner-portal-email">Owner email (used to sign in)</label>
-              <input id="owner-portal-email" type="email" autocomplete="off" placeholder="owner@business.com" />
-            </div>
-            <div>
-              <label class="micro-label" for="owner-portal-pass-new">Password</label>
-              <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" />
-            </div>
-            <div>
-              <label class="micro-label" for="owner-portal-pass-confirm">Confirm password</label>
-              <input id="owner-portal-pass-confirm" type="password" autocomplete="new-password" minlength="8" placeholder="Repeat password" />
-            </div>
-            <div style="grid-column: 1 / -1">
-              <button type="button" id="owner-portal-pass-save">Save portal login</button>
-              <p id="owner-portal-handoff-msg" class="owner-portal-handoff__msg" role="status"></p>
-            </div>
-          </div>
+          <button type="button" class="secondary" id="tenant-reload">Reload list</button>
+          <span id="tenant-meta" class="small muted" style="flex: 1; min-width: 200px"></span>
         </div>
       </div>
       <div id="status-bar" class="ops-status-line ok">Ready</div>
 
       <main class="console-main">
       <div class="tab-content active" data-tab="overview">
-        <div class="ops-continuous" id="ops-continuous">
-        <div class="ops-app ops-app--signal">
-        <!-- Live signal hero: copy | flow field | readiness (no panel shell) -->
-        <section class="ops-zone ops-zone--hero signal-hero">
-          <div class="signal-hero__grid">
-            <div class="signal-hero__copy">
-              <div class="hero-kicker">Live signal system</div>
-              <h2 class="hero-title">One continuous path from call ingress to voiced response — transcribed, reasoned, and executed under policy.</h2>
-              <p class="hero-copy">
-                The horizontal field below is the runtime chain in motion. Markers are stages, not modules. When traffic is present, energy concentrates on the active segment.
+        <div class="ops-dashboard" id="ops-overview-dashboard">
+          <p class="ops-dashboard__lede small muted">
+            Onboarding and live checks for the <strong>selected business</strong> only. Use <strong>Sync platform</strong> in the header to reload every tab’s data across the console.
+          </p>
+
+          <div class="ops-dashboard__grid">
+            <section class="ops-dashboard-card ops-surface ops-zone" aria-labelledby="dash-card-profile-h">
+              <div class="micro-label">Tenant file</div>
+              <h2 id="dash-card-profile-h" class="ops-dashboard-card__title">Business profile</h2>
+              <p class="small muted ops-dashboard-card__lede">Public name, routing ID, customer-facing line, and Telnyx inbound DIDs for this receptionist.</p>
+              <div class="ops-dashboard-form">
+                <div>
+                  <label class="micro-label" for="tenant-business-name">Business name</label>
+                  <input id="tenant-business-name" type="text" placeholder="e.g. Northside Dental" autocomplete="organization" />
+                </div>
+                <div>
+                  <label class="micro-label" for="tenant-new-id">Tenant ID</label>
+                  <input id="tenant-new-id" type="text" placeholder="e.g. acme-corp" title="Short ID — used in APIs and URLs. Changing ID creates a new record when you save." autocomplete="off" />
+                </div>
+                <div>
+                  <label class="micro-label" for="tenant-business-primary">Primary phone (display / forwarding)</label>
+                  <input id="tenant-business-primary" type="text" placeholder="+1… (optional)" title="Customer’s main business line for scripts and owner UI — not the same as inbound Telnyx DIDs" autocomplete="tel" />
+                </div>
+                <div>
+                  <label class="micro-label" for="tenant-new-numbers">Inbound lines (E.164, comma-separated)</label>
+                  <input id="tenant-new-numbers" type="text" placeholder="+15551234567, +15559876543" autocomplete="off" />
+                </div>
+                <div class="ops-dashboard-inline">
+                  <div>
+                    <span class="micro-label">Tenant status</span>
+                    <div id="overview-tenant-status" class="ops-dashboard-value">—</div>
+                  </div>
+                  <div>
+                    <span class="micro-label">Plan tier</span>
+                    <div id="overview-tenant-plan" class="ops-dashboard-value">—</div>
+                  </div>
+                </div>
+                <div>
+                  <span class="micro-label">Inbound lines on file</span>
+                  <ul id="tenant-numbers-list" class="ops-dashboard-number-chips"></ul>
+                </div>
+                <div class="ops-dashboard-actions">
+                  <button type="button" id="tenant-create">Save business</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="ops-dashboard-card ops-surface ops-zone owner-portal-handoff" aria-labelledby="owner-portal-handoff-title">
+              <div class="micro-label">Owner experience</div>
+              <h2 id="owner-portal-handoff-title" class="owner-portal-handoff__title ops-dashboard-card__title">Client portal access</h2>
+              <p class="small muted" style="margin: 6px 0 0; max-width: 72ch; line-height: 1.45">
+                The owner signs in at the client portal (not this console). Set email and a temporary password, then share the link and password through separate secure channels.
               </p>
-              <div class="signal-stats" aria-label="Summary metrics">
+              <div class="owner-portal-handoff__grid" style="margin-top: 14px">
+                <div style="grid-column: 1 / -1">
+                  <label class="micro-label" for="owner-portal-url">Portal URL</label>
+                  <div class="owner-portal-handoff__url-row">
+                    <input id="owner-portal-url" type="text" readonly autocomplete="off" />
+                    <button type="button" class="secondary" id="owner-portal-copy-url">Copy URL</button>
+                    <button type="button" class="secondary" id="owner-portal-open">Open portal</button>
+                  </div>
+                </div>
+                <div style="grid-column: 1 / -1">
+                  <label class="micro-label" for="owner-portal-email">Owner email</label>
+                  <input id="owner-portal-email" type="email" autocomplete="off" placeholder="owner@business.com" />
+                </div>
+                <div>
+                  <label class="micro-label" for="owner-portal-pass-new">New or reset password</label>
+                  <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="8" placeholder="At least 8 characters" />
+                </div>
+                <div>
+                  <label class="micro-label" for="owner-portal-pass-confirm">Confirm password</label>
+                  <input id="owner-portal-pass-confirm" type="password" autocomplete="new-password" minlength="8" placeholder="Repeat password" />
+                </div>
+                <div style="grid-column: 1 / -1" class="ops-dashboard-actions ops-dashboard-actions--split">
+                  <button type="button" id="owner-portal-pass-save">Save portal login</button>
+                  <button type="button" class="secondary" id="owner-portal-draft-email" title="Opens your mail client with a blank message to the owner — you add the password separately">
+                    Draft handoff email
+                  </button>
+                </div>
+                <p id="owner-portal-handoff-msg" class="owner-portal-handoff__msg" style="grid-column: 1 / -1" role="status"></p>
+              </div>
+            </section>
+
+            <section class="ops-dashboard-card ops-surface ops-zone" aria-labelledby="dash-card-runtime-h">
+              <div class="micro-label">Voice stack · this tenant</div>
+              <h2 id="dash-card-runtime-h" class="ops-dashboard-card__title">Voice runtime status</h2>
+              <div class="ops-dashboard-runtime-kpis" aria-label="High-level health">
+                <div class="ops-dashboard-runtime-kpis__item">
+                  <span class="micro-label">Runtime (control plane)</span>
+                  <div id="overview-kpi-runtime" class="ops-dashboard-value">—</div>
+                </div>
+                <div class="ops-dashboard-runtime-kpis__item">
+                  <span class="micro-label">Whisper / STT</span>
+                  <div id="overview-kpi-stt" class="ops-dashboard-value">—</div>
+                </div>
+                <div class="ops-dashboard-runtime-kpis__item">
+                  <span class="micro-label">TTS</span>
+                  <div id="overview-kpi-tts" class="ops-dashboard-value">—</div>
+                </div>
+              </div>
+              <div class="signal-stats signal-stats--compact" aria-label="Usage summary">
                 <div class="signal-stats__item signal-stats__item--accent">
-                  <div class="micro-label">Provider</div>
+                  <div class="micro-label">LLM provider</div>
                   <div id="summary-provider" class="signal-stats__value">—</div>
                   <div id="summary-model" class="small signal-stats__sub"></div>
                 </div>
@@ -180,31 +219,90 @@
                   <div class="small signal-stats__sub">STT volume</div>
                 </div>
               </div>
-            </div>
-            <div class="signal-hero__flow">
-              <div class="signal-hero__flow-head">
-                <div>
-                  <div class="micro-label">Signal path</div>
-                  <h2 class="signal-hero__flow-title">Processing field</h2>
-                </div>
-                <button type="button" class="secondary signal-hero__refresh" id="refresh-health">Re-scan</button>
-              </div>
-              <div id="health-status" class="signal-flow-field" role="list" data-flow-active="0" aria-label="Runtime signal path"></div>
-            </div>
-            <aside class="signal-hero__state">
-              <div class="micro-label signal-hero__state-label">System readiness</div>
+              <div class="micro-label" style="margin-top: 14px">Readiness</div>
               <div id="neural-readiness" class="readiness-pill readiness-pill--signal">Synthesizing…</div>
-              <p class="routing-line signal-hero__routing" id="neural-routing-hint">
+              <p class="routing-line signal-hero__routing" id="neural-routing-hint" style="margin-top: 10px">
                 Awaiting tenant context. Select a business to bind routing.
               </p>
-              <p class="muted signal-hero__state-note">
-                Idle flow stays visible at low energy; active calls brighten the spine and downstream markers.
-              </p>
-            </aside>
-          </div>
-        </section>
+              <div class="ops-dashboard-inline muted small" style="margin-top: 8px">
+                <span>Last health scan: <strong id="overview-health-refreshed-at">—</strong></span>
+                <span style="margin-left: 12px">Redis voice config: <strong id="overview-runtime-redis-hint">—</strong></span>
+                <span style="margin-left: 12px">Last voice runtime sync: <strong id="overview-runtime-last-sync">—</strong></span>
+              </div>
+              <div class="signal-hero__flow-head" style="margin-top: 16px; align-items: center">
+                <div class="micro-label">Signal path</div>
+                <button type="button" class="secondary signal-hero__refresh" id="refresh-health">Re-scan health</button>
+              </div>
+              <div id="health-status" class="signal-flow-field" role="list" data-flow-active="0" aria-label="Runtime signal path"></div>
+              <div class="ops-dashboard-actions ops-dashboard-actions--split" style="margin-top: 16px">
+                <button type="button" class="secondary" id="operator-force-health">Force health pull</button>
+                <button type="button" id="overview-sync-business" title="Same as Models → Voice → Publish to voice runtime for this tenant">
+                  Sync this business to voice runtime
+                </button>
+                <button type="button" class="secondary" id="overview-test-call" disabled title="Automated test call from the dashboard is not available yet. Place a PSTN test from your phone, then use Mark test call completed.">
+                  Test call (coming soon)
+                </button>
+                <button type="button" class="secondary" id="overview-mark-test-call" title="Record that a manual PSTN test call was completed for this business">
+                  Mark test call completed
+                </button>
+              </div>
+            </section>
 
-        <!-- Live intelligence -->
+            <section class="ops-dashboard-card ops-surface ops-zone" aria-labelledby="dash-card-business-hours-h">
+              <div class="micro-label">Scheduling</div>
+              <h2 id="dash-card-business-hours-h" class="ops-dashboard-card__title">Business hours</h2>
+              <p class="small muted ops-dashboard-card__lede" id="admin-bh-status-line">Select a business to edit weekly hours.</p>
+              <div id="admin-bh-editor" class="small" style="display: none">
+                <label for="admin-bh-timezone">IANA timezone</label>
+                <input id="admin-bh-timezone" type="text" placeholder="America/New_York" autocomplete="off" style="max-width: 320px" />
+                <label for="admin-bh-after" style="margin-top: 10px">After-hours message (optional)</label>
+                <textarea id="admin-bh-after" rows="2" placeholder="Short message when you’re closed"></textarea>
+                <table class="ops-table-compact" style="width: 100%; margin-top: 10px; border-collapse: collapse">
+                  <thead>
+                    <tr>
+                      <th style="text-align: left; padding: 4px 6px">Day</th>
+                      <th style="text-align: left; padding: 4px 6px">Closed</th>
+                      <th style="text-align: left; padding: 4px 6px">Open</th>
+                      <th style="text-align: left; padding: 4px 6px">Close</th>
+                    </tr>
+                  </thead>
+                  <tbody id="admin-bh-tbody"></tbody>
+                </table>
+                <div class="ops-dashboard-actions" style="margin-top: 12px">
+                  <button type="button" id="admin-bh-save">Save business hours</button>
+                </div>
+                <p id="admin-bh-msg" class="small muted" style="margin-top: 8px; min-height: 1.2em" role="status"></p>
+              </div>
+            </section>
+
+            <section class="ops-dashboard-card ops-surface ops-zone" aria-labelledby="dash-card-checklist-h">
+              <div class="micro-label">Go-live</div>
+              <h2 id="dash-card-checklist-h" class="ops-dashboard-card__title">Handoff checklist</h2>
+              <p class="small muted ops-dashboard-card__lede">Track onboarding for the selected business. Some items update when you refresh health or save forms.</p>
+              <ul id="overview-handoff-checklist" class="ops-handoff-checklist" aria-label="Onboarding checklist"></ul>
+            </section>
+          </div>
+
+          <section class="ops-dashboard-card ops-dashboard-card--danger ops-surface ops-zone" aria-labelledby="dash-card-danger-h">
+            <div class="micro-label" style="color: var(--danger)">Danger zone</div>
+            <h2 id="dash-card-danger-h" class="ops-dashboard-card__title">Remove inbound routing</h2>
+            <p class="small muted">
+              Stops PSTN routing for every inbound line on <strong id="overview-danger-tenant-label">this business</strong> until you add numbers again. Does not delete the tenant record.
+            </p>
+            <div class="ops-dashboard-actions" style="margin-top: 12px">
+              <button type="button" class="secondary" id="tenant-clear-numbers" style="border-color: rgba(196, 80, 80, 0.55); color: #e8a0a0">
+                Remove all inbound lines
+              </button>
+            </div>
+          </section>
+
+          <details class="ops-overview-advanced">
+            <summary>Advanced signal layout &amp; internal telemetry</summary>
+            <p class="small muted" style="margin: 10px 0 16px; max-width: 85ch">
+              Optional operator view: live intel strip, decision trace, trace stream, interventions, and diagnostic payloads. Internal URLs in JSON are redacted in the console.
+            </p>
+            <div class="ops-continuous" id="ops-continuous">
+        <div class="ops-app ops-app--signal">
         <section class="ops-zone ops-zone--intel signal-intel-zone">
           <div class="intel-band signal-intel-band" id="intel-band" data-phase="standby" aria-label="Live intelligence">
             <div class="intel-chip" data-intel="call">
@@ -297,7 +395,7 @@
             <button type="button" class="op-trigger" disabled title="Planned">Route human</button>
             <button type="button" class="op-trigger" disabled title="Planned">Retry action</button>
             <button type="button" class="op-trigger" disabled title="Planned">Model refresh</button>
-            <button type="button" class="secondary op-trigger op-trigger--accent" id="operator-force-health">Force health pull</button>
+            <button type="button" class="secondary op-trigger op-trigger--accent" disabled title="Use “Force health pull” in Voice runtime status above">Force health pull</button>
           </div>
         </section>
 
@@ -330,6 +428,8 @@
           <div id="debug-health" class="debug-block debug-block--inset">—</div>
         </section>
         </div>
+        </div>
+          </details>
         </div>
       </div>
 
@@ -1097,16 +1197,9 @@
       <div class="tab-content" data-tab="settings">
         <section class="panel">
           <h2>Cloudflare Tunnel</h2>
-          <p class="small" style="margin: 0 0 12px">Configure a Cloudflare Tunnel token to expose this instance to the internet securely.</p>
-          <div class="row" style="gap: 8px; align-items: flex-end">
-            <div style="flex: 1">
-              <label for="cf-tunnel-token">Tunnel Token</label>
-              <input id="cf-tunnel-token" type="password" placeholder="Paste your Cloudflare Tunnel token" style="margin-bottom: 0" />
-            </div>
-            <button type="button" id="cf-toggle-visibility" class="secondary" style="min-width: 70px">Show</button>
-            <button type="button" id="cf-save-token">Save</button>
-          </div>
+          <p class="small" style="margin: 0 0 12px">Status only. The tunnel token is set out-of-band as <code>CLOUDFLARE_TUNNEL_TOKEN</code> in the deploy environment (.env / orchestrator secret) and consumed by the cloudflared sidecar at startup. The control plane no longer accepts in-app token writes.</p>
           <div id="cf-token-status" class="small" style="margin-top: 8px; min-height: 16px"></div>
+          <p class="small muted" style="margin-top: 8px">To rotate the token: update <code>CLOUDFLARE_TUNNEL_TOKEN</code> in the deploy environment, then restart the cloudflared service. Read access requires a super-admin (env / master) key.</p>
         </section>
         <section class="panel">
           <h2>Tenant Plan &amp; Limits</h2>
@@ -1716,6 +1809,7 @@
               st.style.color = "var(--success)";
             }
             setStatus("Voice runtime config published to Redis", "ok");
+            void refreshOverviewRuntimeRedisHint();
           } catch (e) {
             if (st) {
               st.textContent = String(e.message || e);
@@ -1756,12 +1850,355 @@
         }
       }
 
+      function redactInternalUrls(text) {
+        return String(text || "").replace(/https?:\/\/[^\s"'<>]+/g, "[internal URL]");
+      }
+
+      function handoffStorageKey(suffix) {
+        return `vlx_handoff_${suffix}_${currentTenantId || ""}`;
+      }
+
+      async function refreshOverviewRuntimeRedisHint() {
+        const el = $("overview-runtime-redis-hint");
+        const syncEl = $("overview-runtime-last-sync");
+        if (!el) return;
+        if (!currentTenantId) {
+          el.textContent = "—";
+          if (syncEl) syncEl.textContent = "—";
+          return;
+        }
+        el.textContent = "Checking…";
+        if (syncEl) syncEl.textContent = "…";
+        try {
+          const headers = new Headers();
+          if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+          headers.set("X-Tenant-ID", currentTenantId);
+          headers.set("X-Active-Tenant", currentTenantId);
+          const res = await fetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/config`,
+            { headers },
+          );
+          if (res.status === 404) {
+            el.textContent = "Not published";
+            if (syncEl) syncEl.textContent = "—";
+            return;
+          }
+          if (!res.ok) {
+            el.textContent = res.status === 403 ? "No access" : "Unavailable";
+            if (syncEl) syncEl.textContent = "—";
+            return;
+          }
+          const body = await res.json();
+          el.textContent = "Published";
+          const iso = body?.config?.lastRuntimePublishedAt;
+          if (syncEl) {
+            syncEl.textContent = iso
+              ? new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+              : "Not set (republish to stamp)";
+          }
+        } catch (_) {
+          el.textContent = "—";
+          if (syncEl) syncEl.textContent = "—";
+        }
+      }
+
+      function adminBhDefaults() {
+        const tz =
+          (typeof Intl !== "undefined" &&
+            Intl.DateTimeFormat &&
+            Intl.DateTimeFormat().resolvedOptions().timeZone) ||
+          "America/New_York";
+        const day = { open: "09:00", close: "17:00" };
+        return {
+          timezone: tz,
+          weekly: {
+            mon: { ...day },
+            tue: { ...day },
+            wed: { ...day },
+            thu: { ...day },
+            fri: { ...day },
+            sat: { closed: true },
+            sun: { closed: true },
+          },
+          afterHoursMessage: "",
+        };
+      }
+
+      function mergeBhForEditor(stored) {
+        const d = adminBhDefaults();
+        if (!stored || typeof stored !== "object") return d;
+        const tz =
+          typeof stored.timezone === "string" && stored.timezone.trim()
+            ? stored.timezone.trim()
+            : d.timezone;
+        const weekly = { ...d.weekly };
+        const keys = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        for (const key of keys) {
+          const v = stored.weekly && stored.weekly[key];
+          if (!v) continue;
+          if (v.closed === true) weekly[key] = { closed: true };
+          else if (v.open && v.close)
+            weekly[key] = { open: String(v.open), close: String(v.close) };
+        }
+        const afterHoursMessage =
+          typeof stored.afterHoursMessage === "string" ? stored.afterHoursMessage : "";
+        return { timezone: tz, weekly, afterHoursMessage };
+      }
+
+      function renderAdminBhEditor(data) {
+        const tbody = $("admin-bh-tbody");
+        const ed = $("admin-bh-editor");
+        if (!tbody || !ed) return;
+        ed.style.display = currentTenantId ? "block" : "none";
+        const tzEl = $("admin-bh-timezone");
+        const afterEl = $("admin-bh-after");
+        if (tzEl) tzEl.value = data.timezone || "";
+        if (afterEl) afterEl.value = data.afterHoursMessage || "";
+        const days = [
+          ["mon", "Mon"],
+          ["tue", "Tue"],
+          ["wed", "Wed"],
+          ["thu", "Thu"],
+          ["fri", "Fri"],
+          ["sat", "Sat"],
+          ["sun", "Sun"],
+        ];
+        tbody.innerHTML = days
+          .map(([key, label]) => {
+            const day = data.weekly[key];
+            const closed = !day || day.closed === true;
+            const open = closed ? "" : day.open || "";
+            const close = closed ? "" : day.close || "";
+            return `<tr data-day="${key}"><td>${label}</td><td><input type="checkbox" class="admin-bh-closed" ${
+              closed ? "checked" : ""
+            } /></td><td><input type="text" class="admin-bh-open" style="max-width:88px" value="${escapeHtml(
+              open,
+            )}" placeholder="09:00" /></td><td><input type="text" class="admin-bh-close" style="max-width:88px" value="${escapeHtml(
+              close,
+            )}" placeholder="17:00" /></td></tr>`;
+          })
+          .join("");
+        tbody.querySelectorAll("tr").forEach((tr) => {
+          const cb = tr.querySelector(".admin-bh-closed");
+          const o = tr.querySelector(".admin-bh-open");
+          const c = tr.querySelector(".admin-bh-close");
+          const sync = () => {
+            if (!cb || !o || !c) return;
+            if (cb.checked) {
+              o.value = "";
+              c.value = "";
+              o.disabled = true;
+              c.disabled = true;
+            } else {
+              o.disabled = false;
+              c.disabled = false;
+              if (!o.value) o.value = "09:00";
+              if (!c.value) c.value = "17:00";
+            }
+          };
+          cb?.addEventListener("change", sync);
+          sync();
+        });
+      }
+
+      function readAdminBhPayload() {
+        const timezone = ($("admin-bh-timezone")?.value || "").trim();
+        const afterHoursMessage = ($("admin-bh-after")?.value || "").trim();
+        const weekly = {};
+        document.querySelectorAll("#admin-bh-tbody tr").forEach((tr) => {
+          const key = tr.getAttribute("data-day");
+          if (!key) return;
+          const closed = tr.querySelector(".admin-bh-closed")?.checked;
+          if (closed) weekly[key] = { closed: true };
+          else {
+            weekly[key] = {
+              open: (tr.querySelector(".admin-bh-open")?.value || "").trim(),
+              close: (tr.querySelector(".admin-bh-close")?.value || "").trim(),
+            };
+          }
+        });
+        const out = { timezone, weekly };
+        if (afterHoursMessage) out.afterHoursMessage = afterHoursMessage;
+        return out;
+      }
+
+      async function loadAdminBusinessHoursEditor() {
+        const statusLine = $("admin-bh-status-line");
+        const ed = $("admin-bh-editor");
+        if (!ed) return;
+        if (!currentTenantId) {
+          ed.style.display = "none";
+          if (statusLine) statusLine.textContent = "Select a business to edit weekly hours.";
+          return;
+        }
+        ed.style.display = "block";
+        if (statusLine) statusLine.textContent = "Loading…";
+        try {
+          const data = await fetchJSON(
+            `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/business-hours`,
+          );
+          const merged = mergeBhForEditor(data.businessHours);
+          renderAdminBhEditor(merged);
+          const open = data.openNow ? "Open now" : "Closed now";
+          const sum = String(data.summary || "")
+            .split("\n")
+            .slice(0, 2)
+            .join(" · ");
+          if (statusLine) statusLine.textContent = `${open}${sum ? " · " + sum : ""}`;
+        } catch (_) {
+          if (statusLine) statusLine.textContent = "Could not load business hours.";
+        }
+      }
+
+      async function saveAdminBusinessHours() {
+        const msg = $("admin-bh-msg");
+        if (!currentTenantId) return;
+        if (!adminAuthorized) {
+          requestAdminPasscode(() => void saveAdminBusinessHours());
+          return;
+        }
+        if (msg) msg.textContent = "";
+        try {
+          const payload = readAdminBhPayload();
+          const data = await fetchJSON(
+            `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/business-hours`,
+            { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+          );
+          renderAdminBhEditor(mergeBhForEditor(data.businessHours));
+          const open = data.openNow ? "Open now" : "Closed now";
+          if (msg) msg.textContent = `${open} — saved.`;
+          setStatus("Business hours saved", "ok");
+        } catch (err) {
+          if (msg) msg.textContent = "Save failed — check timezone and HH:MM fields.";
+          setStatus("Business hours save failed: " + err.message, "err");
+        }
+      }
+
+      async function markOverviewTestCallCompleted() {
+        if (!currentTenantId) {
+          setStatus("Select a business first.", "err");
+          return;
+        }
+        if (!adminAuthorized) {
+          requestAdminPasscode(() => void markOverviewTestCallCompleted());
+          return;
+        }
+        try {
+          await fetchJSON(
+            `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/operator-test-call/complete`,
+            { method: "POST" },
+          );
+          setStatus("Test call marked completed for this business.", "ok");
+          void updateOverviewChecklist();
+        } catch (err) {
+          setStatus("Could not mark test call: " + err.message, "err");
+        }
+      }
+
+      function healthStatusWord(status) {
+        const s = String(status || "").toLowerCase();
+        if (s === "ready" || s === "configured" || s === "ok") return "OK";
+        if (s === "missing" || s === "missing_api_key") return "Needs setup";
+        if (s === "warn" || s === "defaulting") return "Degraded";
+        if (s === "error") return "Fault";
+        return s ? s : "—";
+      }
+
+      async function updateOverviewChecklist() {
+        const ul = $("overview-handoff-checklist");
+        if (!ul) return;
+        if (!currentTenantId) {
+          ul.innerHTML = '<li class="small muted">Select a business to see the checklist.</li>';
+          return;
+        }
+        const meta = tenantsList.find((t) => t.id === currentTenantId);
+        let emailLoginSet = false;
+        if (adminAuthToken) {
+          try {
+            const headers = new Headers();
+            headers.set("X-Admin-Key", adminAuthToken);
+            headers.set("X-Tenant-ID", currentTenantId);
+            headers.set("X-Active-Tenant", currentTenantId);
+            const res = await fetch(
+              `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/owner-portal-status`,
+              { headers },
+            );
+            if (res.ok) {
+              const st = await res.json();
+              emailLoginSet = st.emailLoginSet === true;
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        const hasLines = Boolean(meta?.numbers?.length);
+        const profileOk = Boolean(meta && (meta.name || "").trim().length > 0);
+        const greetingOk = Boolean(($("greetingText")?.value || "").trim());
+        const promptsOk = Boolean(
+          ($("systemPreamble")?.value || "").trim() || ($("voicePrompt")?.value || "").trim(),
+        );
+        let portalCopied = false;
+        let testCallOk = false;
+        let testCallDetail = "";
+        try {
+          portalCopied = localStorage.getItem(handoffStorageKey("portal_copied")) === "1";
+        } catch (_) {
+          /* private mode */
+        }
+        if (adminAuthToken && currentTenantId) {
+          try {
+            const headers = new Headers();
+            headers.set("X-Admin-Key", adminAuthToken);
+            headers.set("X-Tenant-ID", currentTenantId);
+            headers.set("X-Active-Tenant", currentTenantId);
+            const res = await fetch(
+              `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/operator-state`,
+              { headers },
+            );
+            if (res.ok) {
+              const st = await res.json();
+              const tc = st.operatorState && st.operatorState.testCall;
+              if (tc && typeof tc.completedAt === "string" && tc.completedAt) {
+                testCallOk = true;
+                const who = typeof tc.completedBy === "string" && tc.completedBy ? tc.completedBy : "operator";
+                const when = new Date(tc.completedAt).toLocaleString(undefined, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                });
+                testCallDetail = ` (${when} · ${who})`;
+              }
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        const items = [
+          { ok: hasLines, label: "Inbound line assigned" },
+          { ok: profileOk, label: "Business profile saved" },
+          { ok: greetingOk, label: "Greeting configured" },
+          { ok: promptsOk, label: "Prompts configured" },
+          { ok: emailLoginSet, label: "Owner login created" },
+          { ok: portalCopied, label: "Portal URL copied or sent" },
+          { ok: testCallOk, label: `Test call completed${testCallDetail}` },
+        ];
+        ul.innerHTML = items
+          .map(
+            (row) =>
+              `<li class="${row.ok ? "is-done" : ""}"><span class="ops-handoff-mark" aria-hidden="true">${row.ok ? "✓" : "○"}</span><span>${escapeHtml(row.label)}</span></li>`,
+          )
+          .join("");
+      }
+
       function syncTenantBarForm() {
         const idInput = $("tenant-new-id");
         const numbersInput = $("tenant-new-numbers");
+        const nameInput = $("tenant-business-name");
+        const primaryInput = $("tenant-business-primary");
         const meta = tenantsList.find((t) => t.id === currentTenantId);
         if (idInput) idInput.value = currentTenantId || "";
         if (numbersInput) numbersInput.value = meta?.numbers?.length ? meta.numbers.join(", ") : "";
+        if (nameInput) nameInput.value = meta ? meta.name || "" : "";
+        if (primaryInput) primaryInput.value = meta?.businessNumber ? String(meta.businessNumber) : "";
       }
 
       function renderTenantNumbersList() {
@@ -1782,8 +2219,7 @@
         }
         nums.forEach((num, index) => {
           const li = document.createElement("li");
-          li.style.cssText =
-            "display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid var(--border);font-size:13px;";
+          li.className = "ops-dashboard-chip";
           li.innerHTML = `<span style="font-family:var(--font-mono,monospace)">${escapeHtml(num)}</span><button type="button" class="secondary" style="padding:2px 10px;font-size:12px" data-tenant-remove-index="${index}">Remove</button>`;
           ul.appendChild(li);
         });
@@ -1823,12 +2259,19 @@
         const meta = tenantsList.find((t) => t.id === currentTenantId);
         if (!meta || !currentTenantId) return;
         if (!meta.numbers?.length) {
-          setStatus("No numbers to clear.", "ok");
+          setStatus("No inbound lines to remove.", "ok");
           return;
         }
         if (
           !confirm(
-            "Remove all phone numbers from this business? Inbound routing for those lines will stop until you add numbers again."
+            `Remove all inbound lines for tenant "${currentTenantId}"? PSTN routing stops for these numbers until you add lines again.`,
+          )
+        ) {
+          return;
+        }
+        if (
+          !confirm(
+            "Second confirmation: every inbound E.164 on this profile will be cleared from routing. Continue?",
           )
         ) {
           return;
@@ -1846,7 +2289,7 @@
           });
           await loadTenants(currentTenantId);
           refreshAll();
-          setStatus("All numbers removed from this profile.", "ok");
+          setStatus("All inbound lines removed from this profile.", "ok");
         } catch (err) {
           setStatus("Couldn't clear numbers: " + err.message, "err");
         }
@@ -1854,19 +2297,25 @@
 
       function renderTenantMeta() {
         const meta = tenantsList.find((t) => t.id === currentTenantId);
+        const strip = $("tenant-meta");
+        const dangerLabel = $("overview-danger-tenant-label");
         if (!meta) {
-          $("tenant-meta").textContent = "Choose a business above.";
+          if (strip) strip.textContent = "Choose a business to open the operator dashboard.";
           syncTenantBarForm();
           renderTenantNumbersList();
+          if (dangerLabel) dangerLabel.textContent = "this business";
+          void updateOverviewChecklist();
+          void refreshOverviewRuntimeRedisHint();
+          void loadAdminBusinessHoursEditor();
           return;
         }
-        const numbers =
-          meta.numbers && meta.numbers.length
-            ? `Reception lines: ${meta.numbers.join(", ")}`
-            : "No phone numbers yet — add numbers so callers can reach this receptionist.";
-        $("tenant-meta").textContent = `${meta.name || meta.id} • ${numbers}`;
+        if (strip) strip.textContent = `${meta.name || meta.id} · ${meta.id}`;
+        if (dangerLabel) dangerLabel.textContent = meta.id;
         syncTenantBarForm();
         renderTenantNumbersList();
+        void updateOverviewChecklist();
+        void refreshOverviewRuntimeRedisHint();
+        void loadAdminBusinessHoursEditor();
       }
 
       function clientPortalUrl() {
@@ -1875,41 +2324,11 @@
 
       async function refreshOwnerPortalHandoff() {
         const urlEl = $("owner-portal-url");
-        const stepsEl = $("owner-portal-steps");
         const msgEl = $("owner-portal-handoff-msg");
-        if (!urlEl || !stepsEl) return;
+        if (!urlEl) return;
         urlEl.value = clientPortalUrl();
-        const meta = tenantsList.find((t) => t.id === currentTenantId);
-        const hasNumbers = Boolean(meta?.numbers?.length);
-        let emailLoginSet = false;
-        if (currentTenantId && adminAuthToken) {
-          try {
-            const headers = new Headers();
-            headers.set("X-Admin-Key", adminAuthToken);
-            headers.set("X-Tenant-ID", currentTenantId);
-            headers.set("X-Active-Tenant", currentTenantId);
-            const res = await fetch(
-              `/api/admin/tenants/${encodeURIComponent(currentTenantId)}/owner-portal-status`,
-              { headers }
-            );
-            if (res.ok) {
-              const st = await res.json();
-              emailLoginSet = st.emailLoginSet === true;
-            }
-          } catch (_) {
-            /* ignore */
-          }
-        }
-        const nLabel = hasNumbers ? "Inbound line(s) on file" : "Add inbound number(s) for this business";
-        const pLabel = emailLoginSet ? "Email & password set" : "Set owner email and password below";
-        stepsEl.innerHTML = [
-          `<span class="${hasNumbers ? "owner-portal-handoff__ok" : "owner-portal-handoff__pending"}">${hasNumbers ? "✓" : "○"} ${nLabel}</span>`,
-          `<span class="${emailLoginSet ? "owner-portal-handoff__ok" : "owner-portal-handoff__pending"}">${emailLoginSet ? "✓" : "○"} ${pLabel}</span>`,
-          hasNumbers && emailLoginSet
-            ? `<span class="owner-portal-handoff__ok">✓ Ready — copy the URL and share it with the owner (send the password securely)</span>`
-            : `<span class="owner-portal-handoff__pending">Then send the client portal link to the business owner</span>`,
-        ].join("");
         if (msgEl && msgEl.dataset.pinned !== "1") msgEl.textContent = "";
+        void updateOverviewChecklist();
       }
 
       async function loadTenants(preferId) {
@@ -1946,8 +2365,12 @@
       async function saveTenantFromForm() {
         const idInput = $("tenant-new-id");
         const numbersInput = $("tenant-new-numbers");
+        const nameInput = $("tenant-business-name");
+        const primaryInput = $("tenant-business-primary");
         const id = (idInput?.value || "").trim();
         const numbersRaw = (numbersInput?.value || "").trim();
+        const nameRaw = (nameInput?.value || "").trim();
+        const primaryRaw = (primaryInput?.value || "").trim();
         if (!id) {
           setStatus("Enter a short ID for this business (e.g. acme-corp).", "err");
           return;
@@ -1959,11 +2382,17 @@
                 .split(/[, \n]+/)
                 .map((n) => n.trim())
                 .filter(Boolean);
+        const name = nameRaw || id;
         try {
           await fetchJSON("/api/admin/tenants", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, name: id, numbers }),
+            body: JSON.stringify({
+              id,
+              name,
+              numbers,
+              businessNumber: primaryRaw || undefined,
+            }),
             skipTenantHeader: true,
           });
           await loadTenants(id);
@@ -2075,7 +2504,7 @@
           ? "API key is configured"
           : "No API key — set one to enable OpenAI";
         $("api-key-status").style.color = cfg.hasOpenAIApiKey ? "var(--primary)" : "#e07070";
-        $("debug-config").textContent = JSON.stringify(cfg, null, 2);
+        $("debug-config").textContent = redactInternalUrls(JSON.stringify(cfg, null, 2));
         toggleProviderFields();
       }
 
@@ -2101,6 +2530,7 @@
           $("schemaHint").value = prompts.schemaHint || "";
           if (showStatus) $("prompt-status").textContent = "Prompts loaded.";
           setStatus("Prompts loaded", "ok");
+          void updateOverviewChecklist();
         } catch (err) {
           $("prompt-status").textContent = "Failed to load prompts: " + err.message;
           setStatus("Prompt load failed", "err");
@@ -2280,8 +2710,16 @@
         const rh = $("neural-routing-hint");
         if (rh) {
           const tenant = currentTenantId || "—";
-          rh.textContent = `Tenant ${tenant} · ${data.llm?.provider || "?"} · STT ${data.stt?.status || "?"} · TTS ${data.tts?.status || "?"}`;
+          rh.textContent = `Tenant ${tenant} · LLM ${healthStatusWord(data.llm?.status)} · STT ${healthStatusWord(
+            data.stt?.status,
+          )} · TTS ${healthStatusWord(data.tts?.status)}`;
         }
+        const kRuntime = $("overview-kpi-runtime");
+        const kStt = $("overview-kpi-stt");
+        const kTts = $("overview-kpi-tts");
+        if (kRuntime) kRuntime.textContent = healthStatusWord(data.llm?.status);
+        if (kStt) kStt.textContent = healthStatusWord(data.stt?.status);
+        if (kTts) kTts.textContent = healthStatusWord(data.tts?.status);
         const ac = data.activeCallsGlobal || 0;
         const band = $("intel-band");
         if (band) {
@@ -2562,7 +3000,10 @@
           const data = await fetchJSON("/api/admin/health");
           renderHealth(data);
           setStatus("Health loaded", "ok");
-          $("debug-health").textContent = JSON.stringify(data, null, 2);
+          $("debug-health").textContent = redactInternalUrls(JSON.stringify(data, null, 2));
+          const refreshed = $("overview-health-refreshed-at");
+          if (refreshed) refreshed.textContent = new Date().toLocaleString();
+          void updateOverviewChecklist();
         } catch (err) {
           const c = $("health-status");
           c.className = "signal-flow-field signal-flow-field--error";
@@ -4144,6 +4585,9 @@
         loadWorkflowSettings();
         loadAdminQuickReplies();
         loadTenantLimits();
+        void loadAdminBusinessHoursEditor();
+        void refreshOverviewRuntimeRedisHint();
+        void updateOverviewChecklist();
       }
 
       // ── Subscription / Billing ──
@@ -4699,26 +5143,12 @@
         }
       }
 
-      async function saveCloudflareToken() {
-        const token = $("cf-tunnel-token").value.trim();
-        if (!token) {
-          $("cf-token-status").textContent = "Please enter a tunnel token.";
-          return;
-        }
-        try {
-          await fetchJSON("/api/admin/cloudflare/token", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ token }),
-          });
-          $("cf-tunnel-token").value = "";
-          $("cf-token-status").innerHTML = '<span style="color: var(--primary);">&#10003; Tunnel token saved successfully.</span>';
-          setStatus("Cloudflare token saved", "ok");
-        } catch (err) {
-          $("cf-token-status").textContent = "Save failed: " + err.message;
-          setStatus("Cloudflare token save failed", "err");
-        }
-      }
+      // Cloudflare tunnel token is now read-only. Mutation lives in the deploy
+      // environment (.env / orchestrator secret) and is consumed by the
+      // cloudflared sidecar at startup. The previous saveCloudflareToken /
+      // requireAuth() flow was removed because requireAuth was undefined here
+      // (it only exists in owner.html) and the POST handler unsafely mutated
+      // global process.env from a request handler.
 
       function readIntField(id, fallback = 0) {
         const v = parseInt($(id)?.value || "", 10);
@@ -4756,8 +5186,24 @@
           $("limit-f-workflows").checked = !!l.customWorkflows;
           $("limit-f-priority").checked = !!l.prioritySupport;
           $("limit-status").textContent = `Loaded. Updated by ${l.updatedBy || "system"} at ${l.updatedAt || "n/a"}.`;
+          const billingMap = {
+            trial: "Trial",
+            active: "Active",
+            past_due: "Past due",
+            paused: "Paused",
+            cancelled: "Cancelled",
+            suspended: "Suspended",
+          };
+          const ost = $("overview-tenant-status");
+          const otp = $("overview-tenant-plan");
+          if (ost) ost.textContent = billingMap[l.billingStatus] || l.billingStatus || "—";
+          if (otp) otp.textContent = l.planTier || "—";
         } catch (err) {
           $("limit-status").textContent = "Load failed: " + err.message;
+          const ost = $("overview-tenant-status");
+          const otp = $("overview-tenant-plan");
+          if (ost) ost.textContent = "—";
+          if (otp) otp.textContent = "—";
         }
         await loadTenantUsage();
       }
@@ -4845,6 +5291,7 @@
                 bindBillingWizardOnce();
                 bindBillingLiveSyncOnce();
               }
+              if (target === "overview") void updateOverviewChecklist();
             }
           });
         });
@@ -4868,17 +5315,55 @@
             try {
               await navigator.clipboard.writeText(v);
               setStatus("Client portal URL copied to clipboard", "ok");
+              try {
+                if (currentTenantId) localStorage.setItem(handoffStorageKey("portal_copied"), "1");
+              } catch (_) {
+                /* ignore */
+              }
+              void updateOverviewChecklist();
             } catch (_) {
               try {
                 $("owner-portal-url")?.select();
                 document.execCommand("copy");
                 setStatus("Client portal URL copied", "ok");
+                try {
+                  if (currentTenantId) localStorage.setItem(handoffStorageKey("portal_copied"), "1");
+                } catch (__) {
+                  /* ignore */
+                }
+                void updateOverviewChecklist();
               } catch (__) {
                 setStatus("Copy failed — select the URL and copy manually", "err");
               }
             }
           });
         }
+
+        $("owner-portal-draft-email")?.addEventListener("click", () => {
+          const email = ($("owner-portal-email")?.value || "").trim();
+          const url = ($("owner-portal-url")?.value || "").trim();
+          const tenant = currentTenantId || "your business";
+          if (!email.includes("@")) {
+            setStatus("Enter the owner email before drafting a message.", "err");
+            return;
+          }
+          const subject = encodeURIComponent(`VeraLux client portal — ${tenant}`);
+          const body = encodeURIComponent(
+            `Hi,\n\nYou can sign in to your VeraLux client portal here:\n${url}\n\nYour temporary password will be sent separately through a secure channel.\n`,
+          );
+          window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
+        });
+
+        $("overview-sync-business")?.addEventListener("click", () => {
+          const btn = $("admin-runtime-publish-from-tenant");
+          if (!btn) {
+            setStatus("Open Models & Prompts to load publish controls, then try again.", "err");
+            return;
+          }
+          btn.click();
+        });
+        $("overview-mark-test-call")?.addEventListener("click", () => void markOverviewTestCallCompleted());
+        $("admin-bh-save")?.addEventListener("click", () => void saveAdminBusinessHours());
         const ownerPortalOpen = $("owner-portal-open");
         if (ownerPortalOpen) {
           ownerPortalOpen.addEventListener("click", () => {
@@ -4935,6 +5420,7 @@
               }
               setStatus(`Portal login saved for ${currentTenantId}`, "ok");
               await refreshOwnerPortalHandoff();
+              void updateOverviewChecklist();
             } catch (err) {
               let t = String(err.message || err);
               if (t.includes("email_already_registered")) {
@@ -5015,9 +5501,7 @@
           });
         }
 
-        // Cloudflare Tunnel
-        const cfSave = $("cf-save-token");
-        if (cfSave) cfSave.addEventListener("click", () => requireAuth(saveCloudflareToken));
+        // Cloudflare Tunnel — the in-app save flow was removed (see above).
         $("limit-refresh")?.addEventListener("click", () => void loadTenantLimits());
         $("limit-save")?.addEventListener("click", () => void saveTenantLimits());
         $("limit-reset-plan")?.addEventListener("click", async () => {
@@ -5052,20 +5536,6 @@
             setStatus("Billing status update failed: " + err.message, "err");
           }
         });
-
-        const cfToggle = $("cf-toggle-visibility");
-        if (cfToggle) {
-          cfToggle.addEventListener("click", () => {
-            const input = $("cf-tunnel-token");
-            if (input.type === "password") {
-              input.type = "text";
-              cfToggle.textContent = "Hide";
-            } else {
-              input.type = "password";
-              cfToggle.textContent = "Show";
-            }
-          });
-        }
 
         const fpAdd = $("fp-add");
         if (fpAdd) {

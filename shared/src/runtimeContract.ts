@@ -9,6 +9,7 @@
  * will pick up the change automatically.
  */
 import { z, type RefinementCtx } from "zod";
+import { businessHoursSchema } from "./businessHours";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +63,12 @@ const promptConfigSchema = z.object({
   schemaHint: z.string(),
   policyPrompt: z.string(),
   voicePrompt: z.string(),
+  /**
+   * Per-tenant opening greeting played at the start of a call. Optional in the
+   * contract for backward compatibility — when missing the runtime falls back
+   * to env.GREETING_TEXT.
+   */
+  greetingText: z.string().optional(),
 });
 
 export type RuntimePromptConfig = z.infer<typeof promptConfigSchema>;
@@ -70,6 +77,8 @@ const llmContextSchema = z.object({
   forwardingProfiles: z.array(forwardingProfileSchema),
   pricing: pricingInfoSchema,
   prompts: promptConfigSchema,
+  /** Weekly hours + IANA timezone; optional for backward compatibility. */
+  businessHours: businessHoursSchema.optional(),
 });
 
 export type RuntimeLLMContext = z.infer<typeof llmContextSchema>;
@@ -339,6 +348,8 @@ const runtimeTenantConfigBaseSchema = z
      */
     quickReplies: z.array(quickReplyIntentSchema).max(200).optional(),
     usageLimits: usagePlanLimitsSchema.optional(),
+    /** ISO-8601 timestamp set by control plane when tenant config is published to Redis. */
+    lastRuntimePublishedAt: z.string().datetime().optional(),
   })
   // passthrough allows the runtime to accept fields added by a newer control plane
   // without breaking validation

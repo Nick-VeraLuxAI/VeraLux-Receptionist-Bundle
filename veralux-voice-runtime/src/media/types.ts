@@ -12,6 +12,9 @@ export type Pcm16Frame = {
   pcm16: Int16Array;
   sampleRateHz: number;
   channels: 1;
+  /** Optional Telnyx media sequence when provided by ingest. */
+  seq?: number;
+  timestamp?: number;
 };
 
 export interface MediaFrameEnvelope {

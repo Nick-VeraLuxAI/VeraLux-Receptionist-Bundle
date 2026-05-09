@@ -12,6 +12,8 @@
 import crypto from 'crypto';
 import { env } from '../env';
 import { log } from '../log';
+import { forensicsTimeline, getForensicsSession } from '../observability/audioForensics';
+import { getEchoSuppressionMode, postPlaybackEchoEnergyMultiplier } from './echoSuppression';
 import { incStageError, observeStageDuration, startStageTimer } from '../metrics';
 import { SileroVad } from './vad/sileroVad';
 
@@ -61,6 +63,7 @@ export interface STTProvider {
       endpointUrl: string;
       logContext?: Record<string, unknown>;
       signal?: AbortSignal;
+      utteranceId?: string;
     },
   ): Promise<{ text: string }>;
 }
@@ -568,6 +571,18 @@ export class ChunkedSTT {
   private readonly callEndDrainMs = safeNum(process.env.STT_CALL_END_DRAIN_MS, 1200);
   private callInactiveAtMs = 0;
 
+  /** Post-playback grace PCM buffer (optional; see STT_CAPTURE_DURING_POST_PLAYBACK_GRACE). */
+  private postPlaybackGraceBuffer: Array<{ buf: Buffer; frameMs: number; rms: number; peak: number }> = [];
+  private postPlaybackGraceBufferMs = 0;
+  private forensicsUtteranceSeq = 0;
+  /** Utterance id for current in-flight STT final (forensics). */
+  private activeForensicsUtteranceId: string | null = null;
+  /** Forensics: last observed playback gate (null = not yet sampled). */
+  private lastForensicsGateRecorded: boolean | null = null;
+  /** Forensics: frames that passed RX dedupe + playback gate (STT ingest order). */
+  private sttFrameIndex = 0;
+  private sttAudioClockMs = 0;
+
   public constructor(opts: ChunkedSTTOptions) {
     this.provider = opts.provider;
     this.whisperUrl = opts.whisperUrl;
@@ -858,6 +873,11 @@ export class ChunkedSTT {
     if (!pcm16 || pcm16.length === 0) return;
 
     if (sampleRateHz !== this.sampleRate) {
+      this.recordForensicsTimeline('frame_dropped_by_sample_rate', {
+        expected_hz: this.sampleRate,
+        got_hz: sampleRateHz,
+        sample_count: pcm16.length,
+      });
       log.warn(
         {
           event: 'chunked_stt_sample_rate_mismatch',
@@ -941,13 +961,17 @@ export class ChunkedSTT {
 
   }
 
-  private enqueueIngestDecodedPcm16(pcm16: Buffer, frameMs: number): void {
+  private enqueueIngestDecodedPcm16(
+    pcm16: Buffer,
+    frameMs: number,
+    opts?: { bypassPlaybackGate?: boolean },
+  ): void {
     const token = this.ingestToken;
 
     this.ingestChain = this.ingestChain
       .then(async () => {
         if (token !== this.ingestToken) return;
-        await this.ingestDecodedPcm16(pcm16, frameMs);
+        await this.ingestDecodedPcm16(pcm16, frameMs, opts);
       })
       .catch((err) => {
         log.error({ event: 'stt_ingest_chain_error', err, ...(this.logContext ?? {}) }, 'stt ingest chain error');
@@ -989,9 +1013,9 @@ export class ChunkedSTT {
     const active = !!this.isPlaybackActive?.();
     if (active) return true;
 
-    // Once we're actively listening, don't keep gating on post-playback grace.
-    // This prevents speech during the grace window from being swallowed.
-    if (this.isListening?.()) return false;
+    // Permissive: keep legacy behavior — open gate when LISTENING even during grace (barge-in tuning).
+    // Balanced / conservative: post-playback grace still gates STT even after LISTENING arms (reduces echo).
+    if (getEchoSuppressionMode() === 'permissive' && this.isListening?.()) return false;
 
     if (this.playbackEndedAtMs > 0) {
       const graceMs = this.getPostPlaybackGraceMs?.() ?? this.postPlaybackGraceMs;
@@ -1038,6 +1062,11 @@ export class ChunkedSTT {
     if (!active && this.playbackWasActive) {
       this.playbackWasActive = false;
       this.playbackEndedAtMs = this.nowMs();
+      this.recordForensicsTimeline('post_playback_echo_window_started', {
+        grace_ms: this.getPostPlaybackGraceMs?.() ?? this.postPlaybackGraceMs,
+        echo_tail_ms: env.STT_POST_PLAYBACK_ECHO_TAIL_MS,
+        echo_suppression_mode: getEchoSuppressionMode(),
+      });
       this.playbackSpeechStreak = 0;
 
       this.vadSpeechNow = false;
@@ -1115,33 +1144,176 @@ export class ChunkedSTT {
     return { drop: false, sha1_10: h10 };
   }
 
-  // Post-decode path (PCM16LE mono @ this.sampleRate)
-  private async ingestDecodedPcm16(pcm16: Buffer, frameMs: number): Promise<void> {
-    // Feed preroll ring in STT processing order so consumePreRoll() never includes "future" frames (avoids duplication).
-    this.onFrameForPreRoll?.(pcm16, frameMs);
+  private forensicsCallId(): string | undefined {
+    const v = this.logContext?.call_control_id;
+    return typeof v === 'string' && v.trim() !== '' ? v : undefined;
+  }
 
+  private writeWhisperTranscriptForensics(
+    utteranceId: string | null,
+    rawWhisper: string,
+    normalized: string,
+    kind: 'partial' | 'final',
+  ): void {
+    const cc = this.forensicsCallId();
+    if (!cc || !utteranceId) return;
+    const sess = getForensicsSession(cc);
+    if (!sess) return;
+    void sess.writeText(`transcripts/007a_whisper_text_${utteranceId}.txt`, rawWhisper).catch(() => undefined);
+    void sess.writeText(`transcripts/007_normalized_transcript_${utteranceId}.txt`, normalized).catch(() => undefined);
+    void forensicsTimeline(cc, {
+      event: kind === 'partial' ? 'transcript_partial' : 'transcript_final',
+      utteranceId,
+      wallClockMs: Date.now(),
+      audioClockMs: this.sttAudioClockMs,
+      normalized_len: normalized.length,
+    });
+  }
+
+  private recordForensicsTimeline(
+    event: string,
+    extra?: Record<string, unknown>,
+  ): void {
+    const id = this.forensicsCallId();
+    if (!id) return;
+    const ctx = this.getPipelineDiagContext?.() ?? {};
+    void forensicsTimeline(id, {
+      event,
+      wallClockMs: Date.now(),
+      audioClockMs: this.sttAudioClockMs,
+      playbackActive: (ctx as { playback_flag_active?: boolean }).playback_flag_active ?? null,
+      listening: (ctx as { session_state?: string }).session_state === 'LISTENING',
+      state: (ctx as { session_state?: string }).session_state ?? null,
+      utteranceId: this.activeForensicsUtteranceId,
+      ...extra,
+    });
+  }
+
+  private maybeFlushPostPlaybackGraceBuffer(): void {
+    if (!env.STT_CAPTURE_DURING_POST_PLAYBACK_GRACE) return;
+    if (this.postPlaybackGraceBuffer.length === 0) return;
+    if (this.playbackGateActive()) return;
+    const frames = this.postPlaybackGraceBuffer.splice(0);
+    this.postPlaybackGraceBufferMs = 0;
+    this.recordForensicsTimeline('post_playback_grace_buffer_flushed', { frames: frames.length });
+
+    const echoTailMs = env.STT_POST_PLAYBACK_ECHO_TAIL_MS;
+    const mode = getEchoSuppressionMode();
+    const skipEnergyGate = mode === 'permissive';
+
+    let maxRms = 0;
+    for (const f of frames) {
+      if (f.rms > maxRms) maxRms = f.rms;
+    }
+    const floorRms = this.getEffectiveRmsFloor();
+    const floorPeak = this.getEffectivePeakFloor();
+    const mult = postPlaybackEchoEnergyMultiplier();
+
+    let cumMs = 0;
+    for (const f of frames) {
+      cumMs += f.frameMs;
+      const inEchoTail = echoTailMs > 0 && cumMs <= echoTailMs;
+
+      let release = true;
+      if (!skipEnergyGate && inEchoTail) {
+        const minRms = Math.max(floorRms * mult, maxRms * 0.28);
+        const minPeak = floorPeak * mult * 0.9;
+        const energyOk = f.rms >= minRms && f.peak >= minPeak;
+        if (!energyOk) {
+          release = false;
+          this.recordForensicsTimeline('post_playback_frame_dropped', {
+            reason: 'echo_tail_low_energy',
+            rms: f.rms,
+            peak: f.peak,
+            frame_ms: f.frameMs,
+            cum_ms: cumMs,
+            min_rms: minRms,
+            min_peak: minPeak,
+            max_rms_in_buffer: maxRms,
+            echo_suppression_mode: mode,
+          });
+        }
+      }
+
+      if (release) {
+        this.recordForensicsTimeline('post_playback_frame_released', {
+          rms: f.rms,
+          peak: f.peak,
+          frame_ms: f.frameMs,
+          cum_ms: cumMs,
+          energy_gated: !skipEnergyGate && inEchoTail,
+        });
+        this.enqueueIngestDecodedPcm16(f.buf, f.frameMs, { bypassPlaybackGate: true });
+      }
+    }
+  }
+
+  // Post-decode path (PCM16LE mono @ this.sampleRate)
+  private async ingestDecodedPcm16(
+    pcm16: Buffer,
+    frameMs: number,
+    opts?: { bypassPlaybackGate?: boolean },
+  ): Promise<void> {
     this.lastFrameAtMs = this.nowMs();
-    // Detect playback transitions & enforce boundary resets.
     this.handlePlaybackTransitionIfNeeded();
-    // Keep call-end drain state correct across call lifecycle transitions
+
+    const gateNow = this.playbackGateActive();
+    if (this.lastForensicsGateRecorded === null) {
+      this.lastForensicsGateRecorded = gateNow;
+    } else if (this.lastForensicsGateRecorded !== gateNow) {
+      this.recordForensicsTimeline(gateNow ? 'playback_gate_active' : 'playback_gate_released', {
+        listening: this.isListening?.() ?? null,
+        active_playback: !!this.isPlaybackActive?.(),
+      });
+      this.lastForensicsGateRecorded = gateNow;
+    }
+
     if (this.isCallActive?.()) {
       this.callInactiveAtMs = 0;
     }
     this.lastFrameMs = frameMs;
 
-
-    // ===== HARD GATE during playback (and brief grace after) =====
-    // IMPORTANT: We still run VAD/speech detection during playback so barge-in works.
-    // We only block *buffering/transcription* during playback/grace.
-    const gatedForPlayback = this.playbackGateActive();
-
-
-    // Once grace has elapsed, clear the marker.
     if (!this.disableGates && this.playbackEndedAtMs > 0) {
       const graceMs = this.getPostPlaybackGraceMs?.() ?? this.postPlaybackGraceMs;
       const since = this.nowMs() - this.playbackEndedAtMs;
       if (since >= graceMs) this.playbackEndedAtMs = 0;
     }
+
+    this.maybeFlushPostPlaybackGraceBuffer();
+
+    const graceBufferActive =
+      env.STT_CAPTURE_DURING_POST_PLAYBACK_GRACE &&
+      !opts?.bypassPlaybackGate &&
+      this.playbackGateActive() &&
+      !this.isPlaybackActive?.();
+
+    if (graceBufferActive) {
+      if (this.postPlaybackGraceBufferMs + frameMs <= env.STT_PLAYBACK_GRACE_BUFFER_MAX_MS) {
+        const st = computeRmsAndPeak(pcm16);
+        this.postPlaybackGraceBuffer.push({
+          buf: Buffer.from(pcm16),
+          frameMs,
+          rms: st.rms,
+          peak: st.peak,
+        });
+        this.postPlaybackGraceBufferMs += frameMs;
+        this.recordForensicsTimeline('post_playback_frame_buffered', {
+          frameMs,
+          grace_buffer_ms: this.postPlaybackGraceBufferMs,
+          rms: st.rms,
+          peak: st.peak,
+          grace_buffered: true,
+        });
+        return;
+      }
+    }
+
+    this.onFrameForPreRoll?.(pcm16, frameMs);
+
+    // ===== HARD GATE during playback (and brief grace after) =====
+    // IMPORTANT: We still run VAD/speech detection during playback so barge-in works.
+    // We only block *buffering/transcription* during playback/grace.
+    const gatedForPlayback = opts?.bypassPlaybackGate ? false : this.playbackGateActive();
 
     // ===== Replay guard here (before any VAD/state) =====
     // Goal:
@@ -1155,6 +1327,11 @@ export class ChunkedSTT {
 
         if (guard.drop) {
           this.rxFramesDropped += 1;
+          this.recordForensicsTimeline('frame_dropped_by_rx_dedupe', {
+            frameMs,
+            sha1_10: guard.sha1_10,
+            matched_lag: guard.matchedLag,
+          });
 
           if (this.rxFramesDropped <= 20 || this.rxFramesDropped % 100 === 0) {
             log.warn(
@@ -1181,8 +1358,10 @@ export class ChunkedSTT {
         // Guard disabled: still advance for log throttling / observability
         this.framesSeen += 1;
       }
-    }
 
+      this.sttFrameIndex += 1;
+      this.sttAudioClockMs += frameMs;
+    }
 
     const stats = computeRmsAndPeak(pcm16);
     this.lastRawFrameStats = { rms: stats.rms, peak: stats.peak };
@@ -1315,6 +1494,12 @@ export class ChunkedSTT {
         // (prevents assistant audio polluting the future handoff)
       }
 
+      this.recordForensicsTimeline('frame_dropped_by_playback_gate', {
+        frameMs,
+        active_playback: !!this.isPlaybackActive?.(),
+        is_speech: isSpeech,
+        barge_in_armed: this.bargeInArmed,
+      });
       return;
     }
 
@@ -1579,6 +1764,14 @@ export class ChunkedSTT {
   }
 
   private startSpeech(stats: { rms: number; peak: number }, frameMs: number): void {
+    this.forensicsUtteranceSeq += 1;
+    this.activeForensicsUtteranceId = `utt-${this.forensicsUtteranceSeq}`;
+    this.recordForensicsTimeline('vad_speech_start', {
+      frameMs,
+      rms: stats.rms,
+      peak: stats.peak,
+    });
+
     this.inSpeech = true;
     this.speechStartAtMs = this.nowMs(); // Tier 5: late-final watchdog baseline
     this.noiseFloorSampleCount = 0; // Tier 5: reset so next utterance re-estimates noise floor
@@ -1629,6 +1822,11 @@ export class ChunkedSTT {
       },
       'stt utterance start',
     );
+
+    this.recordForensicsTimeline('utterance_started', {
+      prepended_ms: Math.round(prependedMs),
+      preroll_frames: prependedFrames,
+    });
 
     this.onSpeechStart?.({
       rms: stats.rms,
@@ -1805,6 +2003,17 @@ export class ChunkedSTT {
       utteranceMs: utteranceTotalMs,
       speechMs,
       trailingSilenceMs,
+    });
+
+    this.recordForensicsTimeline('vad_speech_end', {
+      final_reason: reason,
+      utterance_ms: utteranceTotalMs,
+    });
+
+    this.recordForensicsTimeline('utterance_finalized', {
+      final_reason: reason,
+      payload_bytes: payload.length,
+      utterance_ms: utteranceTotalMs,
     });
 
     this.enqueueTranscription(payload, {
@@ -2026,13 +2235,15 @@ export class ChunkedSTT {
           endpointUrl: this.whisperUrl,
           logContext: this.logContext,
           signal,
+          utteranceId: this.activeForensicsUtteranceId ?? undefined,
         });
         endStt();
         if (token !== this.inFlightToken) return;
         this.finalizeToResultTimer?.();
         this.finalizeToResultTimer = undefined;
 
-        const text = normalizeWhitespace(result.text ?? '');
+        const rawWhisper = typeof result.text === 'string' ? result.text : '';
+        const text = normalizeWhitespace(rawWhisper);
         log.info(
           {
             event: 'stt_transcription_result',
@@ -2043,10 +2254,14 @@ export class ChunkedSTT {
           },
           'stt transcription result',
         );
-        if (!text) return;
+        this.writeWhisperTranscriptForensics(this.activeForensicsUtteranceId, rawWhisper, text, 'partial');
+        if (!text) {
+          this.recordForensicsTimeline('transcript_empty', { kind: 'partial' });
+          return;
+        }
         if (text === this.lastPartialTranscript) return;
         this.lastPartialTranscript = text;
-        if (isNonEmpty(text)) this.onTranscript(text, 'partial_fallback');
+        if (isNonEmpty(text)) await Promise.resolve(this.onTranscript(text, 'partial_fallback'));
       } catch (error) {
         endStt();
         if (signal.aborted || isAbortError(error)) return;
@@ -2075,6 +2290,7 @@ export class ChunkedSTT {
           endpointUrl: this.whisperUrl,
           logContext: this.logContext,
           signal,
+          utteranceId: this.activeForensicsUtteranceId ?? undefined,
         });
         endStt();
         if (token !== this.inFlightToken) return;
@@ -2082,7 +2298,8 @@ export class ChunkedSTT {
         this.finalizeToResultTimer?.();
         this.finalizeToResultTimer = undefined;
 
-        const text = normalizeWhitespace(result.text ?? '');
+        const rawWhisper = typeof result.text === 'string' ? result.text : '';
+        const text = normalizeWhitespace(rawWhisper);
         log.info(
           {
             event: 'stt_transcription_result',
@@ -2094,6 +2311,8 @@ export class ChunkedSTT {
           },
           'stt transcription result',
         );
+
+        this.writeWhisperTranscriptForensics(this.activeForensicsUtteranceId, rawWhisper, text, 'final');
 
         if (text) {
           this.onFinalResult?.({
@@ -2109,7 +2328,7 @@ export class ChunkedSTT {
           });
           if (!this.finalTranscriptAccepted) {
             this.finalTranscriptAccepted = true;
-            this.onTranscript(text, 'final');
+            await Promise.resolve(this.onTranscript(text, 'final'));
           }
           return;
         }
@@ -2136,6 +2355,7 @@ export class ChunkedSTT {
 
         this.onFinalResult?.({ isEmpty: true, textLength: 0, utteranceMs });
         this.onFinalPipelineOutcome?.({ kind: 'empty', utteranceMs, attempts });
+        this.recordForensicsTimeline('transcript_empty', { kind: 'final', attempts });
         return;
       } catch (error) {
         endStt();

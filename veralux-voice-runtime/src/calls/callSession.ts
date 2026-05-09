@@ -27,8 +27,14 @@ import { attachAudioMeta, getAudioMeta, markAudioSpan, probeWav } from '../diagn
 import type { TTSResult } from '../tts/types';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import { getEffectiveSpeakerWavUrl, type VoiceMode } from '../tenants/tenantConfig';
-import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK } from '@veralux/shared';
-import { generateAssistantReply, generateAssistantReplyStream, type AssistantReplyResult } from '../ai/brainClient';
+import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK, evaluateBusinessHours } from '@veralux/shared';
+import {
+  generateAssistantReply,
+  generateAssistantReplyStream,
+  type AssistantContext,
+  type AssistantReplyForensics,
+  type AssistantReplyResult,
+} from '../ai/brainClient';
 import { matchQuickReply } from '../ai/quickReplyMatch';
 import {
   CallSessionConfig,
@@ -40,6 +46,14 @@ import {
   TranscriptBuffer,
 } from './types';
 import { CallAudioCoordinator } from './callAudioCoordinator';
+import { encodePcm16MonoWav, forensicsTimeline, getForensicsSession } from '../observability/audioForensics';
+import { redactValue } from '../observability/redaction';
+import {
+  matchAssistantEcho,
+  normalizeForEchoCompare,
+  type AssistantEchoMatchResult,
+} from '../stt/assistantEcho';
+import { getEchoSuppressionMode } from '../stt/echoSuppression';
 import { pushFarEndFrames } from '../audio/farEndReference';
 import {
   processAec,
@@ -139,6 +153,15 @@ export class CallSession {
   private readonly ttsConfig?: RuntimeTenantConfig['tts'];
   private readonly transferProfiles?: RuntimeTenantConfig['transferProfiles'];
   private readonly assistantContext?: RuntimeTenantConfig['assistantContext'];
+  private readonly fullTenantConfig?: RuntimeTenantConfig;
+  /**
+   * Tenant-edited prompts (system preamble / policy / tone / schema). Forwarded
+   * to the brain on every reply so admin/owner edits actually change LLM
+   * behavior. Sourced from `tenantcfg:<tenantId>.llmContext.prompts`.
+   */
+  private readonly tenantPrompts?: NonNullable<RuntimeTenantConfig['llmContext']>['prompts'];
+  /** Per-tenant greeting (admin/owner edited). Falls back to env.GREETING_TEXT when missing. */
+  private readonly tenantGreetingText?: string;
   /** Many caller phrasings → one canned reply; skips LLM when a phrase matches. */
   private readonly quickReplies?: RuntimeTenantConfig['quickReplies'];
 
@@ -178,6 +201,9 @@ export class CallSession {
   private isHandlingTranscript = false;
   private hasStarted = false;
   private turnSequence = 0;
+  private forensicsPolicySeq = 0;
+  /** Recent assistant/TTS strings for assistant-echo detection (newest first). */
+  private assistantEchoReferenceLines: string[] = [];
   private deadAirTimer?: NodeJS.Timeout;
   private deadAirEligible = false;
   private repromptInFlight = false;
@@ -191,7 +217,7 @@ export class CallSession {
   private userTurnFinalAcceptedAtMs: number | null = null;
   private userTurnPlaybackLatencyRecorded = false;
   private ingestFailurePrompted = false;
-  private readonly logPreviewChars = 160;
+  private readonly logPreviewChars = env.STT_TRANSCRIPT_LOG_MAX_CHARS;
   private ttsSegmentChain: Promise<void> = Promise.resolve();
   private ttsSegmentQueueDepth = 0;
   private playbackState: {
@@ -335,6 +361,9 @@ export class CallSession {
     this.ttsConfig = config.tenantConfig?.tts;
     this.transferProfiles = config.tenantConfig?.transferProfiles;
     this.assistantContext = config.tenantConfig?.assistantContext;
+    this.fullTenantConfig = config.tenantConfig;
+    this.tenantPrompts = config.tenantConfig?.llmContext?.prompts;
+    this.tenantGreetingText = config.tenantConfig?.llmContext?.prompts?.greetingText;
     this.quickReplies = config.tenantConfig?.quickReplies;
 
     this.logContext = {
@@ -638,6 +667,19 @@ export class CallSession {
 
     const feedToStt = (pcm16: Int16Array, sampleRateHz: number) => {
       const pcmBuffer = Buffer.from(pcm16.buffer, pcm16.byteOffset, pcm16.byteLength);
+      const fos = getForensicsSession(this.callControlId);
+      if (fos && sampleRateHz > 0 && pcm16.length > 0) {
+        fos.sessionSttInputFrameIndex += 1;
+        if (fos.sessionSttInputFrameIndex <= env.AUDIO_FORENSICS_MAX_EMIT_FRAMES) {
+          const idx = String(fos.sessionSttInputFrameIndex).padStart(4, '0');
+          void fos
+            .writeBinary(
+              `audio/004_session_stt_input_${idx}.wav`,
+              encodePcm16MonoWav(pcmBuffer, sampleRateHz),
+            )
+            .catch(() => undefined);
+        }
+      }
       incSttFramesFed();
       this.maybeCaptureRxDump(pcmBuffer);
       this.stt.ingestPcm16(pcm16, sampleRateHz);
@@ -855,6 +897,29 @@ export class CallSession {
     void this.tryRespondToLateFinal(trimmed);
   }
 
+  /** Merges Redis assistantContext with derived business-hours status for the brain. */
+  private brainAssistantContext(): AssistantContext {
+    const base: AssistantContext = {};
+    if (this.assistantContext) {
+      for (const [k, v] of Object.entries(this.assistantContext)) {
+        if (typeof v === 'string' && v.trim()) {
+          base[k] = v;
+        }
+      }
+    }
+    const bh = this.fullTenantConfig?.llmContext?.businessHours;
+    const ev = evaluateBusinessHours(bh, new Date());
+    const lines = [
+      ev.isOpen ? 'Current status: OPEN (within scheduled hours).' : 'Current status: CLOSED (outside scheduled hours).',
+      ev.summary ? `Weekly schedule:\n${ev.summary}` : '',
+      ev.afterHoursMessage ? `After-hours message for callers: ${ev.afterHoursMessage}` : '',
+    ].filter(Boolean);
+    if (lines.length) {
+      base['Business schedule'] = lines.join('\n\n');
+    }
+    return base;
+  }
+
   /**
    * When we capture a late final (transcript arrived after hangup), try to respond so the user
    * might still hear an answer if the media path is briefly open. Always calls settleLateFinalGrace
@@ -875,7 +940,8 @@ export class CallSession {
             transcript,
             history: this.conversationHistory,
             transferProfiles: this.transferProfiles,
-            assistantContext: this.assistantContext,
+            assistantContext: this.brainAssistantContext(),
+            prompts: this.tenantPrompts,
           });
           response = reply.text;
         }
@@ -916,6 +982,21 @@ export class CallSession {
   public appendHistory(turn: ConversationTurn): void {
     this.conversationHistory.push(turn);
     this.metrics.turns += 1;
+    if (turn.role === 'assistant') {
+      const c = typeof turn.content === 'string' ? turn.content.trim() : '';
+      if (c.length > 0) this.pushAssistantEchoReference(c);
+    }
+  }
+
+  private pushAssistantEchoReference(text: string): void {
+    const t = text.trim();
+    if (t.length < 2) return;
+    this.assistantEchoReferenceLines.unshift(t);
+    if (this.assistantEchoReferenceLines.length > 10) this.assistantEchoReferenceLines.length = 10;
+  }
+
+  private getAssistantEchoCandidates(): string[] {
+    return [...this.assistantEchoReferenceLines];
   }
 
   /** Full call transcript (caller + assistant text only, no audio). Use at teardown for summarizer / logs. */
@@ -1063,6 +1144,15 @@ export class CallSession {
       'telnyx playback ended (webhook)',
     );
 
+    forensicsTimeline(this.callControlId, {
+      event: 'playback_ended_webhook',
+      wallClockMs: Date.now(),
+      audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+      state: this.state,
+      playbackActive: this.playbackState.active,
+      listening: this.isListening(),
+    });
+
     this.endPlaybackAuthoritatively('webhook');
 
   }
@@ -1199,12 +1289,17 @@ export class CallSession {
     const minMs = env.STT_POST_PLAYBACK_GRACE_MIN_MS ?? 300;
     const maxMs = env.STT_POST_PLAYBACK_GRACE_MAX_MS ?? 900;
     const fixedMs = env.STT_POST_PLAYBACK_GRACE_MS;
+    let base: number;
     if (this.lastPlaybackSegmentDurationMs <= 0) {
-      return fixedMs ?? minMs;
+      base = fixedMs ?? minMs;
+    } else {
+      const growth = (this.lastPlaybackSegmentDurationMs / 4000) * (maxMs - minMs);
+      base = Math.round(Math.min(maxMs, Math.max(minMs, minMs + growth)));
     }
-    // Longer segment → longer pipeline tail/echo decay → longer grace
-    const growth = (this.lastPlaybackSegmentDurationMs / 4000) * (maxMs - minMs);
-    return Math.round(Math.min(maxMs, Math.max(minMs, minMs + growth)));
+    const mode = getEchoSuppressionMode();
+    if (mode === 'conservative') return Math.round(base * 1.18);
+    if (mode === 'permissive') return Math.round(base * 0.93);
+    return base;
   }
 
   private armPstnPlaybackWatchdog(): void {
@@ -1581,6 +1676,15 @@ export class CallSession {
     this.listeningSinceAtMs = Date.now();
     this.deadAirEligible = false;
 
+    forensicsTimeline(this.callControlId, {
+      event: 'listening_armed',
+      wallClockMs: Date.now(),
+      audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+      state: this.state,
+      playbackActive: this.isPlaybackActive(),
+      listening: true,
+    });
+
     if (armDeadAir) {
       if (this.audioCoordinator.isMediaReady()) {
         this.deadAirEligible = true;
@@ -1604,6 +1708,16 @@ export class CallSession {
       void this.handleDeadAirTimeout();
     }, this.deadAirMs);
     this.deadAirTimer.unref?.();
+
+    forensicsTimeline(this.callControlId, {
+      event: 'dead_air_timer_armed',
+      wallClockMs: Date.now(),
+      audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+      state: this.state,
+      playbackActive: this.isPlaybackActive(),
+      listening: true,
+      reason: `dead_air_ms=${this.deadAirMs}`,
+    });
   }
 
   private clearDeadAirTimer(): void {
@@ -1789,6 +1903,15 @@ export class CallSession {
       return;
     }
 
+    forensicsTimeline(this.callControlId, {
+      event: 'dead_air_timer_fired',
+      wallClockMs: Date.now(),
+      audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+      state: this.state,
+      playbackActive: this.isPlaybackActive(),
+      listening: true,
+    });
+
     this.repromptInFlight = true;
     try {
       await this.playText('Are you still there?', `reprompt-${this.nextTurnId()}`);
@@ -1802,7 +1925,81 @@ export class CallSession {
     }
   }
 
+  private nextForensicsPolicyKey(): string {
+    this.forensicsPolicySeq += 1;
+    return `pol-${this.forensicsPolicySeq}`;
+  }
 
+  private fireForensicsPolicy(payload: Record<string, unknown>): void {
+    const key = this.nextForensicsPolicyKey();
+    const s = getForensicsSession(this.callControlId);
+    if (!s) return;
+    void s.writeJson(`transcripts/008_transcript_policy_${key}.json`, payload).catch(() => undefined);
+  }
+
+  private writeAssistantEchoPolicyArtifact(userFinal: string, echo: AssistantEchoMatchResult): void {
+    const key = this.nextForensicsPolicyKey();
+    const s = getForensicsSession(this.callControlId);
+    if (!s) return;
+    void s
+      .writeJson(`transcripts/008_transcript_policy_${key}.json`, {
+        decision: 'rejected',
+        reason: 'assistant_echo',
+        similarity_score: echo.score,
+        match_method: echo.method,
+        matched_assistant_line: echo.matchedAssistantText ?? null,
+        normalized_caller_stt: normalizeForEchoCompare(userFinal),
+        normalized_matched: echo.matchedAssistantText
+          ? normalizeForEchoCompare(echo.matchedAssistantText)
+          : null,
+        raw_caller_stt: userFinal,
+        echo_suppression_mode: getEchoSuppressionMode(),
+      })
+      .catch(() => undefined);
+  }
+
+  private forensicsTranscriptSnippet(text: string): string {
+    if (env.AUDIO_FORENSICS_ALLOW_PII) return text;
+    return String(redactValue(text, { redactTranscripts: false }));
+  }
+
+  private buildLlmForensicsHooks(turnId: string): AssistantReplyForensics {
+    const safeTurn = turnId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return {
+      turnId: safeTurn,
+      recordLlmRequestPayload: async (body) => {
+        const s = getForensicsSession(this.callControlId);
+        if (!s) return;
+        await s.writeJson(`llm/009_llm_request_${safeTurn}.json`, body);
+        const sessAudio = s.sessionAudioClockMs;
+        forensicsTimeline(this.callControlId, {
+          event: 'llm_request_sent',
+          turnId: safeTurn,
+          wallClockMs: Date.now(),
+          audioClockMs: sessAudio,
+          state: this.state,
+          playbackActive: this.isPlaybackActive(),
+          listening: this.isListening(),
+        });
+      },
+      recordLlmResponse: async ({ text, source }) => {
+        const s = getForensicsSession(this.callControlId);
+        if (!s) return;
+        await s.writeText(`llm/010_llm_response_${safeTurn}.txt`, this.forensicsTranscriptSnippet(text));
+        await s.writeJson(`llm/010_llm_response_meta_${safeTurn}.json`, { source });
+        forensicsTimeline(this.callControlId, {
+          event: 'llm_response_received',
+          turnId: safeTurn,
+          wallClockMs: Date.now(),
+          audioClockMs: s.sessionAudioClockMs,
+          state: this.state,
+          playbackActive: this.isPlaybackActive(),
+          listening: this.isListening(),
+          reason: source,
+        });
+      },
+    };
+  }
 
   private async handleTranscript(
     text: string,
@@ -1846,6 +2043,11 @@ export class CallSession {
         },
         'transcript ignored',
       );
+      this.fireForensicsPolicy({
+        decision: 'rejected',
+        reason,
+        transcript_source: transcriptSource ?? null,
+      });
       return;
     }
 
@@ -1861,6 +2063,18 @@ export class CallSession {
         },
         'transcript ignored (empty)',
       );
+      this.fireForensicsPolicy({
+        decision: 'rejected',
+        reason: 'empty_after_trim',
+        transcript_source: transcriptSource ?? null,
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'transcript_empty',
+        wallClockMs: Date.now(),
+        state: this.state,
+        playbackActive: this.isPlaybackActive(),
+        listening: this.isListening(),
+      });
       return;
     }
 
@@ -1875,14 +2089,33 @@ export class CallSession {
       log.info(
         {
           event: 'transcript_unclear_filler_or_short',
-          transcript_preview: trimmed.slice(0, 120),
+          transcript_preview:
+            trimmed.length <= this.logPreviewChars
+              ? trimmed
+              : `${trimmed.slice(0, this.logPreviewChars - 3)}...`,
           min_letters: env.STT_UNCLEAR_MIN_LETTERS,
           ...this.logContext,
         },
         'final transcript treated as unclear (filler/short); reprompting',
       );
       await this.tryPlayUnclearReprompt('stt_filler_or_short', {
-        transcript_preview: trimmed.slice(0, 120),
+        transcript_preview:
+          trimmed.length <= this.logPreviewChars
+            ? trimmed
+            : `${trimmed.slice(0, this.logPreviewChars - 3)}...`,
+      });
+      this.fireForensicsPolicy({
+        decision: 'rejected',
+        reason: 'unclear_filler_or_short',
+        transcript_preview_snippet: this.forensicsTranscriptSnippet(trimmed).slice(0, 200),
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'transcript_rejected',
+        wallClockMs: Date.now(),
+        reason: 'unclear_filler_or_short',
+        state: this.state,
+        playbackActive: this.isPlaybackActive(),
+        listening: this.isListening(),
       });
       return;
     }
@@ -1902,6 +2135,19 @@ export class CallSession {
         },
         'transcript ignored (duplicate)',
       );
+      this.fireForensicsPolicy({
+        decision: 'rejected',
+        reason: 'utterance_already_accepted',
+        transcript_source: src,
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'transcript_rejected',
+        wallClockMs: Date.now(),
+        reason: 'utterance_already_accepted',
+        state: this.state,
+        playbackActive: this.isPlaybackActive(),
+        listening: this.isListening(),
+      });
       return;
     }
 
@@ -1955,6 +2201,19 @@ export class CallSession {
         },
         'final transcript deferred during playback',
       );
+      this.fireForensicsPolicy({
+        decision: 'deferred',
+        reason: 'playback_active',
+        transcript_preview_snippet: this.forensicsTranscriptSnippet(trimmed).slice(0, 200),
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'transcript_deferred',
+        wallClockMs: Date.now(),
+        reason: 'playback_active',
+        state: this.state,
+        playbackActive: true,
+        listening: this.isListening(),
+      });
       return;
     }
 
@@ -1975,13 +2234,66 @@ export class CallSession {
             event: 'transcript_near_duplicate_suppressed',
             duplicate_gate: 'near_duplicate_transcript',
             near_duplicate_match_kind: nearDupKind,
-            transcript_preview: trimmed.slice(0, 120),
-            prior_preview: this.lastUserFinalForDedupeText.slice(0, 120),
+            transcript_preview:
+              trimmed.length <= this.logPreviewChars
+                ? trimmed
+                : `${trimmed.slice(0, this.logPreviewChars - 3)}...`,
+            prior_preview:
+              this.lastUserFinalForDedupeText.length <= this.logPreviewChars
+                ? this.lastUserFinalForDedupeText
+                : `${this.lastUserFinalForDedupeText.slice(0, this.logPreviewChars - 3)}...`,
             window_ms: env.STT_TRANSCRIPT_DEDUPE_WINDOW_MS,
             ...this.logContext,
           },
           'suppressing near-duplicate final transcript (same utterance / echo)',
         );
+        this.fireForensicsPolicy({
+          decision: 'rejected',
+          reason: 'near_duplicate_transcript',
+          near_duplicate_match_kind: nearDupKind,
+        });
+        forensicsTimeline(this.callControlId, {
+          event: 'transcript_rejected',
+          wallClockMs: Date.now(),
+          reason: 'near_duplicate',
+          state: this.state,
+          playbackActive: this.isPlaybackActive(),
+          listening: this.isListening(),
+        });
+        return;
+      }
+    }
+
+    if (isFinal) {
+      const mode = getEchoSuppressionMode();
+      const echo = matchAssistantEcho(trimmed, this.getAssistantEchoCandidates(), mode);
+      if (echo.isAssistantEcho) {
+        log.info(
+          {
+            event: 'assistant_echo_rejected',
+            similarity: echo.score,
+            match_method: echo.method,
+            echo_suppression_mode: mode,
+            transcript_preview:
+              trimmed.length <= this.logPreviewChars
+                ? trimmed
+                : `${trimmed.slice(0, this.logPreviewChars - 3)}...`,
+            ...this.logContext,
+          },
+          'final transcript rejected as assistant echo',
+        );
+        this.writeAssistantEchoPolicyArtifact(trimmed, echo);
+        forensicsTimeline(this.callControlId, {
+          event: 'transcript_rejected_assistant_echo',
+          wallClockMs: Date.now(),
+          audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+          similarity_score: echo.score,
+          match_method: echo.method,
+          state: this.state,
+          playbackActive: this.isPlaybackActive(),
+          listening: this.isListening(),
+          reason: 'assistant_echo',
+        });
         return;
       }
     }
@@ -2013,6 +2325,7 @@ export class CallSession {
     );
 
     // Accept this FINAL as the utterance we will respond to.
+    const assistantTurnId = `turn-${this.nextTurnId()}`;
     this.transcriptAcceptedForUtterance = true;
     this.isHandlingTranscript = true;
     this.audioCoordinator.onRespondingStart(Date.now());
@@ -2041,6 +2354,30 @@ export class CallSession {
         'final transcript received',
       );
 
+      const safeAssistantTurn = assistantTurnId.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const sTxt = getForensicsSession(this.callControlId);
+      if (sTxt) {
+        void sTxt
+          .writeText(`llm/009_transcript_to_llm_${safeAssistantTurn}.txt`, this.forensicsTranscriptSnippet(trimmed))
+          .catch(() => undefined);
+      }
+      this.fireForensicsPolicy({
+        decision: 'accepted',
+        reason: 'final_turn_trigger',
+        turn_id: safeAssistantTurn,
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'transcript_accepted',
+        turnId: safeAssistantTurn,
+        wallClockMs: Date.now(),
+        audioClockMs: getForensicsSession(this.callControlId)?.sessionAudioClockMs ?? null,
+        state: this.state,
+        playbackActive: this.isPlaybackActive(),
+        listening: this.isListening(),
+      });
+
+      const llmHooks = this.buildLlmForensicsHooks(safeAssistantTurn);
+
       this.state = 'THINKING';
       this.appendTranscriptSegment(trimmed);
       this.appendHistory({ role: 'user', content: trimmed, timestamp: new Date() });
@@ -2054,7 +2391,7 @@ export class CallSession {
 
       try {
         if (env.BRAIN_STREAMING_ENABLED) {
-          const streamResult = await this.streamAssistantReply(trimmed, handlingToken);
+          const streamResult = await this.streamAssistantReply(trimmed, handlingToken, llmHooks, assistantTurnId);
           replyResult = streamResult.reply;
           response = streamResult.reply.text;
           replySource = streamResult.reply.source;
@@ -2074,7 +2411,9 @@ export class CallSession {
                 transcript: trimmed,
                 history: this.conversationHistory,
                 transferProfiles: this.transferProfiles,
-                assistantContext: this.assistantContext,
+                assistantContext: this.brainAssistantContext(),
+                prompts: this.tenantPrompts,
+                forensics: llmHooks,
               });
               endLlm();
               replyResult = reply;
@@ -2160,7 +2499,7 @@ export class CallSession {
         if (env.BRAIN_STREAMING_ENABLED && playbackDone) {
           await playbackDone;
         } else {
-          await this.playAssistantTurn(response);
+          await this.playAssistantTurn(response, assistantTurnId);
         }
         try {
           await this.transferCall(replyResult.transfer.to, {
@@ -2178,6 +2517,7 @@ export class CallSession {
           );
           await this.playAssistantTurn(
             "I wasn't able to complete the transfer. Please try again or stay on the line.",
+            assistantTurnId,
           );
         }
         return;
@@ -2190,7 +2530,7 @@ export class CallSession {
           await playbackDone;
         }
       } else {
-        await this.playAssistantTurn(response);
+        await this.playAssistantTurn(response, assistantTurnId);
       }
     } catch (error) {
       log.error({ err: error, ...this.logContext }, 'call session transcript handling failed');
@@ -2237,10 +2577,12 @@ export class CallSession {
   private async streamAssistantReply(
     transcript: string,
     handlingToken: number,
+    llmForensics?: AssistantReplyForensics,
+    playbackTurnId?: string,
   ): Promise<{ reply: AssistantReplyResult; playbackDone?: Promise<void> }> {
     const quick = this.tryMatchQuickReply(transcript);
     if (quick) {
-      return { reply: quick, playbackDone: this.playAssistantTurn(quick.text) };
+      return { reply: quick, playbackDone: this.playAssistantTurn(quick.text, playbackTurnId) };
     }
 
     let bufferedText = '';
@@ -2268,7 +2610,9 @@ export class CallSession {
           transcript,
           history: this.conversationHistory,
           transferProfiles: this.transferProfiles,
-          assistantContext: this.assistantContext,
+          assistantContext: this.brainAssistantContext(),
+          prompts: this.tenantPrompts,
+          forensics: llmForensics,
         });
         endLlm();
       } catch (error) {
@@ -2278,7 +2622,7 @@ export class CallSession {
       }
 
       // Play as a single turn (no segmentation) on PSTN
-      return { reply, playbackDone: this.playAssistantTurn(reply.text) };
+      return { reply, playbackDone: this.playAssistantTurn(reply.text, playbackTurnId) };
     }
 
     const queueSegment = (segment: string): void => {
@@ -2374,7 +2718,9 @@ export class CallSession {
           transcript,
           history: this.conversationHistory,
           transferProfiles: this.transferProfiles,
-          assistantContext: this.assistantContext,
+          assistantContext: this.brainAssistantContext(),
+          prompts: this.tenantPrompts,
+          forensics: llmForensics,
         },
         (chunk) => {
           if (!chunk) return;
@@ -2399,7 +2745,7 @@ export class CallSession {
       if (handlingToken !== this.transcriptHandlingToken) {
         return { reply };
       }
-      return { reply, playbackDone: this.playAssistantTurn(reply.text) };
+      return { reply, playbackDone: this.playAssistantTurn(reply.text, playbackTurnId) };
     }
 
     if (reply.text.length > bufferedText.length) {
@@ -2411,7 +2757,7 @@ export class CallSession {
       if (handlingToken !== this.transcriptHandlingToken) {
         return { reply };
       }
-      return { reply, playbackDone: this.playAssistantTurn(reply.text) };
+      return { reply, playbackDone: this.playAssistantTurn(reply.text, playbackTurnId) };
     }
 
     return { reply, playbackDone: this.waitForTtsSegmentQueue() };
@@ -2436,7 +2782,16 @@ export class CallSession {
 
       this.onAnswered();
 
-      const greetingText = env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?';
+      // Sprint 0 cohesion fix: prefer the per-tenant greeting (admin/owner edited,
+      // published to Redis as `tenantcfg:<tenantId>.llmContext.prompts.greetingText`)
+      // before falling back to the global env default. Previous behavior always
+      // used env.GREETING_TEXT, so per-tenant greeting edits had no effect.
+      const tenantGreeting =
+        typeof this.tenantGreetingText === 'string' && this.tenantGreetingText.trim()
+          ? this.tenantGreetingText.trim()
+          : undefined;
+      const greetingText =
+        tenantGreeting ?? env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?';
 
       if (this.transport.mode === 'webrtc_hd') {
         await this.playText(greetingText, 'greeting');
@@ -2464,8 +2819,8 @@ export class CallSession {
     }
   }
 
-  private async playAssistantTurn(text: string): Promise<void> {
-    const turnId = `turn-${this.nextTurnId()}`;
+  private async playAssistantTurn(text: string, forcedTurnId?: string): Promise<void> {
+    const turnId = forcedTurnId ?? `turn-${this.nextTurnId()}`;
     await this.playText(text, turnId);
   }
 
@@ -2483,6 +2838,24 @@ export class CallSession {
     let playbackEndDeferred = false;
     let playbackEndHandled = false;
 
+    const safeForensicsTurn = turnId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const fosSession = getForensicsSession(this.callControlId);
+    if (fosSession) {
+      void fosSession.appendPlaybackJsonl(safeForensicsTurn, {
+        event: 'playback_start_requested',
+        turn_id: turnId,
+        wallClockMs: Date.now(),
+      });
+      forensicsTimeline(this.callControlId, {
+        event: 'playback_start_requested',
+        turnId: safeForensicsTurn,
+        wallClockMs: Date.now(),
+        state: this.state,
+        playbackActive: true,
+        listening: this.isListening(),
+      });
+    }
+
     try {
       const tenantLabel = this.tenantId ?? 'unknown';
       const useQwenChunking =
@@ -2492,6 +2865,7 @@ export class CallSession {
 
       for (let ci = 0; ci < effectiveChunks.length; ci++) {
         const chunkText = effectiveChunks[ci]!;
+        this.pushAssistantEchoReference(chunkText);
         const chunkPlaybackId = effectiveChunks.length === 1 ? turnId : `${turnId}-q${ci}`;
         const isLastChunk = ci === effectiveChunks.length - 1;
 
@@ -2554,6 +2928,42 @@ export class CallSession {
           'tts synthesized',
         );
 
+        const fos = getForensicsSession(this.callControlId);
+        const safeChunkId = chunkPlaybackId.replace(/[^a-zA-Z0-9._-]/g, '_');
+        if (fos) {
+          void fos
+            .writeJson(`tts/011_tts_request_${safeChunkId}.json`, {
+              text: chunkText,
+              voice:
+                this.ttsConfig?.mode === 'qwen3_tts_http'
+                  ? this.ttsConfig.speaker
+                  : this.ttsConfig?.voice,
+              format: this.ttsConfig?.format,
+              content_type: result.contentType,
+              mode: this.ttsConfig?.mode,
+            })
+            .catch(() => undefined);
+          forensicsTimeline(this.callControlId, {
+            event: 'tts_request_sent',
+            turnId: safeChunkId,
+            wallClockMs: Date.now(),
+            state: this.state,
+            playbackActive: true,
+            listening: this.isListening(),
+          });
+          const rawExt = result.contentType?.includes('wav') ? 'wav' : 'bin';
+          void fos.writeBinary(`tts/012_tts_raw_${safeChunkId}.${rawExt}`, result.audio).catch(() => undefined);
+          forensicsTimeline(this.callControlId, {
+            event: 'tts_response_received',
+            turnId: safeChunkId,
+            wallClockMs: Date.now(),
+            audio_bytes: result.audio.length,
+            state: this.state,
+            playbackActive: true,
+            listening: this.isListening(),
+          });
+        }
+
         if (!options?.allowWhenEndedForLateFinal && (!this.active || this.playbackState.interrupted)) {
           return;
         }
@@ -2581,6 +2991,10 @@ export class CallSession {
           probeWav('tts.out.telephonyOptimized', playbackAudio, pipelineMeta);
         }
         result.audio = playbackAudio;
+
+        if (fos && playbackAudio.length >= 12 && playbackAudio.toString('ascii', 0, 4) === 'RIFF') {
+          void fos.writeBinary(`playback/013_telnyx_playback_${safeChunkId}.wav`, playbackAudio).catch(() => undefined);
+        }
 
         const playbackInput =
           this.transport.mode === 'pstn'
@@ -2626,6 +3040,21 @@ export class CallSession {
 
         const playbackStart = Date.now();
         this.audioCoordinator.onTtsStart(playbackStart, 'tts_playback_start');
+        if (fos) {
+          void fos.appendPlaybackJsonl(safeChunkId, {
+            event: 'playback_started',
+            turn_id: chunkPlaybackId,
+            wallClockMs: playbackStart,
+          });
+          forensicsTimeline(this.callControlId, {
+            event: 'playback_started',
+            turnId: safeChunkId,
+            wallClockMs: playbackStart,
+            state: this.state,
+            playbackActive: true,
+            listening: this.isListening(),
+          });
+        }
         try {
           if (this.transport.mode === 'pstn') {
             const txMeta = getAudioMeta(playbackAudio) ?? {

@@ -140,6 +140,8 @@ export interface ConfigRow {
   tts: unknown;
   forwarding_profiles?: unknown;
   pricing?: unknown;
+  business_hours?: unknown;
+  operator_state?: unknown;
 }
 
 export interface CallRow {
@@ -398,8 +400,11 @@ export async function upsertConfig(row: ConfigRow): Promise<void> {
   try {
     await client.query(
       `
-      insert into tenant_configs (tenant_id, config, prompts, stt, tts, forwarding_profiles, pricing, updated_at)
-      values ($1, $2, $3, $4, $5, $6, $7, now())
+      insert into tenant_configs (
+        tenant_id, config, prompts, stt, tts, forwarding_profiles, pricing,
+        business_hours, operator_state, updated_at
+      )
+      values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, now())
       on conflict (tenant_id) do update
       set config = excluded.config,
           prompts = excluded.prompts,
@@ -407,6 +412,8 @@ export async function upsertConfig(row: ConfigRow): Promise<void> {
           tts = excluded.tts,
           forwarding_profiles = excluded.forwarding_profiles,
           pricing = excluded.pricing,
+          business_hours = excluded.business_hours,
+          operator_state = excluded.operator_state,
           updated_at = now()
     `,
       [
@@ -417,8 +424,76 @@ export async function upsertConfig(row: ConfigRow): Promise<void> {
         row.tts,
         row.forwarding_profiles ?? [],
         row.pricing ?? { items: [], notes: "" },
+        JSON.stringify(row.business_hours ?? {}),
+        JSON.stringify(row.operator_state ?? {}),
       ]
     );
+  } finally {
+    client.release();
+  }
+}
+
+/** List recent calls for a tenant (Postgres). */
+export async function listCallsForTenantDb(
+  tenantId: string,
+  limit: number,
+): Promise<
+  {
+    id: string;
+    tenant_id: string;
+    caller_id: string | null;
+    stage: string | null;
+    lead: unknown;
+    history: unknown;
+    created_at: string;
+    updated_at: string;
+  }[]
+> {
+  const client = await pool.connect();
+  try {
+    const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+    const r = await client.query(
+      `
+      select id, tenant_id, caller_id, stage, lead, history, created_at, updated_at
+      from calls
+      where tenant_id = $1
+      order by updated_at desc
+      limit $2
+      `,
+      [tenantId, lim],
+    );
+    return r.rows as any[];
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCallByIdForTenantDb(
+  tenantId: string,
+  callId: string,
+): Promise<{
+  id: string;
+  tenant_id: string;
+  caller_id: string | null;
+  stage: string | null;
+  lead: unknown;
+  history: unknown;
+  created_at: string;
+  updated_at: string;
+} | null> {
+  if (!isUuid(callId)) return null;
+  const client = await pool.connect();
+  try {
+    const r = await client.query(
+      `
+      select id, tenant_id, caller_id, stage, lead, history, created_at, updated_at
+      from calls
+      where tenant_id = $1 and id = $2::uuid
+      limit 1
+      `,
+      [tenantId, callId],
+    );
+    return (r.rows[0] as any) ?? null;
   } finally {
     client.release();
   }

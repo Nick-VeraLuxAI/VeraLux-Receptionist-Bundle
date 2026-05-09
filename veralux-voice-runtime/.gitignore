@@ -3,3 +3,5 @@
 oldenv.txt
 .env
 **/.env
+.env.development
+**/.env.development

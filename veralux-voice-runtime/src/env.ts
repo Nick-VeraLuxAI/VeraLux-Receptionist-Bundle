@@ -1,8 +1,25 @@
 // src/env.ts
+import fs from 'fs';
+import path from 'path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+/**
+ * Single env file per process. Default `.env`.
+ * Local dev: `npm run dev` sets `VERALUX_DOTENV=.env.development` (see package.json).
+ */
+const dotenvPath = process.env.VERALUX_DOTENV?.trim() || '.env';
+const dotenvResolved = path.resolve(process.cwd(), dotenvPath);
+if (dotenvPath === '.env.development' && !fs.existsSync(dotenvResolved)) {
+  throw new Error(
+    'Missing .env.development. Create it from your production voice env file:\n' +
+      '  npm run init:dev-env -w veralux-voice-runtime -- /etc/veralux/voice-runtime.env',
+  );
+}
+// When loading `.env.development`, replace existing process.env keys so a stale
+// shell (e.g. AUDIO_STORAGE_DIR=/app/audio from Docker) cannot mask file values.
+const dotenvOverride = dotenvPath === '.env.development';
+dotenv.config({ path: dotenvResolved, override: dotenvOverride });
 
 // ───────────────────────── helpers ─────────────────────────
 
@@ -185,6 +202,11 @@ const EnvSchema = z.object({
   /* Partial transcription */
   STT_PARTIAL_INTERVAL_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(250)),
   STT_PARTIAL_MIN_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(600)),
+  /** Max chars for transcript_preview fields in JSON logs (callSession + Whisper). Raise for local debugging. */
+  STT_TRANSCRIPT_LOG_MAX_CHARS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(40).max(32000).default(160),
+  ),
 
   /* STT input DSP */
   STT_HIGHPASS_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
@@ -372,6 +394,56 @@ const EnvSchema = z.object({
   /** When set, write full call transcript (caller + assistant text) to this dir at teardown. No audio. */
   CALL_TRANSCRIPT_DIR: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
+  /** Per-call WAV/JSON forensics (default off). Requires ALLOW_PROD_DEBUG_CAPTURE in production if enabled. */
+  AUDIO_FORENSICS_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  AUDIO_FORENSICS_DIR: z.preprocess(
+    emptyToUndefined,
+    z.string().min(1).default('/data/veralux/voice/forensics'),
+  ),
+  /** When false (default), redact transcript-like fields in forensics JSON via observability/redaction. */
+  AUDIO_FORENSICS_ALLOW_PII: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /** Max per-call `003_emit_frame_*.wav` artifacts (after cap, timeline still records). */
+  AUDIO_FORENSICS_MAX_EMIT_FRAMES: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).default(400)),
+
+  /**
+   * When true, buffer inbound PCM during post-playback grace (not during active playback) and replay after grace.
+   * Caps at STT_PLAYBACK_GRACE_BUFFER_MAX_MS. Default false.
+   */
+  STT_CAPTURE_DURING_POST_PLAYBACK_GRACE: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  STT_PLAYBACK_GRACE_BUFFER_MAX_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(1000)),
+
+  /**
+   * When true, use residual wall gap (time since last frame minus prior frame duration) to detect media gaps
+   * instead of raw wall-clock delta alone. Default false preserves legacy Date.now gap behavior.
+   */
+  STT_USE_AUDIO_CLOCK_FOR_MEDIA_GAPS: z.preprocess(stringToBoolean, z.boolean().default(false)),
+
+  /**
+   * How aggressively to gate STT after assistant playback (echo control).
+   * - conservative: longer grace, stricter energy on grace-buffer replay, stricter transcript echo match
+   * - balanced: grace applies even in LISTENING; transcript similarity filter
+   * - permissive: legacy early open when LISTENING (barge-in testing)
+   */
+  STT_ECHO_SUPPRESSION_MODE: z.preprocess(
+    emptyToUndefined,
+    z.enum(['conservative', 'balanced', 'permissive']).default('balanced'),
+  ),
+  /** First N ms of replayed post-playback grace audio: drop frames below echo-tail energy threshold. */
+  STT_POST_PLAYBACK_ECHO_TAIL_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(0).default(450)),
+  /** During echo-tail replay, require rms >= effectiveFloor * mult (see echoSuppression). */
+  STT_ECHO_POST_PLAYBACK_RMS_MULT_CONSERVATIVE: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().positive().default(1.75),
+  ),
+  STT_ECHO_POST_PLAYBACK_RMS_MULT_BALANCED: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().positive().default(1.28),
+  ),
+  STT_ECHO_POST_PLAYBACK_RMS_MULT_PERMISSIVE: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().positive().default(1.05),
+  ),
+
   /* ───────────────────────── Control Plane integration ───────────────────────── */
   /** When set, runtime reports call events (start/end with transcript) to the control plane. */
   CONTROL_PLANE_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
@@ -471,6 +543,7 @@ if (env.NODE_ENV === 'production') {
   }
   const debugFlagsEnabled =
     env.AUDIO_DIAGNOSTICS ||
+    env.AUDIO_FORENSICS_ENABLED ||
     env.STT_DEBUG_DUMP_WHISPER_WAVS ||
     env.STT_DEBUG_DUMP_PCM16 ||
     env.STT_DEBUG_DUMP_RX_WAV ||

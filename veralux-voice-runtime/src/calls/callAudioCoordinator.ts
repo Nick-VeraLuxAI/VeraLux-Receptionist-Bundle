@@ -4,6 +4,7 @@
 
 import { env } from '../env';
 import { log } from '../log';
+import { getForensicsSession } from '../observability/audioForensics';
 import { InboundPcm16RingBuffer, type Pcm16RingSnapshot } from '../audio/inboundRingBuffer';
 import type { Pcm16Frame } from '../media/types';
 import type { UtteranceEndInfo } from '../stt/chunkedSTT';
@@ -72,6 +73,11 @@ export class CallAudioCoordinator {
   private finalInFlight = false;
   private summaryPending = false;
 
+  /** Cumulative duration of inbound frames (ms) for forensics / optional gap mode. */
+  private inboundAudioClockMs = 0;
+  /** Prior frame duration (ms) — used with wall gap when STT_USE_AUDIO_CLOCK_FOR_MEDIA_GAPS. */
+  private prevFrameMsForMediaGap = 0;
+
   constructor(options: CoordinatorOptions) {
     this.callControlId = options.callControlId;
     this.logContext = options.logContext;
@@ -113,6 +119,8 @@ export class CallAudioCoordinator {
       this.firstInboundFrameSeen = false;
       this.mediaReadyConsecutiveMs = 0;
       this.lastInboundFrameAtMs = 0;
+      this.inboundAudioClockMs = 0;
+      this.prevFrameMsForMediaGap = 0;
       this.ringBuffer.reset();
     }
     this.updateMediaReady(ts, true);
@@ -141,11 +149,33 @@ export class CallAudioCoordinator {
     const frameMs = (frame.pcm16.length / frame.sampleRateHz) * 1000;
     if (Number.isFinite(frameMs) && frameMs > 0) {
       if (this.lastInboundFrameAtMs > 0) {
-        const gapMs = ts - this.lastInboundFrameAtMs;
+        const wallGapMs = ts - this.lastInboundFrameAtMs;
+        const residualGapMs =
+          this.prevFrameMsForMediaGap > 0 ? Math.max(0, wallGapMs - this.prevFrameMsForMediaGap) : wallGapMs;
+        const gapMs = env.STT_USE_AUDIO_CLOCK_FOR_MEDIA_GAPS ? residualGapMs : wallGapMs;
+        const fos = getForensicsSession(this.callControlId);
+        if (fos && wallGapMs > Math.max(MEDIA_READY_MAX_GAP_MS * 0.5, frameMs * 3)) {
+          void fos.appendTimeline({
+            event: 'media_gap_compare',
+            wallClockMs: ts,
+            audioClockMs: this.inboundAudioClockMs,
+            wallGapMs,
+            residualGapMs,
+            gapMsUsedForReset: gapMs,
+            stt_use_audio_clock_for_media_gaps: env.STT_USE_AUDIO_CLOCK_FOR_MEDIA_GAPS,
+            callControlId: this.callControlId,
+            sampleRateHz: frame.sampleRateHz,
+            sampleCount: frame.pcm16.length,
+            prevFrameMs: this.prevFrameMsForMediaGap,
+            frameMs,
+          });
+        }
         if (gapMs > Math.max(MEDIA_READY_MAX_GAP_MS, frameMs * 4)) {
           this.mediaReadyConsecutiveMs = 0;
         }
       }
+      this.inboundAudioClockMs += frameMs;
+      this.prevFrameMsForMediaGap = frameMs;
       this.mediaReadyConsecutiveMs += frameMs;
       this.lastInboundFrameAtMs = ts;
     }

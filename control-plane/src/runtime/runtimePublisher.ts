@@ -126,12 +126,21 @@ export async function unmapDid(didE164: string): Promise<void> {
   await publisher.unmapDid(didE164);
 }
 
+/** Merges publish timestamp into runtime JSON (used by Redis publish path). */
+export function withRuntimePublishTimestamp(
+  config: RuntimeTenantConfig,
+  publishedAtIso = new Date().toISOString(),
+): RuntimeTenantConfig {
+  return { ...config, lastRuntimePublishedAt: publishedAtIso };
+}
+
 export async function publishTenantConfig(
   tenantId: string,
   config: RuntimeTenantConfig
 ): Promise<void> {
   const publisher = await getPublisher();
-  await publisher.publishTenantConfig(tenantId, config);
+  const stamped = withRuntimePublishTimestamp(config);
+  await publisher.publishTenantConfig(tenantId, stamped);
 }
 
 export async function getTenantConfig(

@@ -20,15 +20,17 @@ services:
   runtime:
     env_file: *voice-env
     environment:
-      # Main compose defaults `STT_DEBUG_DIR` when unset (${VAR:-path}); unset must win in production NODE_ENV.
-      - STT_DEBUG_DIR=
-      - AMRWB_DEBUG_DIR=
-      - AUDIO_DIAGNOSTICS=false
-      - STT_DEBUG_DUMP_WHISPER_WAVS=false
-      - STT_DEBUG_DUMP_PCM16=false
-      - STT_DEBUG_DUMP_RX_WAV=false
-      - STT_DEBUG_DUMP_FAR_END_REF=false
-      - STT_DEBUG_AEC_NEAR_OUT_WAV=false
+      # These must follow the effective merged env (source VERALUX_COMPOSE_ENV_FILE before compose).
+      # production-env-fragment.env clears them for normal prod; deploy/production-env-debug-stt.env
+      # (merged when VERALUX_STT_DEBUG=1) turns dumps on. Hardcoded false here would always override env_file.
+      - STT_DEBUG_DIR=${STT_DEBUG_DIR:-}
+      - AMRWB_DEBUG_DIR=${AMRWB_DEBUG_DIR:-}
+      - AUDIO_DIAGNOSTICS=${AUDIO_DIAGNOSTICS:-false}
+      - STT_DEBUG_DUMP_WHISPER_WAVS=${STT_DEBUG_DUMP_WHISPER_WAVS:-false}
+      - STT_DEBUG_DUMP_PCM16=${STT_DEBUG_DUMP_PCM16:-false}
+      - STT_DEBUG_DUMP_RX_WAV=${STT_DEBUG_DUMP_RX_WAV:-false}
+      - STT_DEBUG_DUMP_FAR_END_REF=${STT_DEBUG_DUMP_FAR_END_REF:-false}
+      - STT_DEBUG_AEC_NEAR_OUT_WAV=${STT_DEBUG_AEC_NEAR_OUT_WAV:-false}
   postgres:
     env_file: *voice-env
   redis:

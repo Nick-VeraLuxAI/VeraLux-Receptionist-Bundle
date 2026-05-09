@@ -17,6 +17,7 @@ import { parseWavInfo } from '../../audio/wavInfo';
 
 import { assertLooksLikeWav } from '../wavGuard';
 import { preWhisperGate } from '../../audio/preWhisperGate';
+import { forensicsTimeline, getForensicsSession } from '../../observability/audioForensics';
 
 const WAV_SAMPLE_RATE_HZ = 16000;
 const PCM_8K_SAMPLE_RATE_HZ = 8000;
@@ -409,6 +410,7 @@ export class WhisperHttpProvider implements STTProvider {
 
     const callControlId = extractCallControlId(opts.logContext) ?? (opts.audioMeta?.callId ?? 'unknown');
     const safeCallKey = sanitizeFilePart(callControlId);
+    const forensicsUtteranceId = opts.utteranceId;
 
     const baseMeta: AudioMeta = {
       ...(opts.audioMeta ?? {}),
@@ -604,6 +606,23 @@ export class WhisperHttpProvider implements STTProvider {
         'sending wav to whisper',
       );
 
+      if (forensicsUtteranceId && callControlId !== 'unknown') {
+        const sess = getForensicsSession(callControlId);
+        if (sess) {
+          void sess
+            .writeBinary(`audio/005_whisper_request_${forensicsUtteranceId}.wav`, body)
+            .catch((err) => log.warn({ event: 'forensics_whisper_wav_failed', err }, 'forensics whisper wav write failed'));
+          void forensicsTimeline(callControlId, {
+            event: 'whisper_request_sent',
+            wallClockMs: Date.now(),
+            utteranceId: forensicsUtteranceId,
+            wav_bytes: body.length,
+            sha1_10: h10,
+            kind: whisperStage,
+          });
+        }
+      }
+
       // IMPORTANT:
       // ✅ Do NOT pass opts.signal into fetch() (it will cancel the HTTP request).
       const dispatcher = getWhisperHttpDispatcher();
@@ -703,11 +722,34 @@ export class WhisperHttpProvider implements STTProvider {
               kind: whisperStage,
               sha1_10: h10,
               transcript_length: transcript.text.length,
-              transcript_preview: previewText(transcript.text),
+              transcript_preview: previewText(transcript.text, env.STT_TRANSCRIPT_LOG_MAX_CHARS),
               ...(opts.logContext ?? {}),
             },
             'whisper response',
           );
+        }
+
+        if (forensicsUtteranceId && callControlId !== 'unknown') {
+          const sess = getForensicsSession(callControlId);
+          if (sess) {
+            void sess
+              .writeJson(`transcripts/006_whisper_response_${forensicsUtteranceId}.json`, {
+                status: response.status,
+                content_type: contentType,
+                text: transcript.text,
+                raw: transcript.raw,
+              })
+              .catch((err) =>
+                log.warn({ event: 'forensics_whisper_json_failed', err }, 'forensics whisper response json failed'),
+              );
+            void forensicsTimeline(callControlId, {
+              event: 'whisper_response_received',
+              wallClockMs: Date.now(),
+              utteranceId: forensicsUtteranceId,
+              transcript_length: transcript.text.length,
+              kind: whisperStage,
+            });
+          }
         }
 
         return transcript;
@@ -724,11 +766,34 @@ export class WhisperHttpProvider implements STTProvider {
             kind: whisperStage,
             sha1_10: h10,
             transcript_length: textOut.length,
-            transcript_preview: previewText(textOut),
+            transcript_preview: previewText(textOut, env.STT_TRANSCRIPT_LOG_MAX_CHARS),
             ...(opts.logContext ?? {}),
           },
           'whisper response',
         );
+      }
+
+      if (forensicsUtteranceId && callControlId !== 'unknown') {
+        const sess = getForensicsSession(callControlId);
+        if (sess) {
+          void sess
+            .writeJson(`transcripts/006_whisper_response_${forensicsUtteranceId}.json`, {
+              status: response.status,
+              content_type: contentType,
+              text: textOut,
+              format: 'text_plain',
+            })
+            .catch((err) =>
+              log.warn({ event: 'forensics_whisper_json_failed', err }, 'forensics whisper response json failed'),
+            );
+          void forensicsTimeline(callControlId, {
+            event: 'whisper_response_received',
+            wallClockMs: Date.now(),
+            utteranceId: forensicsUtteranceId,
+            transcript_length: textOut.length,
+            kind: whisperStage,
+          });
+        }
       }
 
       return { text: textOut, isFinal, raw: textOut };

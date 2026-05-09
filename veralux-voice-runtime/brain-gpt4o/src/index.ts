@@ -21,6 +21,7 @@ import type {
   BrainTransferAction,
   TransferProfile,
 } from './types.js';
+import { buildBrainSystemPrompt } from './systemPrompt.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL?.trim() || undefined;
@@ -42,38 +43,6 @@ const openai = new OpenAI({
 });
 
 const TRANSFER_TOOL_NAME = 'transfer_call';
-
-function buildSystemPrompt(
-  transferProfiles?: TransferProfile[],
-  assistantContext?: Record<string, string>,
-): string {
-  let prompt = `You are a helpful, concise phone assistant. Keep replies short and natural for voice (1-3 sentences). Be warm and professional.`;
-
-  if (assistantContext && Object.keys(assistantContext).length > 0) {
-    prompt += `\n\nUse the following information when answering questions. Answer only from this context when the caller asks about these topics:\n\n`;
-    for (const [section, text] of Object.entries(assistantContext)) {
-      if (text?.trim()) {
-        prompt += `${section}:\n${text.trim()}\n\n`;
-      }
-    }
-  }
-
-  if (transferProfiles?.length) {
-    prompt += `You can transfer the caller to a person or department. When the caller asks to speak to someone, or their need matches a department below, use the transfer_call tool with that profile's destination number and a brief message to the caller (e.g. "I'll connect you with Morgan in Sales now.").
-
-Transfer options (use the exact \`destination\` value when calling transfer_call):
-${transferProfiles
-  .map(
-    (p) =>
-      `- ${p.name}${p.holder ? ` (${p.holder})` : ''}: handles ${p.responsibilities.join(', ')}. destination: ${p.destination}`,
-  )
-  .join('\n')}
-
-Only use transfer_call when the caller clearly wants to be transferred or their request matches one of the above. Otherwise just answer in your normal voice.`;
-  }
-
-  return prompt;
-}
 
 function historyToMessages(history: BrainReplyRequest['history'], transcript: string): OpenAI.Chat.ChatCompletionMessageParam[] {
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
@@ -130,14 +99,14 @@ function findProfileByDestination(
 /** POST /reply — non-streaming reply. */
 async function handleReply(req: Request, res: Response): Promise<void> {
   const body = req.body as BrainReplyRequest;
-  const { transcript, history, transferProfiles, assistantContext } = body;
+  const { transcript, history, transferProfiles, assistantContext, prompts } = body;
 
   if (!transcript || typeof transcript !== 'string') {
     res.status(400).json({ error: 'transcript (string) is required' });
     return;
   }
 
-  const systemPrompt = buildSystemPrompt(transferProfiles, assistantContext);
+  const systemPrompt = buildBrainSystemPrompt(transferProfiles, assistantContext, prompts);
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
     ...historyToMessages(history ?? [], transcript),
@@ -214,7 +183,7 @@ async function handleReply(req: Request, res: Response): Promise<void> {
 /** POST /reply/stream — streaming reply (tokens + done with optional transfer). */
 async function handleReplyStream(req: Request, res: Response): Promise<void> {
   const body = req.body as BrainReplyRequest;
-  const { transcript, history, transferProfiles, assistantContext } = body;
+  const { transcript, history, transferProfiles, assistantContext, prompts } = body;
 
   if (!transcript || typeof transcript !== 'string') {
     res.status(400).json({ error: 'transcript (string) is required' });
@@ -226,7 +195,7 @@ async function handleReplyStream(req: Request, res: Response): Promise<void> {
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders?.();
 
-  const systemPrompt = buildSystemPrompt(transferProfiles, assistantContext);
+  const systemPrompt = buildBrainSystemPrompt(transferProfiles, assistantContext, prompts);
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt },
     ...historyToMessages(history ?? [], transcript),

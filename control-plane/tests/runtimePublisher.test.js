@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createRuntimePublisher } = require("../dist/runtime/runtimePublisher");
+const {
+  createRuntimePublisher,
+  withRuntimePublishTimestamp,
+} = require("../dist/runtime/runtimePublisher");
 
 function createMockRedis() {
   const store = new Map();
@@ -95,4 +98,11 @@ test("runtimePublisher publishes and reads tenant config", async () => {
   const loaded = await publisher.getTenantConfig("tenantA");
 
   assert.deepEqual(loaded, config);
+});
+
+test("withRuntimePublishTimestamp sets ISO field", () => {
+  const cfg = baseConfig();
+  const stamped = withRuntimePublishTimestamp(cfg, "2026-05-09T12:00:00.000Z");
+  assert.equal(stamped.lastRuntimePublishedAt, "2026-05-09T12:00:00.000Z");
+  assert.equal(stamped.tenantId, cfg.tenantId);
 });

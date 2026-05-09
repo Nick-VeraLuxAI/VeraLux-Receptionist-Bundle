@@ -11,6 +11,8 @@ export interface STTOptions {
   logContext?: Record<string, unknown>;
   signal?: AbortSignal;
   audioMeta?: AudioMeta;
+  /** Forensics: stable id for this STT utterance (WAV + transcript artifacts). */
+  utteranceId?: string;
 }
 
 export interface STTTranscript {

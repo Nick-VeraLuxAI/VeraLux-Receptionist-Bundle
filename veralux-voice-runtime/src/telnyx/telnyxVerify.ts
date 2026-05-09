@@ -128,6 +128,26 @@ function verifyHmacSignature(message: Buffer, signature: string, secret: string)
   return crypto.timingSafeEqual(digest, signatureBuffer);
 }
 
+/**
+ * Bytes Telnyx signed for webhook verification.
+ * - Ed25519 (`telnyx-signature-ed25519`): `{timestamp}|{raw JSON body}` (pipe) per Telnyx docs.
+ * - Legacy HMAC (`telnyx-signature`): `{timestamp}.{raw body}` (period).
+ */
+export function telnyxWebhookSignedMessage(
+  timestampUtf8: string,
+  rawBody: Buffer,
+  scheme: 'ed25519' | 'hmac-sha256' | undefined,
+  hmacSecret: string | undefined,
+): Buffer {
+  const shouldUseHmac = scheme === 'hmac-sha256' || (!!hmacSecret && scheme !== 'ed25519');
+  const separator = shouldUseHmac ? '.' : '|';
+  return Buffer.concat([
+    Buffer.from(timestampUtf8, 'utf8'),
+    Buffer.from(separator, 'utf8'),
+    rawBody,
+  ]);
+}
+
 export interface TelnyxSignatureInputWithSecret extends TelnyxSignatureInput {
   /** Optional per-tenant secret. If provided, used instead of global TELNYX_WEBHOOK_SECRET. */
   tenantSecret?: string | null;
@@ -167,15 +187,10 @@ export function verifyTelnyxSignature({
     return { ok: false, skipped: false, reason: 'timestamp_out_of_tolerance' };
   }
 
-  const message = Buffer.concat([
-    Buffer.from(trimmedTimestamp, 'utf8'),
-    Buffer.from('.', 'utf8'),
-    rawBody,
-  ]);
-
   // Use tenant secret if provided, otherwise fall back to global
   const secret = tenantSecret?.trim() || process.env.TELNYX_WEBHOOK_SECRET?.trim();
   const shouldUseHmac = scheme === 'hmac-sha256' || (!!secret && scheme !== 'ed25519');
+  const message = telnyxWebhookSignedMessage(trimmedTimestamp, rawBody, scheme, secret);
 
   try {
     if (shouldUseHmac) {

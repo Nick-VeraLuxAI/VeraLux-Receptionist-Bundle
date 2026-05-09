@@ -21,6 +21,15 @@ export interface TransferProfile {
 /** Per-tenant context: pricing, products, hours, policies, etc. Keys are section names; values are text. */
 export type AssistantContext = Record<string, string>;
 
+/** Tenant prompt fields forwarded from the voice runtime (mirrors control-plane prompts). */
+export interface TenantPromptsPayload {
+  systemPreamble?: string;
+  schemaHint?: string;
+  policyPrompt?: string;
+  voicePrompt?: string;
+  greetingText?: string;
+}
+
 export interface BrainReplyRequest {
   tenantId?: string;
   callControlId: string;
@@ -28,6 +37,7 @@ export interface BrainReplyRequest {
   history: ConversationTurn[];
   transferProfiles?: TransferProfile[];
   assistantContext?: AssistantContext;
+  prompts?: TenantPromptsPayload;
 }
 
 export interface BrainTransferAction {

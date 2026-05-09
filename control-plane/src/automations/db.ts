@@ -300,10 +300,20 @@ export async function listLeads(
   }
 }
 
-export async function deleteLead(id: string): Promise<boolean> {
+/**
+ * Delete a lead, optionally scoped to a tenant. When `tenantId` is provided the
+ * delete only succeeds if the lead also belongs to that tenant. This prevents
+ * cross-tenant lead deletion via guessed/leaked UUIDs.
+ */
+export async function deleteLead(id: string, tenantId?: string): Promise<boolean> {
   const client = await pool.connect();
   try {
-    const res = await client.query("DELETE FROM leads WHERE id = $1", [id]);
+    const res = tenantId
+      ? await client.query(
+          "DELETE FROM leads WHERE id = $1 AND tenant_id = $2",
+          [id, tenantId]
+        )
+      : await client.query("DELETE FROM leads WHERE id = $1", [id]);
     return (res.rowCount ?? 0) > 0;
   } finally {
     client.release();

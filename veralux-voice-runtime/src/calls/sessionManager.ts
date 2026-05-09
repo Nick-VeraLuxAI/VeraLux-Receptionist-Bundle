@@ -18,6 +18,7 @@ import { clearTelnyxCodecSession } from '../audio/codecDecode';
 import { releaseFarEndBuffer } from '../audio/farEndReference';
 import { releaseAecProcessor } from '../audio/aecProcessor';
 import { recordTenantUsageCallEnd } from '../limits/tenantUsage';
+import { endForensicsSession, ensureForensicsSession, getForensicsSession } from '../observability/audioForensics';
 
 const DEFAULT_IDLE_TTL_MINUTES = 10;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -108,6 +109,8 @@ export class SessionManager {
     });
 
     this.sessions.set(config.callControlId, session);
+
+    void ensureForensicsSession(config.callControlId);
 
     if (this.pendingMediaWsConnectedAt.has(config.callControlId)) {
       session.onMediaWsConnected();
@@ -407,6 +410,7 @@ export class SessionManager {
 
     const session = this.sessions.get(callControlId);
     if (!session) {
+      void endForensicsSession(callControlId, reason ?? 'teardown_no_session');
       this.inactiveCalls.set(callControlId, Date.now());
       this.closeMediaConnections(callControlId, reason ?? 'teardown');
       this.clearQueue(callControlId);
@@ -486,6 +490,8 @@ export class SessionManager {
       transcriptsTotal: metrics.transcriptsTotal,
       transcriptsEmpty: metrics.transcriptsEmpty,
     });
+
+    void endForensicsSession(session.callControlId, reason ?? 'teardown');
 
     log.info(
       {
@@ -637,6 +643,31 @@ export class SessionManager {
         },
         'invalid pcm16 rate',
       );
+    }
+
+    const fos = getForensicsSession(callControlId);
+    if (fos && frame.sampleRateHz > 0 && frame.pcm16.length > 0) {
+      const wall = Date.now();
+      const frameMs = (frame.pcm16.length / frame.sampleRateHz) * 1000;
+      const deltaWall = fos.sessionLastWallMs > 0 ? wall - fos.sessionLastWallMs : null;
+      fos.sessionFrameIndex += 1;
+      fos.sessionAudioClockMs += frameMs;
+      fos.sessionLastWallMs = wall;
+      void fos.appendTimeline({
+        event: 'session_frame_received',
+        wallClockMs: wall,
+        audioClockMs: fos.sessionAudioClockMs,
+        deltaFromPreviousFrameMs: deltaWall,
+        sampleRateHz: frame.sampleRateHz,
+        sampleCount: frame.pcm16.length,
+        frameIndex: fos.sessionFrameIndex,
+        seq: frame.seq ?? null,
+        timestamp: frame.timestamp ?? null,
+        state: session.getState(),
+        playbackActive: session.isPlaybackActive(),
+        listening: session.isListening(),
+        callControlId,
+      });
     }
 
     session.onPcm16Frame(frame);

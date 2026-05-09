@@ -46,6 +46,10 @@ export interface TenantContext {
   forwardingProfiles: ForwardingProfile[];
   /** Pricing information – used by LLM */
   pricing: PricingInfo;
+  /** Weekly business hours + timezone (Sprint 1); persisted in tenant_configs.business_hours */
+  businessHours: unknown;
+  /** Operator handoff flags (e.g. test call completed); persisted in tenant_configs.operator_state */
+  operatorState: Record<string, unknown>;
 }
 
 
@@ -66,6 +70,8 @@ function toConfigRow(tenantId: string, ctx: TenantContext): ConfigRow {
     tts: serialized.tts,
     forwarding_profiles: ctx.forwardingProfiles,
     pricing: ctx.pricing,
+    business_hours: ctx.businessHours ?? {},
+    operator_state: ctx.operatorState ?? {},
   };
 }
 
@@ -147,6 +153,10 @@ export class TenantRegistry {
         : [];
       const pricing = configRow ? parsePricingInfo(configRow.pricing) : { ...DEFAULT_PRICING };
 
+      const businessHours = (configRow as ConfigRow | undefined)?.business_hours ?? {};
+      const operatorState =
+        ((configRow as ConfigRow | undefined)?.operator_state as Record<string, unknown>) ?? {};
+
       // hydrate OpenAI key from secret store
       const secretKey = await secretStore.getSecret(tenantRow.id, "openai_api_key");
       if (secretKey) {
@@ -201,6 +211,8 @@ export class TenantRegistry {
         analytics,
         forwardingProfiles,
         pricing,
+        businessHours,
+        operatorState,
       };
 
 
@@ -272,6 +284,8 @@ export class TenantRegistry {
       analytics,
       forwardingProfiles: [],
       pricing: { ...DEFAULT_PRICING },
+      businessHours: {},
+      operatorState: {},
     };
 
     this.tenants.set(id, ctx);
@@ -372,6 +386,20 @@ export class TenantRegistry {
     const ctx = this.tenants.get(tenantId);
     if (!ctx) return undefined;
     ctx.pricing = pricing;
+    this.persistConfig(tenantId);
+    return ctx;
+  }
+
+  setBusinessHours(tenantId: string, hours: unknown): TenantContext {
+    const ctx = this.getOrCreate(tenantId);
+    ctx.businessHours = hours;
+    this.persistConfig(tenantId);
+    return ctx;
+  }
+
+  mergeOperatorState(tenantId: string, patch: Record<string, unknown>): TenantContext {
+    const ctx = this.getOrCreate(tenantId);
+    ctx.operatorState = { ...ctx.operatorState, ...patch };
     this.persistConfig(tenantId);
     return ctx;
   }

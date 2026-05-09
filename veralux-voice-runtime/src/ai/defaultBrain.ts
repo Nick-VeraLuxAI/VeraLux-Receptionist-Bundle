@@ -45,13 +45,10 @@ export function defaultBrainReply(args: {
       ) {
         if (hours) return hours;
       }
-      // Generic "info" or "tell me" — return first available section
-      if (
-        text.includes('info') ||
-        text.includes('tell me') ||
-        text.includes('explain') ||
-        text.length < 20
-      ) {
+      // Generic "info" / "tell me" / "explain" — return first available section.
+      // Do not use `text.length < 20` here: short greetings like "hi" would otherwise
+      // read verbatim `hours` (often a long tenant-config string) to every caller.
+      if (text.includes('info') || text.includes('tell me') || text.includes('explain')) {
         if (pricing) return pricing;
         if (products) return products;
         if (hours) return hours;
