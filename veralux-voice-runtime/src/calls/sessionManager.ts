@@ -12,13 +12,21 @@ import {
 import { CallSession } from './callSession';
 import { CallSessionConfig, CallSessionId } from './types';
 import type { TransportMode, TransportSession } from '../transport/types';
+import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import type { Pcm16Frame } from '../media/types';
 import { reportCallEnd } from '../controlPlane';
 import { clearTelnyxCodecSession } from '../audio/codecDecode';
 import { releaseFarEndBuffer } from '../audio/farEndReference';
 import { releaseAecProcessor } from '../audio/aecProcessor';
 import { recordTenantUsageCallEnd } from '../limits/tenantUsage';
-import { endForensicsSession, ensureForensicsSession, getForensicsSession } from '../observability/audioForensics';
+import {
+  endForensicsSession,
+  ensureForensicsSession,
+  getForensicsSession,
+} from '../observability/audioForensics';
+import { buildCallQualitySummaryPayload } from '../observability/callQualitySummary';
+import { mergeCallQualityDefaults } from '../observability/callQualityPolicy';
+import { reportCallQualitySummary } from '../controlPlane';
 
 const DEFAULT_IDLE_TTL_MINUTES = 10;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -110,7 +118,7 @@ export class SessionManager {
 
     this.sessions.set(config.callControlId, session);
 
-    void ensureForensicsSession(config.callControlId);
+    void ensureForensicsSession(config.callControlId, config.tenantConfig ?? null);
 
     if (this.pendingMediaWsConnectedAt.has(config.callControlId)) {
       session.onMediaWsConnected();
@@ -187,6 +195,10 @@ export class SessionManager {
 
   public endCapacityHold(callControlId: CallSessionId): void {
     this.capacityHoldCallIds.delete(callControlId);
+  }
+
+  public getTenantRuntimeConfigForCall(callControlId: CallSessionId): RuntimeTenantConfig | undefined {
+    return this.sessions.get(callControlId)?.getTenantRuntimeConfig();
   }
 
   public isInCapacityHold(callControlId: CallSessionId): boolean {
@@ -491,6 +503,27 @@ export class SessionManager {
       transcriptsEmpty: metrics.transcriptsEmpty,
     });
 
+    const transcript = session.getCallTranscript();
+    const fos = getForensicsSession(session.callControlId);
+    const tenantCfg = session.getTenantRuntimeConfig();
+    const cq = mergeCallQualityDefaults(tenantCfg?.callQuality);
+    if (session.tenantId && cq.callQualityAnalyticsEnabled) {
+      const payload = buildCallQualitySummaryPayload({
+        tenantId: session.tenantId,
+        tenantConfig: tenantCfg,
+        transcript,
+        metrics,
+        qualitySignals: session.snapshotQualitySignals(),
+        forensics: fos,
+        teardownReason: reason,
+      });
+      void reportCallQualitySummary({
+        tenantId: session.tenantId,
+        callControlId: session.callControlId,
+        summary: payload,
+      });
+    }
+
     void endForensicsSession(session.callControlId, reason ?? 'teardown');
 
     log.info(
@@ -515,7 +548,6 @@ export class SessionManager {
     );
 
     // Call summarizer: full transcript (caller + assistant text only, no audio)
-    const transcript = session.getCallTranscript();
     log.info(
       {
         event: 'call_transcript',

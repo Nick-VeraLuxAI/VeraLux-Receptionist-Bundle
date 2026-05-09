@@ -82,6 +82,22 @@ test("runtimeContract rejects invalid E.164 DID", () => {
   assert.throws(() => parseRuntimeTenantConfig(cfg));
 });
 
+test("runtimeContract accepts optional callQuality block", () => {
+  const parsed = parseRuntimeTenantConfig(
+    baseConfig({
+      callQuality: {
+        callQualityAnalyticsEnabled: true,
+        transcriptStorageEnabled: true,
+        transcriptRetentionDays: 14,
+        rawAudioDiagnosticsMode: "off",
+        qualitySummaryVisibleToClient: true,
+        rawArtifactsVisibleToClient: false,
+      },
+    }),
+  );
+  assert.equal(parsed.callQuality.transcriptRetentionDays, 14);
+});
+
 test("normalizeE164 accepts valid E.164", () => {
   assert.equal(normalizeE164("+15551234567"), "+15551234567");
   assert.equal(normalizeE164("  +44 20 7946 0958  "), "+442079460958");

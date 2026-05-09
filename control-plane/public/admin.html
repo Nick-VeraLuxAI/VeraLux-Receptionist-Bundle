@@ -78,6 +78,7 @@
           <button type="button" class="tab" data-tab="forwarding">Forwarding &amp; Products</button>
           <button type="button" class="tab" data-tab="analytics">Analytics</button>
           <button type="button" class="tab" data-tab="calls">Calls</button>
+          <button type="button" class="tab" data-tab="call-quality">Call Quality</button>
           <button type="button" class="tab" data-tab="audit">Audit Logs</button>
           <button type="button" class="tab" data-tab="billing">Billing</button>
           <button type="button" class="tab" data-tab="workflows">Workflows</button>
@@ -939,6 +940,58 @@
             <button type="button" class="secondary" id="refresh-calls">Refresh</button>
           </div>
           <div id="calls" class="call-grid" style="margin-top: 10px"></div>
+        </section>
+      </div>
+
+      <div class="tab-content" data-tab="call-quality">
+        <section class="panel">
+          <div class="flex-between">
+            <h2>Call Quality Analytics &amp; Raw Audio Diagnostics</h2>
+            <button type="button" class="secondary" id="refresh-call-quality">Refresh</button>
+          </div>
+          <p class="small muted" style="margin-top: 8px">
+            <strong>Call Quality Analytics</strong> stores derived metrics per call. <strong>Raw Audio Diagnostics</strong> may capture caller voice (WAVs and timelines) — super-admin only, with reason and expiration.
+          </p>
+          <div id="cq-raw-warning" class="card" style="margin-top: 12px; border-color: #a63; display: none">
+            <strong>Warning:</strong> Raw audio diagnostics may capture caller voice and sensitive information. Use only for troubleshooting and disable after testing.
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div class="list-title">Tenant settings</div>
+            <label class="small"><input type="checkbox" id="cq-analytics-enabled" /> Call Quality Analytics enabled</label>
+            <br />
+            <label class="small"><input type="checkbox" id="cq-transcript-storage" /> Store transcripts</label>
+            <br />
+            <label class="small">Transcript retention (days)</label>
+            <input type="number" id="cq-retention-days" min="1" max="365" style="width: 100px; margin-left: 8px" />
+            <br />
+            <label class="small"><input type="checkbox" id="cq-summary-client" /> Show quality summary in client portal</label>
+            <br />
+            <button type="button" id="cq-save-general">Save settings</button>
+            <div id="cq-save-status" class="small muted" style="margin-top: 8px"></div>
+          </div>
+          <div class="card" style="margin-top: 12px">
+            <div class="list-title">Raw Audio Diagnostics (super-admin)</div>
+            <label class="small">Mode</label>
+            <select id="cq-diag-mode">
+              <option value="off">Off</option>
+              <option value="next_call_only">Enable for next call</option>
+              <option value="failed_calls_only">Failed calls only (armed)</option>
+              <option value="all_calls_temporary">Temporary all calls</option>
+            </select>
+            <div style="margin-top: 8px">
+              <label class="small">Reason (required)</label><br />
+              <textarea id="cq-diag-reason" rows="2" style="width: 100%; max-width: 520px"></textarea>
+            </div>
+            <div style="margin-top: 8px">
+              <label class="small">Expiration (ISO-8601, required)</label><br />
+              <input type="text" id="cq-diag-expires" placeholder="2026-05-10T12:00:00.000Z" style="width: 100%; max-width: 420px" />
+            </div>
+            <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap">
+              <button type="button" class="secondary" id="cq-diag-enable-next">POST enable (next / failed / all)</button>
+              <button type="button" class="secondary" id="cq-diag-disable">POST disable</button>
+            </div>
+            <div id="cq-diag-status" class="small muted" style="margin-top: 8px"></div>
+          </div>
         </section>
       </div>
 
@@ -2560,9 +2613,43 @@
           const res = await fetch("/api/admin/tenants", {
             headers: { "X-Admin-Key": token }
           });
-          return res.ok;
+          if (res.ok) return { ok: true };
+          let payload = {};
+          try {
+            payload = await res.json();
+          } catch {
+            /* ignore non-JSON */
+          }
+          if (res.status === 403 && payload.error === "origin_not_allowed") {
+            return {
+              ok: false,
+              message:
+                "Admin API blocked this browser origin (CORS). Use a URL allowed in ADMIN_ALLOWED_ORIGINS (for example http://localhost:4000), or add your exact origin and restart the control plane.",
+            };
+          }
+          if (res.status === 401 && payload.error === "admin_key_disabled_in_prod") {
+            return {
+              ok: false,
+              message:
+                "Admin API keys are disabled in this environment (JWT-only). Use an admin Bearer JWT or enable ALLOW_ADMIN_API_KEY_IN_PROD with care.",
+            };
+          }
+          if (res.status === 401 && payload.error === "admin_auth_invalid") {
+            return {
+              ok: false,
+              message:
+                "That credential is not valid on this server. Use the ADMIN_API_KEY (or JWT) configured for this exact deployment (e.g. Render env / host secrets)—not a key from another machine’s .env or an old DB-created key after a database reset.",
+            };
+          }
+          if (res.status === 401 && payload.error === "admin_auth_required") {
+            return { ok: false, message: "No admin credential reached the server. Retry or disable extensions that strip headers." };
+          }
+          if (res.status === 401 && typeof payload.error === "string") {
+            return { ok: false, message: `Auth failed (${payload.error}).` };
+          }
+          return { ok: false, message: "Invalid admin token. Please try again." };
         } catch {
-          return false;
+          return { ok: false, message: "Network error while validating the token." };
         }
       }
 
@@ -2574,10 +2661,10 @@
         }
         $("admin-pass-error").textContent = "Validating...";
         $("admin-pass-confirm").disabled = true;
-        const valid = await validateAdminToken(pass);
+        const result = await validateAdminToken(pass);
         $("admin-pass-confirm").disabled = false;
-        if (!valid) {
-          $("admin-pass-error").textContent = "Invalid admin token. Please try again.";
+        if (!result.ok) {
+          $("admin-pass-error").textContent = result.message || "Invalid admin token. Please try again.";
           return;
         }
         adminAuthToken = pass;
@@ -3091,6 +3178,103 @@
         } catch (err) {
           $("calls").textContent = "Failed to load calls: " + err.message;
           setStatus("Calls load failed", "err");
+        }
+      }
+
+      async function loadCallQualityPanel() {
+        const tid = currentTenantId;
+        if (!tid) return;
+        try {
+          const data = await fetchJSON(`/api/admin/tenants/${encodeURIComponent(tid)}/call-quality-settings`);
+          const s = data.settings || {};
+          const elWarn = $("cq-raw-warning");
+          if (elWarn) elWarn.style.display = s.rawAudioDiagnosticsMode && s.rawAudioDiagnosticsMode !== "off" ? "block" : "none";
+          const ae = $("cq-analytics-enabled");
+          if (ae) ae.checked = !!s.callQualityAnalyticsEnabled;
+          const ts = $("cq-transcript-storage");
+          if (ts) ts.checked = !!s.transcriptStorageEnabled;
+          const rd = $("cq-retention-days");
+          if (rd) rd.value = String(s.transcriptRetentionDays ?? 30);
+          const sc = $("cq-summary-client");
+          if (sc) sc.checked = !!s.qualitySummaryVisibleToClient;
+          const dm = $("cq-diag-mode");
+          if (dm && s.rawAudioDiagnosticsMode) dm.value = s.rawAudioDiagnosticsMode;
+          const st = $("cq-save-status");
+          if (st) st.textContent = "";
+          const dst = $("cq-diag-status");
+          if (dst) dst.textContent = s.rawAudioDiagnosticsNextCallPending ? "Next-call arm is pending." : "";
+        } catch (err) {
+          const st = $("cq-save-status");
+          if (st) st.textContent = "Load failed: " + err.message;
+        }
+      }
+
+      async function saveCallQualityGeneral() {
+        const tid = currentTenantId;
+        if (!tid) return;
+        const body = {
+          callQualityAnalyticsEnabled: !!$("cq-analytics-enabled")?.checked,
+          transcriptStorageEnabled: !!$("cq-transcript-storage")?.checked,
+          transcriptRetentionDays: Number($("cq-retention-days")?.value || 30),
+          qualitySummaryVisibleToClient: !!$("cq-summary-client")?.checked,
+        };
+        try {
+          await fetchJSON(`/api/admin/tenants/${encodeURIComponent(tid)}/call-quality-settings`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const st = $("cq-save-status");
+          if (st) st.textContent = "Saved.";
+          setStatus("Call quality settings saved", "ok");
+          await loadCallQualityPanel();
+        } catch (err) {
+          const st = $("cq-save-status");
+          if (st) st.textContent = "Save failed: " + err.message;
+          setStatus("Call quality save failed", "err");
+        }
+      }
+
+      async function postRawDiagnosticsEnable() {
+        const tid = currentTenantId;
+        if (!tid) return;
+        const reason = ($("cq-diag-reason")?.value || "").trim();
+        const expiresAt = ($("cq-diag-expires")?.value || "").trim();
+        const mode = ($("cq-diag-mode")?.value || "next_call_only").trim();
+        if (!reason || !expiresAt) {
+          $("cq-diag-status").textContent = "Reason and expiration are required.";
+          return;
+        }
+        try {
+          await fetchJSON(`/api/admin/tenants/${encodeURIComponent(tid)}/raw-audio-diagnostics/enable-next-call`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason, expiresAt, mode }),
+          });
+          $("cq-diag-status").textContent = "Enabled. Publish to voice runtime if needed.";
+          setStatus("Raw audio diagnostics enabled", "ok");
+          await loadCallQualityPanel();
+        } catch (err) {
+          $("cq-diag-status").textContent = err.message || String(err);
+          setStatus("Raw diagnostics enable failed", "err");
+        }
+      }
+
+      async function postRawDiagnosticsDisable() {
+        const tid = currentTenantId;
+        if (!tid) return;
+        const reason = ($("cq-diag-reason")?.value || "").trim() || "operator_disable";
+        try {
+          await fetchJSON(`/api/admin/tenants/${encodeURIComponent(tid)}/raw-audio-diagnostics/disable`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ reason }),
+          });
+          $("cq-diag-status").textContent = "Disabled.";
+          setStatus("Raw audio diagnostics disabled", "ok");
+          await loadCallQualityPanel();
+        } catch (err) {
+          $("cq-diag-status").textContent = err.message || String(err);
         }
       }
 
@@ -4575,6 +4759,7 @@
         loadHealth();
         loadAnalytics();
         loadCalls();
+        loadCallQualityPanel();
         loadAudit();
         loadAdminKeys();
         loadCloudflareStatus();
@@ -5291,6 +5476,7 @@
                 bindBillingWizardOnce();
                 bindBillingLiveSyncOnce();
               }
+              if (target === "call-quality") void loadCallQualityPanel();
               if (target === "overview") void updateOverviewChecklist();
             }
           });
@@ -5484,6 +5670,14 @@
             loadCalls();
           });
         }
+
+        $("refresh-call-quality")?.addEventListener("click", () => {
+          setStatus("Refreshing call quality…", "ok");
+          void loadCallQualityPanel();
+        });
+        $("cq-save-general")?.addEventListener("click", () => void saveCallQualityGeneral());
+        $("cq-diag-enable-next")?.addEventListener("click", () => void postRawDiagnosticsEnable());
+        $("cq-diag-disable")?.addEventListener("click", () => void postRawDiagnosticsDisable());
 
         const refreshAuditBtn = $("refresh-audit");
         if (refreshAuditBtn) {

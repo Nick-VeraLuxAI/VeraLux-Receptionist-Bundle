@@ -649,13 +649,14 @@ export async function insertAuditLog(params: {
   path?: string;
   tenantId?: string;
   status?: string;
+  details?: Record<string, unknown> | null;
 }): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(
       `
-      insert into admin_audit_logs (admin_key_id, action, path, tenant_id, status)
-      values ($1, $2, $3, $4, $5)
+      insert into admin_audit_logs (admin_key_id, action, path, tenant_id, status, details)
+      values ($1, $2, $3, $4, $5, $6::jsonb)
     `,
       [
         params.adminKeyId || null,
@@ -663,6 +664,7 @@ export async function insertAuditLog(params: {
         params.path || null,
         params.tenantId || null,
         params.status || null,
+        params.details ? JSON.stringify(params.details) : null,
       ]
     );
   } finally {
@@ -678,19 +680,20 @@ export async function listAuditLogs(limit = 50): Promise<
     path: string | null;
     tenant_id: string | null;
     status: string | null;
+    details: unknown | null;
     created_at: string;
   }[]
 > {
   const client = await pool.connect();
   try {
     const res = await client.query(
-      `select id, admin_key_id, action, path, tenant_id, status, created_at
+      `select id, admin_key_id, action, path, tenant_id, status, details, created_at
        from admin_audit_logs
        order by created_at desc
        limit $1`,
       [limit]
     );
-    return res.rows;
+    return res.rows as any[];
   } finally {
     client.release();
   }
@@ -1322,6 +1325,283 @@ export async function getTenantBillingSummary(tenantId: string, month: string): 
       overageMinutes,
       estimatedOverageChargeCents,
       callsCount,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Call Quality Analytics (tenant-scoped)
+// ---------------------------------------------------------------------------
+
+export type RawAudioDiagnosticsMode =
+  | "off"
+  | "next_call_only"
+  | "failed_calls_only"
+  | "all_calls_temporary";
+
+export interface TenantCallQualitySettingsRow {
+  tenant_id: string;
+  call_quality_analytics_enabled: boolean;
+  transcript_storage_enabled: boolean;
+  transcript_retention_days: number;
+  raw_audio_diagnostics_mode: RawAudioDiagnosticsMode;
+  raw_audio_diagnostics_expires_at: string | null;
+  raw_audio_diagnostics_enabled_by: string | null;
+  raw_audio_diagnostics_reason: string | null;
+  raw_audio_diagnostics_next_call_pending: boolean;
+  quality_summary_visible_to_client: boolean;
+  raw_artifacts_visible_to_client: boolean;
+  updated_at: string;
+}
+
+function mapCallQualityRow(row: any): TenantCallQualitySettingsRow {
+  return {
+    tenant_id: row.tenant_id,
+    call_quality_analytics_enabled: !!row.call_quality_analytics_enabled,
+    transcript_storage_enabled: !!row.transcript_storage_enabled,
+    transcript_retention_days: Number(row.transcript_retention_days ?? 30),
+    raw_audio_diagnostics_mode: row.raw_audio_diagnostics_mode as RawAudioDiagnosticsMode,
+    raw_audio_diagnostics_expires_at: row.raw_audio_diagnostics_expires_at
+      ? new Date(row.raw_audio_diagnostics_expires_at).toISOString()
+      : null,
+    raw_audio_diagnostics_enabled_by: row.raw_audio_diagnostics_enabled_by ?? null,
+    raw_audio_diagnostics_reason: row.raw_audio_diagnostics_reason ?? null,
+    raw_audio_diagnostics_next_call_pending: !!row.raw_audio_diagnostics_next_call_pending,
+    quality_summary_visible_to_client: !!row.quality_summary_visible_to_client,
+    raw_artifacts_visible_to_client: !!row.raw_artifacts_visible_to_client,
+    updated_at: new Date(row.updated_at).toISOString(),
+  };
+}
+
+/** Ensures a row exists and returns current settings (safe defaults). */
+export async function getTenantCallQualitySettings(
+  tenantId: string
+): Promise<TenantCallQualitySettingsRow> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `insert into tenant_call_quality_settings (tenant_id) values ($1)
+       on conflict (tenant_id) do nothing`,
+      [tenantId]
+    );
+    const res = await client.query(
+      `select * from tenant_call_quality_settings where tenant_id = $1 limit 1`,
+      [tenantId]
+    );
+    const row = res.rows[0];
+    if (!row) {
+      throw new Error("call_quality_settings_missing");
+    }
+    return mapCallQualityRow(row);
+  } finally {
+    client.release();
+  }
+}
+
+export interface TenantCallQualityPatch {
+  callQualityAnalyticsEnabled?: boolean;
+  transcriptStorageEnabled?: boolean;
+  transcriptRetentionDays?: number;
+  rawAudioDiagnosticsMode?: RawAudioDiagnosticsMode;
+  rawAudioDiagnosticsExpiresAt?: string | null;
+  rawAudioDiagnosticsEnabledBy?: string | null;
+  rawAudioDiagnosticsReason?: string | null;
+  rawAudioDiagnosticsNextCallPending?: boolean;
+  qualitySummaryVisibleToClient?: boolean;
+  rawArtifactsVisibleToClient?: boolean;
+}
+
+export async function updateTenantCallQualitySettings(
+  tenantId: string,
+  patch: TenantCallQualityPatch
+): Promise<TenantCallQualitySettingsRow> {
+  const cur = await getTenantCallQualitySettings(tenantId);
+  const next: TenantCallQualitySettingsRow = {
+    ...cur,
+    ...(patch.callQualityAnalyticsEnabled !== undefined
+      ? { call_quality_analytics_enabled: patch.callQualityAnalyticsEnabled }
+      : {}),
+    ...(patch.transcriptStorageEnabled !== undefined
+      ? { transcript_storage_enabled: patch.transcriptStorageEnabled }
+      : {}),
+    ...(patch.transcriptRetentionDays !== undefined
+      ? { transcript_retention_days: patch.transcriptRetentionDays }
+      : {}),
+    ...(patch.rawAudioDiagnosticsMode !== undefined
+      ? { raw_audio_diagnostics_mode: patch.rawAudioDiagnosticsMode }
+      : {}),
+    ...(patch.rawAudioDiagnosticsExpiresAt !== undefined
+      ? {
+          raw_audio_diagnostics_expires_at: patch.rawAudioDiagnosticsExpiresAt,
+        }
+      : {}),
+    ...(patch.rawAudioDiagnosticsEnabledBy !== undefined
+      ? { raw_audio_diagnostics_enabled_by: patch.rawAudioDiagnosticsEnabledBy }
+      : {}),
+    ...(patch.rawAudioDiagnosticsReason !== undefined
+      ? { raw_audio_diagnostics_reason: patch.rawAudioDiagnosticsReason }
+      : {}),
+    ...(patch.rawAudioDiagnosticsNextCallPending !== undefined
+      ? {
+          raw_audio_diagnostics_next_call_pending: patch.rawAudioDiagnosticsNextCallPending,
+        }
+      : {}),
+    ...(patch.qualitySummaryVisibleToClient !== undefined
+      ? {
+          quality_summary_visible_to_client: patch.qualitySummaryVisibleToClient,
+        }
+      : {}),
+    ...(patch.rawArtifactsVisibleToClient !== undefined
+      ? {
+          raw_artifacts_visible_to_client: patch.rawArtifactsVisibleToClient,
+        }
+      : {}),
+  };
+
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `
+      update tenant_call_quality_settings set
+        call_quality_analytics_enabled = $2,
+        transcript_storage_enabled = $3,
+        transcript_retention_days = $4,
+        raw_audio_diagnostics_mode = $5,
+        raw_audio_diagnostics_expires_at = $6,
+        raw_audio_diagnostics_enabled_by = $7,
+        raw_audio_diagnostics_reason = $8,
+        raw_audio_diagnostics_next_call_pending = $9,
+        quality_summary_visible_to_client = $10,
+        raw_artifacts_visible_to_client = $11,
+        updated_at = now()
+      where tenant_id = $1
+    `,
+      [
+        tenantId,
+        next.call_quality_analytics_enabled,
+        next.transcript_storage_enabled,
+        next.transcript_retention_days,
+        next.raw_audio_diagnostics_mode,
+        next.raw_audio_diagnostics_expires_at,
+        next.raw_audio_diagnostics_enabled_by,
+        next.raw_audio_diagnostics_reason,
+        next.raw_audio_diagnostics_next_call_pending,
+        next.quality_summary_visible_to_client,
+        next.raw_artifacts_visible_to_client,
+      ]
+    );
+    return next;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * After the voice runtime starts a call that consumed "next call only" diagnostics,
+ * clear the one-shot latch and turn mode off.
+ */
+export async function consumeTenantNextCallDiagnostics(
+  tenantId: string
+): Promise<TenantCallQualitySettingsRow> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `
+      update tenant_call_quality_settings
+      set
+        raw_audio_diagnostics_next_call_pending = false,
+        raw_audio_diagnostics_mode = case
+          when raw_audio_diagnostics_mode in ('next_call_only', 'failed_calls_only') then 'off'
+          else raw_audio_diagnostics_mode
+        end,
+        updated_at = now()
+      where tenant_id = $1
+        and raw_audio_diagnostics_next_call_pending = true
+        and raw_audio_diagnostics_mode in ('next_call_only', 'failed_calls_only')
+    `,
+      [tenantId]
+    );
+    return getTenantCallQualitySettings(tenantId);
+  } finally {
+    client.release();
+  }
+}
+
+/** Auto-disable expired temporary all-calls diagnostics. */
+export async function expireStaleRawAudioDiagnostics(): Promise<{ tenantsUpdated: string[] }> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{ tenant_id: string }>(
+      `
+      update tenant_call_quality_settings
+      set
+        raw_audio_diagnostics_mode = 'off',
+        raw_audio_diagnostics_next_call_pending = false,
+        raw_audio_diagnostics_expires_at = null,
+        updated_at = now()
+      where raw_audio_diagnostics_mode = 'all_calls_temporary'
+        and raw_audio_diagnostics_expires_at is not null
+        and raw_audio_diagnostics_expires_at < now()
+      returning tenant_id
+    `
+    );
+    return { tenantsUpdated: res.rows.map((r) => r.tenant_id) };
+  } finally {
+    client.release();
+  }
+}
+
+function assertSafeCallControlId(id: string): string | null {
+  const t = id.trim();
+  if (!t || t.length > 256) return null;
+  if (!/^[\w.-]+$/.test(t)) return null;
+  return t;
+}
+
+export async function upsertCallQualitySummary(params: {
+  tenantId: string;
+  callControlId: string;
+  summary: unknown;
+}): Promise<void> {
+  const cc = assertSafeCallControlId(params.callControlId);
+  if (!cc) return;
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `
+      insert into call_quality_summaries (tenant_id, call_control_id, summary, updated_at)
+      values ($1, $2, $3::jsonb, now())
+      on conflict (tenant_id, call_control_id) do update
+      set summary = excluded.summary,
+          updated_at = now()
+    `,
+      [params.tenantId, cc, JSON.stringify(params.summary)]
+    );
+  } finally {
+    client.release();
+  }
+}
+
+export async function getCallQualitySummaryForCall(
+  tenantId: string,
+  callControlId: string
+): Promise<{ summary: unknown; updatedAt: string } | null> {
+  const cc = assertSafeCallControlId(callControlId);
+  if (!cc) return null;
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `select summary, updated_at from call_quality_summaries
+       where tenant_id = $1 and call_control_id = $2 limit 1`,
+      [tenantId, cc]
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    return {
+      summary: row.summary,
+      updatedAt: new Date(row.updated_at).toISOString(),
     };
   } finally {
     client.release();

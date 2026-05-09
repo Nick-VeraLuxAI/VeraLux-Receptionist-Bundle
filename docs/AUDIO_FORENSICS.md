@@ -2,6 +2,14 @@
 
 Opt-in per-call capture for debugging **where** inbound audio, STT, LLM, TTS, or Telnyx playback diverge. **Default is off.** Do not enable in production without an explicit operational reason and `ALLOW_PROD_DEBUG_CAPTURE=true` (the runtime enforces this guard).
 
+## Product vs engineering forensics
+
+- **Call Quality Analytics** (control plane + Postgres): stores **derived** per-call metrics and quality summaries **without** raw WAV capture by default. This is the normal admin workflow.
+- **Raw Audio Diagnostics** (super-admin in control plane): temporary tenant-scoped capture that uses the **same** forensics pipeline as engineering mode, with reason and expiration recorded in `manifest.jsonl`.
+- **`AUDIO_FORENSICS_*` env flags** remain the **emergency / operator override** on the voice runtime host. When `AUDIO_FORENSICS_ENABLED=true`, the runtime logs **operator override active** and captures regardless of tenant Redis policy. This is **not** the normal admin path; prefer Raw Audio Diagnostics from the admin console so policy stays tenant-scoped and audited.
+
+See [CALL_QUALITY_ANALYTICS.md](./CALL_QUALITY_ANALYTICS.md) for the full model (basic metrics vs analytics vs raw diagnostics), retention, and client visibility.
+
 ## Enable
 
 Set in the voice runtime environment (e.g. `veralux-voice-runtime/.env` or your process manager):

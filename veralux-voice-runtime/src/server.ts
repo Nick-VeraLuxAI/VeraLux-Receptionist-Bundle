@@ -735,7 +735,10 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
     sessionManager.registerMediaConnection(callControlId, ws);
     sessionManager.onMediaWsConnected(callControlId);
     void initTelnyxRawPayloadCapture(callControlId);
-    void ensureForensicsSession(callControlId).then((sess) => {
+    void ensureForensicsSession(
+      callControlId,
+      sessionManager.getTenantRuntimeConfigForCall(callControlId) ?? null,
+    ).then((sess) => {
       if (!sess) return;
       void sess.appendTimeline({
         event: 'media_ws_connected',

@@ -5,6 +5,7 @@ import { businessHoursSchema } from "@veralux/shared";
 import {
   normalizeE164,
   parseRuntimeTenantConfig,
+  type RuntimeCallQuality,
   type RuntimeTenantConfig,
 } from "./runtimeContract";
 
@@ -221,6 +222,7 @@ export function buildTenantRuntimeConfig(
   tenant: TenantContext,
   existing: RuntimeTenantConfig | null,
   tenantLimits?: TenantLimits | null,
+  callQuality?: RuntimeCallQuality | null,
 ): RuntimeTenantConfig {
   const numbers = tenant.meta.numbers || [];
   const dids: string[] = [];
@@ -318,6 +320,14 @@ export function buildTenantRuntimeConfig(
       ? { usageLimits: existing.usageLimits }
       : {}),
   };
+
+  const mergedCallQuality: RuntimeCallQuality | undefined =
+    callQuality !== undefined && callQuality !== null
+      ? callQuality
+      : existing?.callQuality;
+  if (mergedCallQuality) {
+    (base as { callQuality?: RuntimeCallQuality }).callQuality = mergedCallQuality;
+  }
 
   if (!base.webhookSecret && !base.webhookSecretRef) {
     const w = (process.env.TELNYX_WEBHOOK_SECRET || "").trim();

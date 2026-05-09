@@ -33,6 +33,8 @@ type CoordinatorOptions = {
   canArmListening: () => boolean;
   isListening: () => boolean;
   onArmListening: (reason: string) => void;
+  /** Optional: per-utterance timing for Call Quality Analytics (no raw audio). */
+  onTimingSummary?: (payload: Record<string, unknown>) => void;
 };
 
 export class CallAudioCoordinator {
@@ -43,6 +45,7 @@ export class CallAudioCoordinator {
   private readonly canArmListening: () => boolean;
   private readonly isListening: () => boolean;
   private readonly onArmListening: (reason: string) => void;
+  private readonly onTimingSummary?: (payload: Record<string, unknown>) => void;
   private readonly ringBuffer: InboundPcm16RingBuffer;
 
   private state: AudioState = 'IDLE';
@@ -86,6 +89,7 @@ export class CallAudioCoordinator {
     this.canArmListening = options.canArmListening;
     this.isListening = options.isListening;
     this.onArmListening = options.onArmListening;
+    this.onTimingSummary = options.onTimingSummary;
 
     const rawPreRoll = env.STT_PRE_ROLL_MS;
     const preRollMs = Math.min(
@@ -422,6 +426,11 @@ export class CallAudioCoordinator {
     if (!this.summaryPending) return;
     this.summaryPending = false;
 
+    const sttRoundtripMs =
+      this.sttReqEndAtMs > 0 && this.sttReqStartAtMs > 0 ? this.sttReqEndAtMs - this.sttReqStartAtMs : null;
+    const ttsRoundtripMs =
+      this.ttsEndAtMs > 0 && this.ttsStartAtMs > 0 ? this.ttsEndAtMs - this.ttsStartAtMs : null;
+
     const summary = {
       event: 'timing_summary',
       call_control_id: this.callControlId,
@@ -439,6 +448,8 @@ export class CallAudioCoordinator {
       stt_req_end_at_ms: this.sttReqEndAtMs || null,
       tts_start_at_ms: this.ttsStartAtMs || null,
       tts_end_at_ms: this.ttsEndAtMs || null,
+      stt_roundtrip_ms: sttRoundtripMs,
+      tts_roundtrip_ms: ttsRoundtripMs,
       delta_playback_to_first_frame_ms:
         this.playbackEndedAtMs && this.firstFrameAtMs ? this.firstFrameAtMs - this.playbackEndedAtMs : null,
       delta_first_frame_to_armed_ms:
@@ -449,6 +460,11 @@ export class CallAudioCoordinator {
     };
 
     log.info(summary, 'timing summary');
+    try {
+      this.onTimingSummary?.(summary);
+    } catch {
+      // never break audio coordinator
+    }
 
     this.utteranceStartAtMs = 0;
     this.sawSpeech = false;

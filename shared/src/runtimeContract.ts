@@ -299,6 +299,38 @@ const usagePlanLimitsSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Call Quality Analytics + Raw Audio Diagnostics (published to voice runtime)
+// ---------------------------------------------------------------------------
+
+export const rawAudioDiagnosticsModeSchema = z.enum([
+  "off",
+  "next_call_only",
+  "failed_calls_only",
+  "all_calls_temporary",
+]);
+
+export type RawAudioDiagnosticsMode = z.infer<typeof rawAudioDiagnosticsModeSchema>;
+
+export const runtimeCallQualitySchema = z.object({
+  /** Tenant/admin Call Quality Analytics (derived metrics, summaries). */
+  callQualityAnalyticsEnabled: z.boolean(),
+  transcriptStorageEnabled: z.boolean(),
+  transcriptRetentionDays: z.number().int().min(1).max(365),
+  rawAudioDiagnosticsMode: rawAudioDiagnosticsModeSchema,
+  /** ISO-8601; required when mode is all_calls_temporary (validated at control plane). */
+  rawAudioDiagnosticsExpiresAt: z.string().datetime().nullable().optional(),
+  rawAudioDiagnosticsEnabledBy: z.string().max(512).nullable().optional(),
+  rawAudioDiagnosticsReason: z.string().max(4000).nullable().optional(),
+  qualitySummaryVisibleToClient: z.boolean(),
+  /** Must remain false unless super-admin explicitly enables (never default true). */
+  rawArtifactsVisibleToClient: z.boolean(),
+  /** One-shot latch: next PSTN/WebRTC session may capture raw diagnostics once. */
+  rawAudioDiagnosticsNextCallPending: z.boolean().optional(),
+});
+
+export type RuntimeCallQuality = z.infer<typeof runtimeCallQualitySchema>;
+
+// ---------------------------------------------------------------------------
 // Main RuntimeTenantConfig schema
 // ---------------------------------------------------------------------------
 
@@ -350,6 +382,8 @@ const runtimeTenantConfigBaseSchema = z
     usageLimits: usagePlanLimitsSchema.optional(),
     /** ISO-8601 timestamp set by control plane when tenant config is published to Redis. */
     lastRuntimePublishedAt: z.string().datetime().optional(),
+    /** Call Quality Analytics + Raw Audio Diagnostics policy (control plane → Redis). */
+    callQuality: runtimeCallQualitySchema.optional(),
   })
   // passthrough allows the runtime to accept fields added by a newer control plane
   // without breaking validation

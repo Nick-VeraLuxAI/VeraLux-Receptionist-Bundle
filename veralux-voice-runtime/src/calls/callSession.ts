@@ -142,6 +142,17 @@ export class CallSession {
   private readonly transcriptBuffer: TranscriptBuffer = [];
   private readonly conversationHistory: ConversationTurn[] = [];
   private readonly metrics: CallSessionMetrics;
+  /** Lightweight counters for Call Quality Analytics (no raw audio). */
+  private readonly qualitySignals = {
+    assistantEchoRejected: 0,
+    transcriptNearDuplicateRejected: 0,
+    bargeInDuringPlayback: 0,
+    deadAirFired: 0,
+    transcriptDeferred: 0,
+    sttLatencyMs: [] as number[],
+    ttsLatencyMs: [] as number[],
+    llmLatencyMs: [] as number[],
+  };
   private readonly stt: ChunkedSTT;
   private readonly audioCoordinator: CallAudioCoordinator;
   private readonly transport: TransportSession;
@@ -449,6 +460,16 @@ export class CallSession {
       onArmListening: (reason) => {
         void reason;
         this.enterListeningState(true);
+      },
+      onTimingSummary: (payload) => {
+        const stt = payload.stt_roundtrip_ms;
+        if (typeof stt === 'number' && Number.isFinite(stt) && stt >= 0 && stt < 120_000) {
+          this.qualitySignals.sttLatencyMs.push(Math.round(stt));
+        }
+        const tts = payload.tts_roundtrip_ms;
+        if (typeof tts === 'number' && Number.isFinite(tts) && tts >= 0 && tts < 300_000) {
+          this.qualitySignals.ttsLatencyMs.push(Math.round(tts));
+        }
       },
     });
     if (this.transport.mode !== 'pstn') {
@@ -853,6 +874,19 @@ export class CallSession {
       transcriptsEmpty: this.metrics.transcriptsEmpty,
       totalUtteranceMs: this.metrics.totalUtteranceMs,
       totalTranscribedChars: this.metrics.totalTranscribedChars,
+    };
+  }
+
+  public getTenantRuntimeConfig(): RuntimeTenantConfig | undefined {
+    return this.fullTenantConfig;
+  }
+
+  public snapshotQualitySignals() {
+    return {
+      ...this.qualitySignals,
+      sttLatencyMs: [...this.qualitySignals.sttLatencyMs],
+      ttsLatencyMs: [...this.qualitySignals.ttsLatencyMs],
+      llmLatencyMs: [...this.qualitySignals.llmLatencyMs],
     };
   }
 
@@ -1629,6 +1663,7 @@ export class CallSession {
       },
       'barge in',
     );
+    this.qualitySignals.bargeInDuringPlayback += 1;
 
     // ✅ mark interrupted, but DO NOT clear active here.
     // onPlaybackEnded() needs active=true to run its cleanup.
@@ -1911,6 +1946,7 @@ export class CallSession {
       playbackActive: this.isPlaybackActive(),
       listening: true,
     });
+    this.qualitySignals.deadAirFired += 1;
 
     this.repromptInFlight = true;
     try {
@@ -2206,6 +2242,7 @@ export class CallSession {
         reason: 'playback_active',
         transcript_preview_snippet: this.forensicsTranscriptSnippet(trimmed).slice(0, 200),
       });
+      this.qualitySignals.transcriptDeferred += 1;
       forensicsTimeline(this.callControlId, {
         event: 'transcript_deferred',
         wallClockMs: Date.now(),
@@ -2260,6 +2297,7 @@ export class CallSession {
           playbackActive: this.isPlaybackActive(),
           listening: this.isListening(),
         });
+        this.qualitySignals.transcriptNearDuplicateRejected += 1;
         return;
       }
     }
@@ -2294,6 +2332,7 @@ export class CallSession {
           listening: this.isListening(),
           reason: 'assistant_echo',
         });
+        this.qualitySignals.assistantEchoRejected += 1;
         return;
       }
     }
@@ -2404,6 +2443,7 @@ export class CallSession {
             replySource = quick.source;
           } else {
             const endLlm = startStageTimer('llm', tenantLabel);
+            const llmT0 = Date.now();
             try {
               const reply = await generateAssistantReply({
                 tenantId: this.tenantId,
@@ -2416,6 +2456,8 @@ export class CallSession {
                 forensics: llmHooks,
               });
               endLlm();
+              const dt = Date.now() - llmT0;
+              if (dt >= 0 && dt < 300_000) this.qualitySignals.llmLatencyMs.push(dt);
               replyResult = reply;
               response = reply.text;
               replySource = reply.source;

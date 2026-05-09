@@ -1,16 +1,20 @@
 /**
  * Per-call audio + transcript forensics (opt-in via AUDIO_FORENSICS_ENABLED).
+ * Product path: tenant Raw Audio Diagnostics (see Call Quality Analytics docs).
  * Default off. Never write secrets; PII redacted unless AUDIO_FORENSICS_ALLOW_PII=true.
  */
 
 import fs from 'fs';
 import path from 'path';
+import type { RuntimeTenantConfig } from '@veralux/shared';
 import { env } from '../env';
 import { log } from '../log';
 import { redactValue } from './redaction';
+import { resolveRawForensicsCapture } from './callQualityPolicy';
 
 const sessions = new Map<string, AudioForensicsSession>();
 
+/** True only for env-level operator override (legacy / emergency). */
 export function isAudioForensicsEnabled(): boolean {
   return env.AUDIO_FORENSICS_ENABLED === true;
 }
@@ -104,7 +108,7 @@ export class AudioForensicsSession {
     this.manifestPath = path.join(this.sessionDir, 'manifest.jsonl');
   }
 
-  public async init(): Promise<void> {
+  public async init(diagnosticsMeta?: Record<string, unknown>): Promise<void> {
     await fs.promises.mkdir(path.join(this.sessionDir, 'audio'), { recursive: true });
     await fs.promises.mkdir(path.join(this.sessionDir, 'transcripts'), { recursive: true });
     await fs.promises.mkdir(path.join(this.sessionDir, 'llm'), { recursive: true });
@@ -116,6 +120,7 @@ export class AudioForensicsSession {
       callControlId: this.callControlId,
       sessionDir: this.sessionDir,
       allowPii: env.AUDIO_FORENSICS_ALLOW_PII,
+      rawAudioDiagnostics: diagnosticsMeta ?? null,
     })}\n`;
     await fs.promises.appendFile(this.manifestPath, manifestLine, 'utf8');
     await this.appendTimeline({
@@ -196,19 +201,58 @@ export class AudioForensicsSession {
   }
 }
 
-export async function ensureForensicsSession(callControlId: string): Promise<AudioForensicsSession | null> {
-  if (!isAudioForensicsEnabled()) return null;
+export async function ensureForensicsSession(
+  callControlId: string,
+  tenantConfig?: RuntimeTenantConfig | null,
+): Promise<AudioForensicsSession | null> {
+  const decision = resolveRawForensicsCapture(tenantConfig ?? null);
+  if (!decision.capture) return null;
   const existing = sessions.get(callControlId);
   if (existing) return existing;
   try {
+    if (decision.operatorOverride) {
+      log.warn(
+        {
+          event: 'audio_forensics_operator_override_active',
+          call_control_id: callControlId,
+        },
+        'operator override active (AUDIO_FORENSICS_ENABLED)',
+      );
+    }
     const dir = env.AUDIO_FORENSICS_DIR.trim();
     const session = new AudioForensicsSession(callControlId, dir);
-    await session.init();
+    await session.init({
+      ...decision.diagnosticsManifest,
+      operatorOverride: decision.operatorOverride,
+      tenantRawAudioDiagnostics: decision.tenantDiagnostics,
+    });
     sessions.set(callControlId, session);
     log.info(
-      { event: 'audio_forensics_session_created', call_control_id: callControlId, session_dir: session.sessionDir },
+      {
+        event: 'audio_forensics_session_created',
+        call_control_id: callControlId,
+        session_dir: session.sessionDir,
+        forensics_source: decision.logLabel,
+        operator_override: decision.operatorOverride,
+      },
       'audio forensics session created',
     );
+
+    const cq = tenantConfig?.callQuality;
+    if (
+      decision.tenantDiagnostics &&
+      tenantConfig?.tenantId &&
+      cq?.rawAudioDiagnosticsNextCallPending &&
+      (cq.rawAudioDiagnosticsMode === 'next_call_only' ||
+        cq.rawAudioDiagnosticsMode === 'failed_calls_only')
+    ) {
+      void import('../controlPlane')
+        .then(({ notifyDiagnosticsSessionStarted }) =>
+          notifyDiagnosticsSessionStarted(tenantConfig.tenantId),
+        )
+        .catch(() => undefined);
+    }
+
     return session;
   } catch (err) {
     log.warn({ event: 'audio_forensics_session_failed', err, call_control_id: callControlId }, 'audio forensics init failed');

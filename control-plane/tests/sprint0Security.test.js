@@ -74,7 +74,7 @@ test("buildTenantRuntimeConfig publishes per-tenant prompts (system/policy/tone)
       policyPrompt: "TENANT-ALPHA-POLICY",
       voicePrompt: "TENANT-ALPHA-VOICE",
     });
-    const cfg = buildTenantRuntimeConfig(tenant, null, null);
+    const cfg = buildTenantRuntimeConfig(tenant, null, null, null);
     const parsed = parseRuntimeTenantConfig(cfg);
     assert.ok(parsed.llmContext, "llmContext is published");
     assert.equal(parsed.llmContext.prompts.systemPreamble, "TENANT-ALPHA-SYS");
@@ -94,7 +94,7 @@ test("buildTenantRuntimeConfig publishes per-tenant greetingText when set", () =
       id: "beta",
       greetingText: "Hi, this is Beta receptionist!",
     });
-    const cfg = buildTenantRuntimeConfig(tenant, null, null);
+    const cfg = buildTenantRuntimeConfig(tenant, null, null, null);
     const parsed = parseRuntimeTenantConfig(cfg);
     assert.equal(
       parsed.llmContext.prompts.greetingText,
@@ -112,7 +112,7 @@ test("buildTenantRuntimeConfig omits greetingText when blank (env fallback appli
   process.env.TELNYX_WEBHOOK_SECRET = "whsec_test_sprint0";
   try {
     const tenant = baseTenantContext({ id: "gamma", greetingText: "   " });
-    const cfg = buildTenantRuntimeConfig(tenant, null, null);
+    const cfg = buildTenantRuntimeConfig(tenant, null, null, null);
     const parsed = parseRuntimeTenantConfig(cfg);
     assert.equal(
       parsed.llmContext.prompts.greetingText,
@@ -137,6 +137,7 @@ test("tenant A and tenant B prompts are isolated in their published configs", ()
       }),
       null,
       null,
+      null,
     );
     const b = buildTenantRuntimeConfig(
       baseTenantContext({
@@ -144,6 +145,7 @@ test("tenant A and tenant B prompts are isolated in their published configs", ()
         systemPreamble: "SYS-B",
         greetingText: "Greet B",
       }),
+      null,
       null,
       null,
     );

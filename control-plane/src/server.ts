@@ -83,7 +83,16 @@ import {
   recordTenantCallEnded,
   listCallsForTenantDb,
   getCallByIdForTenantDb,
+  getTenantCallQualitySettings,
+  updateTenantCallQualitySettings,
+  consumeTenantNextCallDiagnostics,
+  upsertCallQualitySummary,
+  getCallQualitySummaryForCall,
+  expireStaleRawAudioDiagnostics,
+  type TenantCallQualitySettingsRow,
 } from "./db";
+import { tenantCallQualityRowToRuntime } from "./callQualityMaps";
+import type { RuntimeCallQuality } from "@veralux/shared";
 import { maskCallerId, summarizeHistory, isMissedCallRow } from "./callSanitizer";
 import { rateLimit } from "./rateLimit";
 import { ipRateLimit } from "./middleware/ipRateLimit";
@@ -695,6 +704,93 @@ function optIntBody(v: unknown, min: number, max: number): number | undefined {
   return Math.min(max, Math.max(min, r));
 }
 
+const rawAudioDiagnosticsModeEnum = z.enum([
+  "off",
+  "next_call_only",
+  "failed_calls_only",
+  "all_calls_temporary",
+]);
+
+const callQualitySettingsPatchSchema = z
+  .object({
+    callQualityAnalyticsEnabled: z.boolean().optional(),
+    transcriptStorageEnabled: z.boolean().optional(),
+    transcriptRetentionDays: z.number().int().min(1).max(365).optional(),
+    qualitySummaryVisibleToClient: z.boolean().optional(),
+    rawArtifactsVisibleToClient: z.boolean().optional(),
+    rawAudioDiagnosticsMode: rawAudioDiagnosticsModeEnum.optional(),
+    rawAudioDiagnosticsExpiresAt: z.string().datetime().nullable().optional(),
+    rawAudioDiagnosticsEnabledBy: z.string().max(512).nullable().optional(),
+    rawAudioDiagnosticsReason: z.string().max(4000).nullable().optional(),
+    rawAudioDiagnosticsNextCallPending: z.boolean().optional(),
+  })
+  .strict();
+
+const rawDiagEnableBodySchema = z
+  .object({
+    reason: z.string().min(1).max(4000),
+    expiresAt: z.string().datetime(),
+    mode: rawAudioDiagnosticsModeEnum.default("next_call_only"),
+  })
+  .strict();
+
+const rawDiagDisableBodySchema = z
+  .object({
+    reason: z.string().min(1).max(4000),
+  })
+  .strict();
+
+function callQualityRowToApi(row: TenantCallQualitySettingsRow, viewer: boolean) {
+  const base = {
+    callQualityAnalyticsEnabled: row.call_quality_analytics_enabled,
+    transcriptStorageEnabled: row.transcript_storage_enabled,
+    transcriptRetentionDays: row.transcript_retention_days,
+    qualitySummaryVisibleToClient: row.quality_summary_visible_to_client,
+  };
+  if (viewer) return base;
+  return {
+    ...base,
+    rawAudioDiagnosticsMode: row.raw_audio_diagnostics_mode,
+    rawAudioDiagnosticsExpiresAt: row.raw_audio_diagnostics_expires_at,
+    rawAudioDiagnosticsEnabledBy: row.raw_audio_diagnostics_enabled_by,
+    rawAudioDiagnosticsReason: row.raw_audio_diagnostics_reason,
+    rawAudioDiagnosticsNextCallPending: row.raw_audio_diagnostics_next_call_pending,
+    rawArtifactsVisibleToClient: row.raw_artifacts_visible_to_client,
+  };
+}
+
+/** Client portal: safe labels only (no raw JSON, URLs, or internal diagnostics paths). */
+function mapOwnerPortalCallQuality(s: Record<string, unknown>): Record<string, unknown> {
+  const qs = typeof s.qualityStatus === "string" ? s.qualityStatus : "unknown";
+  const callQualityLabel =
+    qs === "good" ? "Good" : qs === "warning" ? "Needs review" : qs === "poor" ? "Poor" : "Unknown";
+
+  const tq = typeof s.transcriptQuality === "string" ? s.transcriptQuality : "unknown";
+  const transcriptQualityLabel =
+    tq === "good" ? "Good" : tq === "medium" ? "Medium" : tq === "poor" ? "Poor" : "Unknown";
+
+  const lr = typeof s.latencyRisk === "string" ? s.latencyRisk : "unknown";
+  const aiResponseDelay = lr === "high" ? "slow" : "normal";
+
+  const issues: string[] = [];
+  if (s.interruptionDetected === true) issues.push("caller_interrupted");
+  const echo = typeof s.echoRisk === "string" ? s.echoRisk : "";
+  if (echo === "high" || echo === "medium") issues.push("background_noise");
+  const missed = typeof s.missedSpeechRisk === "string" ? s.missedSpeechRisk : "";
+  if (missed === "high") issues.push("no_speech_detected");
+  if (s.deadAirDetected === true) issues.push("no_speech_detected");
+  if (typeof s.whisperRequestCount === "number" && s.whisperRequestCount === 0 && s.durationSeconds) {
+    issues.push("transcript_unavailable");
+  }
+
+  return {
+    callQuality: callQualityLabel,
+    transcriptQuality: transcriptQualityLabel,
+    aiResponseDelay,
+    issueDetected: issues.length ? issues : ["none"],
+  };
+}
+
 const CTRL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F]/g;
 
 function sanitizeTtsShortText(v: unknown, maxLen: number): string | undefined {
@@ -896,7 +992,16 @@ async function syncTenantRuntimeConfigForLimits(tenantId: string): Promise<void>
     existing = null;
   }
   const limits = await getTenantLimits(tenantId);
-  const parsed = buildTenantRuntimeConfig(tenant, existing, limits);
+  let cq: RuntimeCallQuality | null = null;
+  try {
+    cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenantId));
+  } catch (e) {
+    logger.warn("call_quality_settings_unavailable", {
+      tenantId,
+      err: e instanceof Error ? e.message : String(e),
+    });
+  }
+  const parsed = buildTenantRuntimeConfig(tenant, existing, limits, cq);
   await publishTenantConfig(tenantId, parsed);
 }
 
@@ -2343,7 +2448,13 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
     try {
       const existing = await getTenantConfig(tenant.id);
       const tenantLimits = await getTenantLimits(tenant.id);
-      const parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits);
+      let cq: RuntimeCallQuality | null = null;
+      try {
+        cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenant.id));
+      } catch {
+        cq = null;
+      }
+      const parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits, cq);
       await publishTenantConfig(tenant.id, parsed);
       runtimePublish = { ok: true };
     } catch (err: unknown) {
@@ -2836,6 +2947,60 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, r
   return res.status(400).json({ error: "invalid_action", validActions: ["start", "update", "end"] });
 });
 
+app.post(
+  "/api/runtime/call-quality-summary",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId, callControlId, summary } = req.body as {
+      tenantId?: string;
+      callControlId?: string;
+      summary?: unknown;
+    };
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    if (!callControlId || typeof callControlId !== "string") {
+      return res.status(400).json({ error: "call_control_id_required" });
+    }
+    if (summary === undefined || summary === null || typeof summary !== "object") {
+      return res.status(400).json({ error: "summary_required" });
+    }
+    await upsertCallQualitySummary({ tenantId, callControlId, summary });
+    void recordAudit({
+      action: "call_quality_summary_upserted",
+      path: req.path,
+      tenantId,
+      status: "ok",
+      details: { callControlId },
+    });
+    res.json({ status: "ok" });
+  }),
+);
+
+app.post(
+  "/api/runtime/tenants/:tenantId/diagnostics/consume-next-call-arm",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const prev = await getTenantCallQualitySettings(tenantId);
+    const next = await consumeTenantNextCallDiagnostics(tenantId);
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "raw_audio_diagnostics_next_call_consumed",
+      path: req.path,
+      tenantId,
+      status: "ok",
+      details: { previousPending: prev.raw_audio_diagnostics_next_call_pending },
+    });
+    res.json({ tenantId, settings: callQualityRowToApi(next, false), runtimeSyncOk });
+  }),
+);
+
 /* ────────────────────────────────────────────────
    Admin – tenant registry
    ──────────────────────────────────────────────── */
@@ -3003,6 +3168,18 @@ app.get("/api/owner/calls/:callId", async (req, res) => {
     if (!callId) return res.status(400).json({ error: "call_id_required" });
     const row = await getCallByIdForTenantDb(session.tenantId, callId);
     if (!row) return res.status(404).json({ error: "call_not_found" });
+    const cqRow = await getTenantCallQualitySettings(session.tenantId).catch(() => null);
+    const voiceCc =
+      row.lead && typeof (row.lead as any).voiceCallControlId === "string"
+        ? String((row.lead as any).voiceCallControlId).trim()
+        : "";
+    let clientQuality: Record<string, unknown> | null = null;
+    if (cqRow?.quality_summary_visible_to_client && voiceCc) {
+      const got = await getCallQualitySummaryForCall(session.tenantId, voiceCc);
+      if (got?.summary && typeof got.summary === "object") {
+        clientQuality = mapOwnerPortalCallQuality(got.summary as Record<string, unknown>);
+      }
+    }
     res.json({
       id: row.id,
       callerDisplay: maskCallerId(row.caller_id),
@@ -3011,10 +3188,45 @@ app.get("/api/owner/calls/:callId", async (req, res) => {
       updatedAt: row.updated_at,
       transcriptSummary: summarizeHistory(row.history),
       missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
+      transcriptsDisabled: cqRow ? !cqRow.transcript_storage_enabled : false,
+      callQuality: clientQuality,
     });
   } catch (err) {
     console.error("GET /api/owner/calls/:callId error:", err);
     res.status(500).json({ error: "call_read_failed" });
+  }
+});
+
+app.get("/api/owner/call-quality-summary/:callControlId", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) return res.status(401).json({ error: "auth_required" });
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    const callControlId = req.params.callControlId?.trim();
+    if (!callControlId) return res.status(400).json({ error: "call_control_id_required" });
+    const cqRow = await getTenantCallQualitySettings(session.tenantId);
+    if (!cqRow.quality_summary_visible_to_client) {
+      return res.json({ visible: false });
+    }
+    if (!cqRow.transcript_storage_enabled) {
+      return res.json({
+        visible: true,
+        transcriptsDisabled: true,
+        message: "Transcripts are disabled for this business.",
+      });
+    }
+    const got = await getCallQualitySummaryForCall(session.tenantId, callControlId);
+    if (!got?.summary || typeof got.summary !== "object") {
+      return res.json({ visible: true, summary: null });
+    }
+    res.json({
+      visible: true,
+      summary: mapOwnerPortalCallQuality(got.summary as Record<string, unknown>),
+    });
+  } catch (err) {
+    console.error("GET /api/owner/call-quality-summary error:", err);
+    res.status(500).json({ error: "call_quality_read_failed" });
   }
 });
 
@@ -3206,6 +3418,174 @@ app.get(
       : new Date().toISOString().slice(0, 7);
     const summary = await getTenantBillingSummary(tenantId, month);
     res.json({ tenantId, summary });
+  }),
+);
+
+app.get(
+  "/api/admin/tenants/:tenantId/call-quality-settings",
+  adminGuard("viewer"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const row = await getTenantCallQualitySettings(tenantId);
+    const viewer = req.ctx?.role === "tenant-viewer";
+    res.json({ tenantId, settings: callQualityRowToApi(row, viewer) });
+  }),
+);
+
+app.patch(
+  "/api/admin/tenants/:tenantId/call-quality-settings",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    const parsed = callQualitySettingsPatchSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_body", details: parsed.error.issues });
+    }
+    const body = parsed.data;
+    const superadmin = !!req.ctx?.isSuperAdmin;
+    const prev = await getTenantCallQualitySettings(tenantId);
+
+    if (!superadmin) {
+      const forbiddenKeys = [
+        "rawAudioDiagnosticsMode",
+        "rawAudioDiagnosticsExpiresAt",
+        "rawAudioDiagnosticsEnabledBy",
+        "rawAudioDiagnosticsReason",
+        "rawAudioDiagnosticsNextCallPending",
+        "rawArtifactsVisibleToClient",
+      ] as const;
+      for (const k of forbiddenKeys) {
+        if (k in (req.body || {}) && (req.body as any)[k] !== undefined) {
+          return res.status(403).json({ error: "raw_diagnostics_superadmin_only", field: k });
+        }
+      }
+    }
+
+    if (body.rawArtifactsVisibleToClient === true && !superadmin) {
+      return res.status(403).json({ error: "raw_artifacts_client_visibility_superadmin_only" });
+    }
+
+    if (
+      body.rawAudioDiagnosticsMode === "all_calls_temporary" &&
+      !body.rawAudioDiagnosticsExpiresAt &&
+      !prev.raw_audio_diagnostics_expires_at
+    ) {
+      return res.status(400).json({ error: "expires_at_required_for_all_calls_temporary" });
+    }
+
+    const next = await updateTenantCallQualitySettings(tenantId, {
+      callQualityAnalyticsEnabled: body.callQualityAnalyticsEnabled,
+      transcriptStorageEnabled: body.transcriptStorageEnabled,
+      transcriptRetentionDays: body.transcriptRetentionDays,
+      rawAudioDiagnosticsMode: body.rawAudioDiagnosticsMode,
+      rawAudioDiagnosticsExpiresAt: body.rawAudioDiagnosticsExpiresAt,
+      rawAudioDiagnosticsEnabledBy: body.rawAudioDiagnosticsEnabledBy,
+      rawAudioDiagnosticsReason: body.rawAudioDiagnosticsReason,
+      rawAudioDiagnosticsNextCallPending: body.rawAudioDiagnosticsNextCallPending,
+      qualitySummaryVisibleToClient: body.qualitySummaryVisibleToClient,
+      rawArtifactsVisibleToClient: body.rawArtifactsVisibleToClient,
+    });
+
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "tenant_call_quality_settings_updated",
+      path: req.path,
+      tenantId,
+      status: "ok",
+      details: {
+        previous: callQualityRowToApi(prev, false),
+        next: callQualityRowToApi(next, false),
+      },
+    });
+    res.json({
+      tenantId,
+      settings: callQualityRowToApi(next, false),
+      runtimeSyncOk,
+    });
+  }),
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/raw-audio-diagnostics/enable-next-call",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    if (!requireSuperAdminCtx(req, res)) return;
+    const parsed = rawDiagEnableBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_body", details: parsed.error.issues });
+    }
+    const actor = req.ctx?.idpSub || req.ctx?.email || req.ctx?.userId || "operator";
+    const prev = await getTenantCallQualitySettings(tenantId);
+    const mode = parsed.data.mode;
+    const pending = mode === "next_call_only" || mode === "failed_calls_only";
+    const next = await updateTenantCallQualitySettings(tenantId, {
+      rawAudioDiagnosticsMode: mode,
+      rawAudioDiagnosticsExpiresAt: parsed.data.expiresAt,
+      rawAudioDiagnosticsEnabledBy: String(actor).slice(0, 512),
+      rawAudioDiagnosticsReason: parsed.data.reason,
+      rawAudioDiagnosticsNextCallPending: pending,
+    });
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "raw_audio_diagnostics_enabled",
+      path: req.path,
+      tenantId,
+      status: "ok",
+      details: {
+        reason: parsed.data.reason,
+        expiresAt: parsed.data.expiresAt,
+        mode,
+        previousMode: prev.raw_audio_diagnostics_mode,
+      },
+    });
+    res.json({ tenantId, settings: callQualityRowToApi(next, false), runtimeSyncOk });
+  }),
+);
+
+app.post(
+  "/api/admin/tenants/:tenantId/raw-audio-diagnostics/disable",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const { tenantId } = req.params;
+    if (!tenantId || typeof tenantId !== "string") {
+      return res.status(400).json({ error: "tenant_id_required" });
+    }
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    if (!requireSuperAdminCtx(req, res)) return;
+    const parsed = rawDiagDisableBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: "invalid_body", details: parsed.error.issues });
+    }
+    const prev = await getTenantCallQualitySettings(tenantId);
+    const next = await updateTenantCallQualitySettings(tenantId, {
+      rawAudioDiagnosticsMode: "off",
+      rawAudioDiagnosticsExpiresAt: null,
+      rawAudioDiagnosticsEnabledBy: null,
+      rawAudioDiagnosticsReason: null,
+      rawAudioDiagnosticsNextCallPending: false,
+    });
+    const runtimeSyncOk = await trySyncTenantRuntimeConfigForLimits(tenantId);
+    void recordAudit({
+      action: "raw_audio_diagnostics_disabled",
+      path: req.path,
+      tenantId,
+      status: "ok",
+      details: { reason: parsed.data.reason, previousMode: prev.raw_audio_diagnostics_mode },
+    });
+    res.json({ tenantId, settings: callQualityRowToApi(next, false), runtimeSyncOk });
   }),
 );
 
@@ -3460,7 +3840,14 @@ app.post(
     let parsed: RuntimeTenantConfig;
     try {
       const tenantLimits = await getTenantLimits(tenantId);
-      parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits);
+      let cq: RuntimeCallQuality | null = null;
+      try {
+        await expireStaleRawAudioDiagnostics();
+        cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenantId));
+      } catch {
+        cq = null;
+      }
+      parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits, cq);
     } catch (err: unknown) {
       if (err instanceof BuildRuntimeConfigError) {
         return res.status(400).json({

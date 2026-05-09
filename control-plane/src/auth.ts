@@ -171,6 +171,7 @@ export async function recordAudit(params: {
   path?: string;
   tenantId?: string;
   status?: string;
+  details?: Record<string, unknown> | null;
 }) {
   await insertAuditLog(params);
 }

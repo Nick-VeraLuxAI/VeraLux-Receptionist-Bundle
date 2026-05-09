@@ -8,6 +8,7 @@ export {
   runtimeTenantConfigSchema,
   RuntimeTenantConfigSchema,
   parseRuntimeTenantConfig,
+  type RuntimeCallQuality,
   type RuntimeTenantConfig,
   type RuntimeForwardingProfile,
   type RuntimePricingInfo,

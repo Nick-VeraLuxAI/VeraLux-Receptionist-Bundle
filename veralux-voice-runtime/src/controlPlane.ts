@@ -34,6 +34,81 @@ function isConfigured(): boolean {
  * Report a call end event (with full transcript) to the control plane.
  * This fires asynchronously and never throws — errors are logged only.
  */
+export async function notifyDiagnosticsSessionStarted(tenantId: string): Promise<void> {
+  if (!isConfigured()) return;
+  const url = `${env.CONTROL_PLANE_URL}/api/runtime/tenants/${encodeURIComponent(tenantId)}/diagnostics/consume-next-call-arm`;
+  const apiKey = env.CONTROL_PLANE_API_KEY!;
+  try {
+    const resp = await fetchWithTimeoutRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({}),
+      timeoutMs: 10_000,
+      retries: 1,
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      log.warn(
+        {
+          event: 'control_plane_diagnostics_consume_failed',
+          status: resp.status,
+          body: body.slice(0, 200),
+          tenant_id: tenantId,
+        },
+        'control plane diagnostics consume failed',
+      );
+    }
+  } catch (err) {
+    log.warn({ err, event: 'control_plane_diagnostics_consume_error', tenant_id: tenantId }, 'diagnostics consume error');
+  }
+}
+
+export async function reportCallQualitySummary(params: {
+  tenantId: string;
+  callControlId: string;
+  summary: unknown;
+}): Promise<void> {
+  if (!isConfigured()) return;
+  const url = `${env.CONTROL_PLANE_URL}/api/runtime/call-quality-summary`;
+  const apiKey = env.CONTROL_PLANE_API_KEY!;
+  try {
+    const resp = await fetchWithTimeoutRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        tenantId: params.tenantId,
+        callControlId: params.callControlId,
+        summary: params.summary,
+      }),
+      timeoutMs: 10_000,
+      retries: 1,
+    });
+    if (!resp.ok) {
+      const body = await resp.text().catch(() => '');
+      log.warn(
+        {
+          event: 'control_plane_quality_summary_failed',
+          status: resp.status,
+          body: body.slice(0, 200),
+          call_id: params.callControlId,
+        },
+        'control plane quality summary write failed',
+      );
+    }
+  } catch (err) {
+    log.warn(
+      { err, event: 'control_plane_quality_summary_error', call_id: params.callControlId },
+      'control plane quality summary error',
+    );
+  }
+}
+
 export async function reportCallEnd(params: ReportCallEndParams): Promise<void> {
   if (!isConfigured()) return;
 
