@@ -28,8 +28,16 @@ const defaults: Record<string, string> = {
 };
 
 export function setTestEnv(): void {
-  process.env.TELNYX_SKIP_SIGNATURE = 'false';
-  process.env.TELNYX_VERIFY_SIGNATURES = 'true';
+  // Call-flow / readiness scripts set VERALUX_TEST_HOST_PATHS=1 (see package.json). Telnyx verify
+  // treats VERIFY=false as skip; do not apply globally or telnyxVerify.unit tests break.
+  if (process.env.VERALUX_TEST_HOST_PATHS === '1') {
+    process.env.TELNYX_VERIFY_SIGNATURES = 'false';
+    process.env.TELNYX_SKIP_SIGNATURE = 'true';
+  } else {
+    // Default unit-test mode: strict Telnyx verify (overrides a dev .env that disabled checks).
+    process.env.TELNYX_VERIFY_SIGNATURES = 'true';
+    process.env.TELNYX_SKIP_SIGNATURE = 'false';
+  }
   for (const [key, value] of Object.entries(defaults)) {
     if (!process.env[key]) {
       process.env[key] = value;

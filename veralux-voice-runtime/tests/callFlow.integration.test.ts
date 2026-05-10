@@ -2,7 +2,7 @@
  * Integration tests for call flow webhook handling
  *
  * These tests verify the complete webhook flow from call.initiated through call.hangup.
- * Requires Redis (GitHub Actions service, or local with RUN_CALL_FLOW_INTEGRATION=1).
+ * Requires Redis. Run explicitly via `npm run test:call-flow-integration` or `npm run test:production-readiness:full` (sets RUN_CALL_FLOW_INTEGRATION=1). CI sets `CI=true`, which also enables this suite.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -81,8 +81,9 @@ async function postWebhook(url: string, payload: object): Promise<{ status: numb
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(data),
-          'telnyx-timestamp': Math.floor(Date.now() / 1000).toString(),
-          'telnyx-signature': 'test-skip',
+          // Unique per request so signature-replay keys (ts+sig) do not collide across subtests in one process.
+          'telnyx-timestamp': Date.now().toString(),
+          'telnyx-signature': `test-skip-${Math.random().toString(36).slice(2, 12)}`,
         },
       },
       (res) => {
@@ -117,16 +118,17 @@ async function setupTestTenant(): Promise<void> {
     dids: [TEST_DID],
     webhookSecret: 'test-secret',
     caps: {
-      concurrency: 5,
-      callsPerMin: 10,
+      maxConcurrentCallsTenant: 5,
+      maxCallsPerMinuteTenant: 10,
     },
     stt: {
-      provider: 'whisper-http',
-      endpoint: process.env.WHISPER_URL || 'http://localhost/whisper',
+      mode: 'whisper_http',
+      whisperUrl: process.env.WHISPER_URL || 'http://localhost/whisper',
+      chunkMs: 1000,
     },
     tts: {
-      provider: 'kokoro',
-      endpoint: process.env.KOKORO_URL || 'http://localhost/kokoro',
+      mode: 'kokoro_http',
+      kokoroUrl: process.env.KOKORO_URL || 'http://localhost/kokoro',
     },
     audio: {},
   };
@@ -150,9 +152,6 @@ const runCallFlowIntegration =
 
 describe('Call Flow Integration Tests', { skip: !runCallFlowIntegration }, () => {
   before(async () => {
-    // Skip signature verification for tests
-    process.env.TELNYX_SKIP_SIGNATURE = 'true';
-
     const built = buildServer();
     ctx = {
       ...built,

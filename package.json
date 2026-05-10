@@ -1,6 +1,13 @@
 {
   "name": "veralux-receptionist",
   "private": true,
+  "dependencies": {
+    "path-to-regexp": "0.1.13"
+  },
+  "overrides": {
+    "fast-xml-parser": "^5.7.3",
+    "path-to-regexp": "0.1.13"
+  },
   "workspaces": [
     "shared",
     "control-plane",
@@ -24,7 +31,7 @@
     "test:infra:reset": "./scripts/test-infra.sh reset",
     "test:infra:status": "./scripts/test-infra.sh status",
     "test:infra:down": "./scripts/test-infra.sh down",
-    "test:production-readiness": "npm run test:infra:wait && npm run test:production-readiness -w control-plane && npm run test:production-readiness -w veralux-voice-runtime",
+    "test:production-readiness": "npm run test:infra:wait && npm run test:production-readiness -w control-plane && (cd veralux-voice-runtime && npm run test:production-readiness:full)",
     "test:pilot-smoke": "npm run test:pilot-smoke -w control-plane"
   }
 }

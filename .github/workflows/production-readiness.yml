@@ -41,6 +41,7 @@ jobs:
       DATABASE_URL: postgres://veralux_test:veralux_test@127.0.0.1:55432/veralux_test
       REDIS_URL: redis://127.0.0.1:56379
       NODE_ENV: test
+      VERALUX_TEST_HOST_PATHS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -52,6 +53,8 @@ jobs:
       - run: npm run test:production-readiness -w control-plane
       - run: npm test -w control-plane
       - run: npm run build -w control-plane
-      - run: npm run test:production-readiness -w veralux-voice-runtime
+      - name: Runtime production readiness (full, includes call-flow integration)
+        working-directory: veralux-voice-runtime
+        run: npm run test:production-readiness:full
       - run: npm test -w veralux-voice-runtime
       - run: npm run build -w veralux-voice-runtime

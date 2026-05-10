@@ -21,6 +21,8 @@ cp .env.test.example .env.test
 
 ## Run Readiness Tests
 
+From the repo root (waits on test infra, then control-plane readiness, then **runtime full** readiness including call-flow integration):
+
 ```bash
 npm run test:production-readiness
 ```
@@ -29,8 +31,16 @@ Or run by service:
 
 ```bash
 cd control-plane && npm run test:production-readiness
-cd ../veralux-voice-runtime && npm run test:production-readiness
+cd ../veralux-voice-runtime && npm run test:production-readiness:full
 ```
+
+Runtime scripts:
+
+- **`npm run test:production-readiness`** (in `veralux-voice-runtime`) — deterministic suite **without** the Telnyx call-flow integration file (no implied coverage of that path).
+- **`npm run test:production-readiness:full`** — same files plus call-flow integration; sets `RUN_CALL_FLOW_INTEGRATION=1` so that suite **runs** (requires Redis on `REDIS_URL`).
+- **`npm run test:call-flow-integration`** — only `tests/callFlow.integration.test.ts` with `RUN_CALL_FLOW_INTEGRATION=1`.
+
+Host note: readiness scripts set **`VERALUX_TEST_HOST_PATHS=1`** so a Docker-style `.env` (paths under `/app/`) does not break `buildServer()` directory creation during `tsx --test` on a laptop.
 
 ## Status and Logs
 

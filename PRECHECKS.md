@@ -18,7 +18,7 @@ After containers are up, **readiness** (what “healthy” means for traffic) is
 | **Public URLs** | Fails if `PUBLIC_*` / `AUDIO_*` still contain `your-domain.com` or `example.com`. Warns on `localhost` / `127.0.0.1` for runtime URLs (Telnyx cannot reach). |
 | **Tunnel hint** | If runtime URL is localhost and neither Cloudflare nor ngrok token is set → **warn**. |
 | **`TELNYX_PHONE_NUMBER`** | Empty → **warn** (DIDs may live in DB only). |
-| **`SECRET_ENCRYPTION_KEY` length** | Fails if shorter than 16 characters. |
+| **`SECRET_ENCRYPTION_KEY` length** | When `SECRET_MANAGER=db` (default), fails if the value is shorter than **32 UTF-8 bytes** (matches control plane `secretStore.ts`). |
 | **`TTS_MODE`** | Must be one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`. |
 | **`HF_TOKEN`** | **Fail** if `TTS_MODE` is `chatterbox_http` or `qwen3_tts_http` and token missing/short. |
 | **Voice / GPU** | Runs **`scripts/validate-voice-deploy.sh`** (e.g. Chatterbox requires GPU). |

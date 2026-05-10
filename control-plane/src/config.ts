@@ -46,6 +46,50 @@ export interface ClonedVoiceConfig {
   label?: string;            // Friendly name (e.g., "Sarah's Voice")
 }
 
+/**
+ * Tenant-facing / portal-safe TTS snapshot: no raw provider URLs.
+ * Superadmin diagnostics may still attach redacted host previews separately.
+ */
+export interface SafeTtsPublicConfig {
+  ttsMode: TtsMode;
+  voiceId: string;
+  language: string;
+  rate: number;
+  preset?: VoicePreset;
+  chatterboxVariant?: ChatterboxVariant;
+  defaultVoiceMode?: VoiceMode;
+  /** True when an XTTS / legacy base URL is configured (value not exposed). */
+  xttsEndpointConfigured: boolean;
+  kokoroEndpointConfigured: boolean;
+  coquiXttsEndpointConfigured: boolean;
+  chatterboxEndpointConfigured: boolean;
+  qwen3EndpointConfigured: boolean;
+  clonedVoiceReferenceConfigured: boolean;
+  clonedVoiceLabel?: string;
+  /** Portal-safe: no speakerWavUrl; use speakerWavConfigured + label only. */
+  clonedVoice?: { label?: string; speakerWavConfigured: boolean };
+  qwen3Instruct?: string;
+  qwen3DoSample?: boolean;
+  qwen3Temperature?: number;
+  qwen3TopP?: number;
+  qwen3TopK?: number;
+  qwen3RepetitionPenalty?: number;
+  qwen3MaxNewTokens?: number;
+  qwen3NonStreamingMode?: boolean;
+  qwen3SubtalkerDoSample?: boolean;
+  qwen3SubtalkerTopK?: number;
+  qwen3SubtalkerTopP?: number;
+  qwen3SubtalkerTemperature?: number;
+  qwen3Streaming?: boolean;
+  coquiTemperature?: number;
+  coquiLengthPenalty?: number;
+  coquiRepetitionPenalty?: number;
+  coquiTopK?: number;
+  coquiTopP?: number;
+  coquiSpeed?: number;
+  coquiSplitSentences?: boolean;
+}
+
 export interface TTSConfig {
   xttsUrl: string;           // TTS server URL (XTTS or Kokoro)
   voiceId: string;           // maps to the upstream TTS provider voice key
@@ -255,6 +299,11 @@ export interface STTConfig {
   whisperUrl: string;
 }
 
+/** Portal-safe STT flags (no whisperUrl). */
+export interface SafeSttPublicConfig {
+  whisperEndpointConfigured: boolean;
+}
+
 const DEFAULT_SYSTEM_PREAMBLE = [
   "You're a friendly virtual receptionist answering phone calls for a local service business.",
   "Your job is to greet callers warmly, find out what they need, collect their contact info if helpful, and either schedule an appointment or connect them with the right person.",
@@ -404,15 +453,18 @@ export class LLMConfigStore {
     return this.prompts;
   }
 
-  getSafeConfig(): Omit<LLMRuntimeConfig, "openaiApiKey"> & {
+  getSafeConfig(): Omit<LLMRuntimeConfig, "openaiApiKey" | "localUrl"> & {
     hasOpenAIApiKey: boolean;
+    localLlmEndpointConfigured: boolean;
   } {
     return {
       provider: this.config.provider,
-      localUrl: this.config.localUrl,
       openaiModel: this.config.openaiModel,
       hasOpenAIApiKey:
         !!this.config.openaiApiKey || !!process.env.OPENAI_API_KEY,
+      localLlmEndpointConfigured: Boolean(
+        (this.config.localUrl || process.env.LOCAL_LLM_URL || "").trim().length
+      ),
     };
   }
 
@@ -421,6 +473,11 @@ export class LLMConfigStore {
   getSttConfig(): STTConfig {
     const envWhisperUrl = getEnvWhisperUrl();
     return { whisperUrl: envWhisperUrl || this.stt.whisperUrl || DEFAULT_WHISPER_URL };
+  }
+
+  getSafeSttPublic(): SafeSttPublicConfig {
+    const w = this.getSttConfig().whisperUrl?.trim() || "";
+    return { whisperEndpointConfigured: w.length > 0 };
   }
 
   getTtsConfig(): TTSConfig {
@@ -600,8 +657,51 @@ export class LLMConfigStore {
     return this.getTtsConfig();
   }
 
-  getSafeTtsConfig(): TTSConfig {
-    return this.getTtsConfig();
+  getSafeTtsConfig(): SafeTtsPublicConfig {
+    const t = this.getTtsConfig();
+    return {
+      ttsMode: t.ttsMode || "kokoro_http",
+      voiceId: t.voiceId,
+      language: t.language,
+      rate: t.rate,
+      preset: t.preset,
+      chatterboxVariant: t.chatterboxVariant,
+      defaultVoiceMode: t.defaultVoiceMode,
+      xttsEndpointConfigured: Boolean((t.xttsUrl || "").trim()),
+      kokoroEndpointConfigured: Boolean((t.kokoroUrl || "").trim()),
+      coquiXttsEndpointConfigured: Boolean((t.coquiXttsUrl || "").trim()),
+      chatterboxEndpointConfigured: Boolean((t.chatterboxUrl || "").trim()),
+      qwen3EndpointConfigured: Boolean((t.qwen3TtsUrl || "").trim()),
+      clonedVoiceReferenceConfigured: Boolean(t.clonedVoice?.speakerWavUrl?.trim()),
+      clonedVoiceLabel: t.clonedVoice?.label,
+      clonedVoice:
+        t.clonedVoice?.label || t.clonedVoice?.speakerWavUrl
+          ? {
+              label: t.clonedVoice?.label,
+              speakerWavConfigured: Boolean(t.clonedVoice?.speakerWavUrl?.trim()),
+            }
+          : undefined,
+      qwen3Instruct: t.qwen3Instruct,
+      qwen3DoSample: t.qwen3DoSample,
+      qwen3Temperature: t.qwen3Temperature,
+      qwen3TopP: t.qwen3TopP,
+      qwen3TopK: t.qwen3TopK,
+      qwen3RepetitionPenalty: t.qwen3RepetitionPenalty,
+      qwen3MaxNewTokens: t.qwen3MaxNewTokens,
+      qwen3NonStreamingMode: t.qwen3NonStreamingMode,
+      qwen3SubtalkerDoSample: t.qwen3SubtalkerDoSample,
+      qwen3SubtalkerTopK: t.qwen3SubtalkerTopK,
+      qwen3SubtalkerTopP: t.qwen3SubtalkerTopP,
+      qwen3SubtalkerTemperature: t.qwen3SubtalkerTemperature,
+      qwen3Streaming: t.qwen3Streaming === true,
+      coquiTemperature: t.coquiTemperature,
+      coquiLengthPenalty: t.coquiLengthPenalty,
+      coquiRepetitionPenalty: t.coquiRepetitionPenalty,
+      coquiTopK: t.coquiTopK,
+      coquiTopP: t.coquiTopP,
+      coquiSpeed: t.coquiSpeed,
+      coquiSplitSentences: t.coquiSplitSentences,
+    };
   }
 
   serialize(): SerializedLLMConfig {

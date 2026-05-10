@@ -1,0 +1,15 @@
+# =============================================================================
+# VeraLux — local-gpu deployment overlay (merge AFTER docker-compose.yml)
+# =============================================================================
+# Use with: ./scripts/deploy-profile.sh --profile local-gpu
+#
+# Start the GPU audio profile explicitly, e.g.:
+#   docker compose ... --profile gpu up -d
+#
+# Preserves all base service names: whisper-gpu, chatterbox-gpu, control, runtime, etc.
+# Default workstation behavior when DEPLOYMENT_PROFILE is unset remains unchanged
+# (see root docker-compose.yml + ./deploy.sh).
+# =============================================================================
+x-veralux-deployment-profile: local-gpu
+
+services: {}

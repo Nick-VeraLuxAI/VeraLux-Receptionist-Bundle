@@ -18,6 +18,10 @@ interface HealthStatus {
 
 const startTime = Date.now();
 
+function voiceDepsMode() {
+  return env.HEALTH_VOICE_DEPENDENCIES;
+}
+
 async function checkRedis(): Promise<{ ok: boolean; latency_ms?: number; error?: string }> {
   const start = Date.now();
   try {
@@ -106,12 +110,95 @@ function ttsHealthUrl(): string | undefined {
   return undefined;
 }
 
-/** Strict voice-plane readiness: Redis + Whisper + configured TTS + optional Brain HTTP. */
+function effectiveSttHealthUrl(): string | undefined {
+  const explicit = env.STT_HEALTH_URL?.trim();
+  if (explicit) return explicit;
+  return whisperHealthUrl();
+}
+
+function effectiveTtsHealthUrl(): string | undefined {
+  const explicit = env.TTS_HEALTH_URL?.trim();
+  if (explicit) return explicit;
+  return ttsHealthUrl();
+}
+
+function effectiveLlmHealthUrl(): string | undefined {
+  const explicit = env.LLM_HEALTH_URL?.trim();
+  if (explicit) return explicit;
+  return brainHealthUrl();
+}
+
+function ttsConfigPresent(): boolean {
+  return Boolean(ttsHealthUrl());
+}
+
+/** configured mode: STT/TTS env contract satisfied (URLs non-empty where required by env schema). */
+function voiceConfigConfigured(): { ok: boolean; error?: string } {
+  if (!env.WHISPER_URL?.trim()) return { ok: false, error: 'missing_whisper_url' };
+  if (!ttsConfigPresent()) return { ok: false, error: 'missing_or_unsupported_tts_url' };
+  return { ok: true };
+}
+
+/** Strict voice-plane readiness: Redis + STT/TTS HTTP health (legacy) + optional Brain HTTP. */
 healthRouter.get('/voice', async (_req, res) => {
+  const mode = voiceDepsMode();
   const redis = await checkRedis();
-  const wUrl = whisperHealthUrl();
-  const tUrl = ttsHealthUrl();
-  const bUrl = brainHealthUrl();
+
+  if (mode === 'disabled') {
+    const ready = redis.ok;
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'ok' : 'not_ready',
+      endpoint: '/health/voice',
+      checks: { redis },
+      voice_dependencies_checked: false,
+      health_voice_dependency_mode: mode,
+    });
+  }
+
+  if (mode === 'configured') {
+    const cfg = voiceConfigConfigured();
+    if (!cfg.ok || !redis.ok) {
+      return res.status(503).json({
+        status: 'not_ready',
+        endpoint: '/health/voice',
+        checks: { redis },
+        error: cfg.error ?? 'redis_unavailable',
+        voice_dependencies_checked: true,
+        health_voice_dependency_mode: mode,
+      });
+    }
+    const sttProbe = env.STT_HEALTH_URL?.trim();
+    const ttsProbe = env.TTS_HEALTH_URL?.trim();
+    const llmProbe = env.LLM_HEALTH_URL?.trim();
+    const [stt, tts, llm] = await Promise.all([
+      sttProbe ? checkUrl(sttProbe) : Promise.resolve({ ok: true, skipped: true as const }),
+      ttsProbe ? checkUrl(ttsProbe) : Promise.resolve({ ok: true, skipped: true as const }),
+      llmProbe ? checkUrl(llmProbe) : Promise.resolve({ ok: true, skipped: true as const }),
+    ]);
+    const sttOk = 'skipped' in stt ? true : stt.ok;
+    const ttsOk = 'skipped' in tts ? true : tts.ok;
+    const llmOk = 'skipped' in llm ? true : llm.ok;
+    const ready = redis.ok && sttOk && ttsOk && llmOk;
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'ok' : 'not_ready',
+      endpoint: '/health/voice',
+      checks: {
+        redis,
+        whisper: 'skipped' in stt ? { ok: true, mode: 'configured_not_probed' } : stt,
+        tts: 'skipped' in tts ? { ok: true, mode: 'configured_not_probed' } : tts,
+        ...(!('skipped' in llm) || llmProbe
+          ? { brain: 'skipped' in llm ? { ok: true, mode: 'configured_not_probed' } : llm }
+          : {}),
+      },
+      voice_dependencies_checked: true,
+      health_voice_dependency_mode: mode,
+    });
+  }
+
+  // strict
+  const wUrl = effectiveSttHealthUrl();
+  const tUrl = effectiveTtsHealthUrl();
+  const bUrl = effectiveLlmHealthUrl();
 
   if (!wUrl || !tUrl) {
     log.warn({ event: 'health_voice_misconfigured', whisper_configured: Boolean(wUrl), tts_configured: Boolean(tUrl) });
@@ -121,6 +208,7 @@ healthRouter.get('/voice', async (_req, res) => {
       checks: { redis },
       error: !wUrl ? 'missing_whisper_url' : 'missing_or_unsupported_tts_url',
       voice_dependencies_checked: true,
+      health_voice_dependency_mode: mode,
     });
   }
 
@@ -129,12 +217,11 @@ healthRouter.get('/voice', async (_req, res) => {
     checkUrl(tUrl),
     bUrl ? checkUrl(bUrl) : Promise.resolve(undefined),
   ]);
-  const checks: HealthStatus['checks'] & { brain?: { ok: boolean; latency_ms?: number; error?: string } } =
-    {
-      redis,
-      whisper,
-      tts,
-    };
+  const checks: HealthStatus['checks'] & { brain?: { ok: boolean; latency_ms?: number; error?: string } } = {
+    redis,
+    whisper,
+    tts,
+  };
   if (brain !== undefined) checks.brain = brain;
 
   const sttOk = whisper.ok;
@@ -148,26 +235,65 @@ healthRouter.get('/voice', async (_req, res) => {
     checks,
     voice_dependencies_checked: true,
     brain_checked: Boolean(bUrl),
+    health_voice_dependency_mode: mode,
   });
 });
 
-// Readiness: Redis-only when HEALTH_VOICE_DEPENDENCIES=false; otherwise same strict gate as GET /health/voice.
 healthRouter.get('/ready', async (_req, res) => {
+  const mode = voiceDepsMode();
   const redis = await checkRedis();
   const checks: HealthStatus['checks'] = { redis };
 
-  if (!env.HEALTH_VOICE_DEPENDENCIES) {
+  if (mode === 'disabled') {
     const ready = redis.ok;
     return res.status(ready ? 200 : 503).json({
       status: ready ? 'ok' : 'not_ready',
       checks: { redis },
       voice_dependencies_checked: false,
+      health_voice_dependency_mode: mode,
     });
   }
 
-  const wUrl = whisperHealthUrl();
-  const tUrl = ttsHealthUrl();
-  const bUrl = brainHealthUrl();
+  if (mode === 'configured') {
+    const cfg = voiceConfigConfigured();
+    if (!cfg.ok || !redis.ok) {
+      return res.status(503).json({
+        status: 'not_ready',
+        checks: { redis },
+        error: cfg.error ?? 'redis_unavailable',
+        voice_dependencies_checked: true,
+        health_voice_dependency_mode: mode,
+      });
+    }
+    const sttProbe = env.STT_HEALTH_URL?.trim();
+    const ttsProbe = env.TTS_HEALTH_URL?.trim();
+    const llmProbe = env.LLM_HEALTH_URL?.trim();
+    const [whisper, tts, brain] = await Promise.all([
+      sttProbe ? checkUrl(sttProbe) : Promise.resolve({ ok: true, skipped: true as const }),
+      ttsProbe ? checkUrl(ttsProbe) : Promise.resolve({ ok: true, skipped: true as const }),
+      llmProbe ? checkUrl(llmProbe) : Promise.resolve(undefined),
+    ]);
+    if (whisper && !('skipped' in whisper)) checks.whisper = whisper;
+    if (tts && !('skipped' in tts)) checks.tts = tts;
+    const extras: Record<string, unknown> = { voice_dependencies_checked: true, health_voice_dependency_mode: mode };
+    if (brain !== undefined && brain) {
+      extras.brain_checked = Boolean(llmProbe);
+      (checks as typeof checks & { brain?: { ok: boolean; latency_ms?: number; error?: string } }).brain = brain;
+    }
+    const sttOk = !whisper || 'skipped' in whisper || whisper.ok;
+    const ttsOk = !tts || 'skipped' in tts || tts.ok;
+    const brainOk = brain === undefined || brain.ok;
+    const ready = redis.ok && sttOk && ttsOk && brainOk;
+    return res.status(ready ? 200 : 503).json({
+      status: ready ? 'ok' : 'not_ready',
+      checks,
+      ...extras,
+    });
+  }
+
+  const wUrl = effectiveSttHealthUrl();
+  const tUrl = effectiveTtsHealthUrl();
+  const bUrl = effectiveLlmHealthUrl();
 
   if (!wUrl || !tUrl) {
     return res.status(503).json({
@@ -175,6 +301,7 @@ healthRouter.get('/ready', async (_req, res) => {
       checks: { redis },
       error: !wUrl ? 'missing_whisper_url' : 'missing_or_unsupported_tts_url',
       voice_dependencies_checked: true,
+      health_voice_dependency_mode: mode,
     });
   }
 
@@ -185,7 +312,7 @@ healthRouter.get('/ready', async (_req, res) => {
   ]);
   if (whisper) checks.whisper = whisper;
   if (tts) checks.tts = tts;
-  const extras: Record<string, unknown> = { voice_dependencies_checked: true };
+  const extras: Record<string, unknown> = { voice_dependencies_checked: true, health_voice_dependency_mode: mode };
   if (brain !== undefined) {
     extras.brain_checked = Boolean(bUrl);
     (checks as typeof checks & { brain?: { ok: boolean; latency_ms?: number; error?: string } }).brain = brain;
@@ -203,25 +330,54 @@ healthRouter.get('/ready', async (_req, res) => {
   });
 });
 
-// Full diagnostic health (HTTP 503 only when Redis is down). Honors HEALTH_VOICE_DEPENDENCIES like /ready.
+// Full diagnostic health (HTTP 503 only when Redis is down). Honors HEALTH_VOICE_DEPENDENCIES modes.
 healthRouter.get('/', async (_req, res) => {
+  const mode = voiceDepsMode();
   const redis = await checkRedis();
   const checks: HealthStatus['checks'] = { redis };
 
-  if (!env.HEALTH_VOICE_DEPENDENCIES) {
+  if (mode === 'disabled') {
     const anyFailed = !redis.ok;
-    const status: HealthStatus & { voice_ready: boolean; voice_dependencies_checked: boolean } = {
+    const status: HealthStatus & { voice_ready: boolean; voice_dependencies_checked: boolean; health_voice_dependency_mode: string } = {
       status: anyFailed ? 'unhealthy' : 'ok',
       checks,
       uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
       voice_ready: false,
       voice_dependencies_checked: false,
+      health_voice_dependency_mode: mode,
     };
     return res.status(anyFailed ? 503 : 200).json(status);
   }
 
-  const ttsHealth = ttsHealthUrl();
-  const wUrl = whisperHealthUrl();
+  if (mode === 'configured') {
+    const cfg = voiceConfigConfigured();
+    const ttsHealth = env.TTS_HEALTH_URL?.trim();
+    const wUrl = env.STT_HEALTH_URL?.trim();
+    const [whisper, tts] = await Promise.all([
+      wUrl ? checkUrl(wUrl) : Promise.resolve(undefined),
+      ttsHealth ? checkUrl(ttsHealth) : Promise.resolve(undefined),
+    ]);
+    if (whisper) checks.whisper = whisper;
+    if (tts) checks.tts = tts;
+    const voiceReady = cfg.ok && (whisper?.ok ?? true) && (tts?.ok ?? true);
+    const anyFailed = !redis.ok;
+    const status: HealthStatus & {
+      voice_ready: boolean;
+      voice_dependencies_checked: boolean;
+      health_voice_dependency_mode: string;
+    } = {
+      status: anyFailed ? 'unhealthy' : redis.ok && voiceReady ? 'ok' : 'degraded',
+      checks,
+      uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
+      voice_ready: Boolean(redis.ok && voiceReady),
+      voice_dependencies_checked: true,
+      health_voice_dependency_mode: mode,
+    };
+    return res.status(anyFailed ? 503 : 200).json(status);
+  }
+
+  const ttsHealth = effectiveTtsHealthUrl();
+  const wUrl = effectiveSttHealthUrl();
   const [whisper, tts] = await Promise.all([
     wUrl ? checkUrl(wUrl) : Promise.resolve(undefined),
     ttsHealth ? checkUrl(ttsHealth) : Promise.resolve(undefined),
@@ -233,12 +389,13 @@ healthRouter.get('/', async (_req, res) => {
   const anyFailed = !redis.ok;
   const voiceReady = (whisper?.ok ?? true) && (tts?.ok ?? true);
 
-  const status: HealthStatus & { voice_ready: boolean; voice_dependencies_checked: boolean } = {
+  const status: HealthStatus & { voice_ready: boolean; voice_dependencies_checked: boolean; health_voice_dependency_mode: string } = {
     status: anyFailed ? 'unhealthy' : allOk ? 'ok' : 'degraded',
     checks,
     uptime_seconds: Math.floor((Date.now() - startTime) / 1000),
     voice_ready: Boolean(redis.ok && voiceReady),
     voice_dependencies_checked: true,
+    health_voice_dependency_mode: mode,
   };
 
   if (!allOk) {

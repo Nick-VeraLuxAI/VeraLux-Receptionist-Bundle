@@ -2695,8 +2695,15 @@
         presetEl.value = cfg.preset || "neutral";
         rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
         if (dm) dm.value = cfg.defaultVoiceMode || "preset";
-        if (cu) cu.value = cfg.clonedVoice?.speakerWavUrl || "";
-        if (cl) cl.value = cfg.clonedVoice?.label || "";
+        if (cu) {
+          cu.value = cfg.clonedVoice?.speakerWavUrl || "";
+          if (!cu.value && (cfg.clonedVoice?.speakerWavConfigured || cfg.clonedVoiceReferenceConfigured)) {
+            cu.placeholder = "Reference audio configured (URL not shown in portal)";
+          } else {
+            cu.placeholder = "";
+          }
+        }
+        if (cl) cl.value = cfg.clonedVoice?.label || cfg.clonedVoiceLabel || "";
         const pqi = $("portal-qwen3Instruct");
         if (pqi) pqi.value = cfg.qwen3Instruct || "";
         const pqStr = $("portal-qwen3Streaming");

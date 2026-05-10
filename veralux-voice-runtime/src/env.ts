@@ -21,6 +21,24 @@ if (dotenvPath === '.env.development' && !fs.existsSync(dotenvResolved)) {
 const dotenvOverride = dotenvPath === '.env.development';
 dotenv.config({ path: dotenvResolved, override: dotenvOverride });
 
+// `tsx --test` does not set NODE_ENV=test; readiness scripts set VERALUX_TEST_HOST_PATHS=1 so a
+// Docker-oriented `.env` (paths under /app/...) still mkdirs under /tmp on the host.
+if (process.env.VERALUX_TEST_HOST_PATHS === '1' || process.env.NODE_ENV === 'test') {
+  const tmpRoot = '/tmp/veralux-runtime-test';
+  const mapIfApp = (key: string, leaf: string) => {
+    const v = process.env[key];
+    if (v && v.startsWith('/app/')) {
+      process.env[key] = `${tmpRoot}/${leaf}`;
+    }
+  };
+  mapIfApp('STT_DEBUG_DIR', 'stt-debug');
+  mapIfApp('AMRWB_DEBUG_DIR', 'amrwb-debug');
+  mapIfApp('CALL_TRANSCRIPT_DIR', 'call-transcripts');
+  if (process.env.AUDIO_STORAGE_DIR?.startsWith('/app/')) {
+    process.env.AUDIO_STORAGE_DIR = `${tmpRoot}/audio`;
+  }
+}
+
 // ───────────────────────── helpers ─────────────────────────
 
 const emptyToUndefined = (value: unknown): unknown => {
@@ -37,6 +55,23 @@ const stringToBoolean = (value: unknown): unknown => {
   }
   return value;
 };
+
+/** strict = legacy HEALTH_VOICE_DEPENDENCIES=true; disabled = legacy false; configured = env-only readiness. */
+export type HealthVoiceDependencyMode = 'strict' | 'configured' | 'disabled';
+
+/** Exported for unit tests (`tests/healthVoiceDependencyMode.test.ts`). */
+export function preprocessHealthVoiceDependencies(value: unknown): HealthVoiceDependencyMode {
+  if (value === undefined || value === null) return 'strict';
+  if (typeof value === 'boolean') return value ? 'strict' : 'disabled';
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    if (s === '') return 'strict';
+    if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return 'strict';
+    if (s === '0' || s === 'false' || s === 'no' || s === 'off') return 'disabled';
+    if (s === 'strict' || s === 'configured' || s === 'disabled') return s;
+  }
+  return 'strict';
+}
 
 const numberFromEnv = (value: unknown): unknown => {
   // prevent z.coerce.number from treating booleans as 1/0
@@ -107,10 +142,26 @@ const EnvSchema = z.object({
   AUDIO_DIAGNOSTICS: z.preprocess(stringToBoolean, z.boolean().default(false)),
   ALLOW_PROD_DEBUG_CAPTURE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   /**
-   * When true (default), `GET /health/ready` checks Whisper + TTS HTTP `/health` in addition to Redis.
-   * Set `false` for CI or redis-only gates (operators should leave default on in production).
+   * Voice dependency checks for `/health/voice`, `/health/ready`, and `/health`.
+   * - strict (default): legacy behavior — HTTP GET derived `/health` for STT/TTS (and optional brain).
+   * - configured: require env/contract presence only; optional explicit `*_HEALTH_URL` probes when set.
+   * - disabled: Redis-only for readiness-style gates (legacy `HEALTH_VOICE_DEPENDENCIES=false`).
    */
-  HEALTH_VOICE_DEPENDENCIES: z.preprocess(stringToBoolean, z.boolean().default(true)),
+  HEALTH_VOICE_DEPENDENCIES: z.preprocess(
+    preprocessHealthVoiceDependencies,
+    z.enum(['strict', 'configured', 'disabled']).default('strict'),
+  ),
+  /** Optional operator hint for observability (does not change call logic). */
+  DEPLOYMENT_PROFILE: z.preprocess(
+    emptyToUndefined,
+    z.enum(['local-gpu', 'cloud-api', 'hybrid']).optional(),
+  ),
+  /** When set in strict mode, probe this URL instead of deriving `/health` from `WHISPER_URL`. */
+  STT_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  /** When set in strict mode, probe this URL instead of deriving TTS `/health` from mode URLs. */
+  TTS_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  /** When set in strict mode, probe this URL instead of deriving brain `/health` from `BRAIN_URL`. */
+  LLM_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
 
   /* ───────────────────────── Telnyx ───────────────────────── */
   TELNYX_API_KEY: z.string().min(1),

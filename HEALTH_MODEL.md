@@ -39,17 +39,25 @@ Docker Compose only exposes **one** healthcheck per service. For **`control`** a
 
 ### Readiness (`GET /health/ready`)
 
-When **`HEALTH_VOICE_DEPENDENCIES=true`** (default in production images / compose):
+**`HEALTH_VOICE_DEPENDENCIES`** accepts **`strict`**, **`configured`**, or **`disabled`**, and still accepts legacy boolean strings **`true`** / **`false`** (mapped to `strict` / `disabled`).
+
+When **`strict`** (default; legacy `true`):
 
 - **Redis** — `PING`.
-- **Whisper** — HTTP `GET` on the health URL derived from **`WHISPER_URL`** (same rules as `GET /health`).
-- **TTS** — HTTP `GET` on the **`/health`** URL for the backend selected by **`TTS_MODE`** (`KOKORO_URL` → host `/health`, Coqui/Chatterbox/Qwen3 → base + `/health`).
+- **Whisper** — HTTP `GET` on **`STT_HEALTH_URL`** if set, otherwise the health URL derived from **`WHISPER_URL`** (same rules as `GET /health`).
+- **TTS** — HTTP `GET` on **`TTS_HEALTH_URL`** if set, otherwise the **`/health`** URL for the backend selected by **`TTS_MODE`** (`KOKORO_URL` → host `/health`, Coqui/Chatterbox/Qwen3 → base + `/health`).
+- **Brain (optional)** — when **`LLM_HEALTH_URL`** is set, that URL is probed; otherwise **`BRAIN_URL`** is normalized to **`/health`** when not using local brain.
 
-All must return HTTP “ok” (fetch `response.ok`) within the server timeout (5s per dependency, parallel).
+All probed URLs must return HTTP “ok” (fetch `response.ok`) within the server timeout (5s per dependency, parallel).
 
-When **`HEALTH_VOICE_DEPENDENCIES=false`** (used in CI / redis-only test stacks):
+When **`configured`**:
 
-- Only **Redis** is checked; JSON includes `voice_dependencies_checked: false`. **`GET /health`** behaves the same way (no Whisper/TTS probes).
+- **Redis** must pass; **STT/TTS env contract** must be present (same URL requirements as runtime `env.ts`).
+- Optional HTTP probes run **only** when **`STT_HEALTH_URL`**, **`TTS_HEALTH_URL`**, or **`LLM_HEALTH_URL`** are set (for providers without VeraLux-style derived `/health`).
+
+When **`disabled`** (legacy `false`):
+
+- Only **Redis** is checked for `/health/ready`, `/health/voice`, and `/health` aggregate voice gates; JSON includes `voice_dependencies_checked: false`.
 
 ### Kokoro health URL
 

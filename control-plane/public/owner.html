@@ -1642,12 +1642,33 @@
         if (!ownerTtsUrlByMode.coqui_xtts && m === "coqui_xtts") {
           ownerTtsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
         }
+        if (!ownerTtsUrlByMode.coqui_xtts && cfg.coquiXttsEndpointConfigured) {
+          ownerTtsUrlByMode.coqui_xtts = "";
+        }
         ownerTtsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
         if (!ownerTtsUrlByMode.kokoro_http && m === "kokoro_http") {
           ownerTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
         }
+        if (!ownerTtsUrlByMode.kokoro_http && cfg.kokoroEndpointConfigured) {
+          ownerTtsUrlByMode.kokoro_http = "";
+        }
         ownerTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+        if (!ownerTtsUrlByMode.chatterbox_http && cfg.chatterboxEndpointConfigured) {
+          ownerTtsUrlByMode.chatterbox_http = "";
+        }
         ownerTtsUrlByMode.qwen3_tts_http = (cfg.qwen3TtsUrl || "").trim();
+        if (!ownerTtsUrlByMode.qwen3_tts_http && cfg.qwen3EndpointConfigured) {
+          ownerTtsUrlByMode.qwen3_tts_http = "";
+        }
+        const urlEl = $("owner-ttsUrl");
+        if (urlEl) {
+          const cur = ownerTtsUrlByMode[m] || "";
+          if (!cur && (cfg.coquiXttsEndpointConfigured || cfg.kokoroEndpointConfigured || cfg.chatterboxEndpointConfigured || cfg.qwen3EndpointConfigured)) {
+            urlEl.placeholder = "TTS endpoint configured (URL not shown in portal)";
+          } else {
+            urlEl.placeholder = "https://…";
+          }
+        }
       }
 
       function ownerApplyTtsUrlForMode(mode) {
@@ -1698,9 +1719,14 @@
         }
         if (clonedVoiceUrlEl) {
           clonedVoiceUrlEl.value = cfg.clonedVoice?.speakerWavUrl || "";
+          if (!clonedVoiceUrlEl.value && (cfg.clonedVoice?.speakerWavConfigured || cfg.clonedVoiceReferenceConfigured)) {
+            clonedVoiceUrlEl.placeholder = "Reference audio configured (URL not shown in portal)";
+          } else {
+            clonedVoiceUrlEl.placeholder = "https://…";
+          }
         }
         if (clonedVoiceLabelEl) {
-          clonedVoiceLabelEl.value = cfg.clonedVoice?.label || "";
+          clonedVoiceLabelEl.value = cfg.clonedVoice?.label || cfg.clonedVoiceLabel || "";
         }
 
         const ownerQi = $("owner-qwen3Instruct");
@@ -1844,9 +1870,11 @@
           }
 
           if (voiceConfig.defaultVoiceMode === "cloned" && voiceConfig.clonedVoices.length > 0) {
-            const activeCloned = voiceConfig.clonedVoices.find(
-              (v) => cfg.clonedVoice && v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
-            );
+            const activeCloned = cfg.clonedVoice?.speakerWavUrl
+              ? voiceConfig.clonedVoices.find(
+                  (v) => cfg.clonedVoice && v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
+                )
+              : null;
             voiceConfig.activeVoiceId = activeCloned ? `cloned:${activeCloned.id}` : `preset:${voiceConfig.presetVoice}`;
           } else {
             voiceConfig.activeVoiceId = `preset:${voiceConfig.presetVoice}`;

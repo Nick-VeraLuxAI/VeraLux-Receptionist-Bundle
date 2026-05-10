@@ -25,7 +25,12 @@ import {
   quickReplyIntentSchema,
   type RuntimeTenantConfig,
 } from "./runtime/runtimeContract";
-import { businessHoursSchema, evaluateBusinessHours } from "@veralux/shared";
+import {
+  businessHoursSchema,
+  evaluateBusinessHours,
+  redactPublishedRuntimeConfig,
+  redactHttpUrlToPlaceholder,
+} from "@veralux/shared";
 import {
   assertRuntimeRedisConfigured,
   getTenantConfig,
@@ -42,6 +47,7 @@ import {
   type TTSConfig,
   type VoicePreset,
   type PromptConfig,
+  type SafeTtsPublicConfig,
 } from "./config";
 import { getCustomerBrandingPayload } from "./customerBranding";
 import { resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
@@ -1064,11 +1070,21 @@ function shouldIncludeRuntimeSecrets(req: Request): boolean {
   return parseBooleanish(raw, false) && ALLOW_RUNTIME_SECRET_READ;
 }
 
-function redactRuntimeConfig(
-  config: RuntimeTenantConfig
-): Omit<RuntimeTenantConfig, "webhookSecret"> {
-  const { webhookSecret, ...rest } = config;
-  return rest;
+function redactRuntimeConfig(config: RuntimeTenantConfig): Record<string, unknown> {
+  return redactPublishedRuntimeConfig(config);
+}
+
+function ttsDiagnosticsPayload(full: TTSConfig): Record<string, unknown> {
+  return {
+    xttsUrl: redactHttpUrlToPlaceholder(full.xttsUrl),
+    kokoroUrl: redactHttpUrlToPlaceholder(full.kokoroUrl),
+    coquiXttsUrl: redactHttpUrlToPlaceholder(full.coquiXttsUrl),
+    chatterboxUrl: redactHttpUrlToPlaceholder(full.chatterboxUrl),
+    qwen3TtsUrl: redactHttpUrlToPlaceholder(full.qwen3TtsUrl),
+    clonedSpeakerWavUrl: full.clonedVoice?.speakerWavUrl
+      ? redactHttpUrlToPlaceholder(full.clonedVoice.speakerWavUrl)
+      : undefined,
+  };
 }
 
 function parsePreferredPort(value: string | undefined, fallback = 4000): number {
@@ -2119,63 +2135,72 @@ type ExtendedTtsConfig = TTSConfig & {
 app.get("/api/tts/config", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-  
-  const baseCfg = tenant.config.getSafeTtsConfig();
-  
-  // Return extended config with mode info
-  const extendedCfg: ExtendedTtsConfig = {
-    ...baseCfg,
-    mode: (baseCfg as any).ttsMode || "kokoro_http",
-    ttsMode: (baseCfg as any).ttsMode || "kokoro_http",
-  };
-  
-  // Include voice cloning fields if present
-  if ((baseCfg as any).defaultVoiceMode) {
-    extendedCfg.defaultVoiceMode = (baseCfg as any).defaultVoiceMode;
-  }
-  if ((baseCfg as any).clonedVoice) {
-    extendedCfg.clonedVoice = (baseCfg as any).clonedVoice;
-  }
-  if ((baseCfg as any).coquiXttsUrl) {
-    extendedCfg.coquiXttsUrl = (baseCfg as any).coquiXttsUrl;
-  }
-  if ((baseCfg as any).kokoroUrl) {
-    extendedCfg.kokoroUrl = (baseCfg as any).kokoroUrl;
-  }
-  if ((baseCfg as any).chatterboxUrl) {
-    extendedCfg.chatterboxUrl = (baseCfg as any).chatterboxUrl;
-  }
-  if ((baseCfg as any).chatterboxVariant) {
-    extendedCfg.chatterboxVariant = (baseCfg as any).chatterboxVariant;
-  }
-  if ((baseCfg as any).qwen3TtsUrl) {
-    extendedCfg.qwen3TtsUrl = (baseCfg as any).qwen3TtsUrl;
-  }
-  if ((baseCfg as any).qwen3Instruct) {
-    extendedCfg.qwen3Instruct = (baseCfg as any).qwen3Instruct;
-  }
-  const bq = baseCfg as any;
-  if (bq.qwen3DoSample !== undefined) extendedCfg.qwen3DoSample = bq.qwen3DoSample;
-  if (bq.qwen3Temperature !== undefined) extendedCfg.qwen3Temperature = bq.qwen3Temperature;
-  if (bq.qwen3TopP !== undefined) extendedCfg.qwen3TopP = bq.qwen3TopP;
-  if (bq.qwen3TopK !== undefined) extendedCfg.qwen3TopK = bq.qwen3TopK;
-  if (bq.qwen3RepetitionPenalty !== undefined) extendedCfg.qwen3RepetitionPenalty = bq.qwen3RepetitionPenalty;
-  if (bq.qwen3MaxNewTokens !== undefined) extendedCfg.qwen3MaxNewTokens = bq.qwen3MaxNewTokens;
-  if (bq.qwen3NonStreamingMode !== undefined) extendedCfg.qwen3NonStreamingMode = bq.qwen3NonStreamingMode;
-  if (bq.qwen3SubtalkerDoSample !== undefined) extendedCfg.qwen3SubtalkerDoSample = bq.qwen3SubtalkerDoSample;
-  if (bq.qwen3SubtalkerTopK !== undefined) extendedCfg.qwen3SubtalkerTopK = bq.qwen3SubtalkerTopK;
-  if (bq.qwen3SubtalkerTopP !== undefined) extendedCfg.qwen3SubtalkerTopP = bq.qwen3SubtalkerTopP;
-  if (bq.qwen3SubtalkerTemperature !== undefined) extendedCfg.qwen3SubtalkerTemperature = bq.qwen3SubtalkerTemperature;
-  if (bq.qwen3Streaming !== undefined) extendedCfg.qwen3Streaming = bq.qwen3Streaming;
-  if (bq.coquiTemperature !== undefined) extendedCfg.coquiTemperature = bq.coquiTemperature;
-  if (bq.coquiLengthPenalty !== undefined) extendedCfg.coquiLengthPenalty = bq.coquiLengthPenalty;
-  if (bq.coquiRepetitionPenalty !== undefined) extendedCfg.coquiRepetitionPenalty = bq.coquiRepetitionPenalty;
-  if (bq.coquiTopK !== undefined) extendedCfg.coquiTopK = bq.coquiTopK;
-  if (bq.coquiTopP !== undefined) extendedCfg.coquiTopP = bq.coquiTopP;
-  if (bq.coquiSpeed !== undefined) extendedCfg.coquiSpeed = bq.coquiSpeed;
-  if (bq.coquiSplitSentences !== undefined) extendedCfg.coquiSplitSentences = bq.coquiSplitSentences;
 
-  res.json(extendedCfg);
+  const ar = req as AuthedRequest;
+  const diagnostics =
+    typeof ar.query?.diagnostics === "string" && ar.query.diagnostics === "1" && ar.ctx?.isSuperAdmin;
+
+  // Superadmin operator console needs full URLs to edit infrastructure (trusted).
+  if (ar.ctx?.isSuperAdmin) {
+    const baseCfg = tenant.config.getTtsConfig();
+    const extendedCfg: ExtendedTtsConfig = {
+      ...baseCfg,
+      mode: (baseCfg as any).ttsMode || "kokoro_http",
+      ttsMode: (baseCfg as any).ttsMode || "kokoro_http",
+    };
+    if ((baseCfg as any).defaultVoiceMode) {
+      extendedCfg.defaultVoiceMode = (baseCfg as any).defaultVoiceMode;
+    }
+    if ((baseCfg as any).clonedVoice) {
+      extendedCfg.clonedVoice = (baseCfg as any).clonedVoice;
+    }
+    if ((baseCfg as any).coquiXttsUrl) extendedCfg.coquiXttsUrl = (baseCfg as any).coquiXttsUrl;
+    if ((baseCfg as any).kokoroUrl) extendedCfg.kokoroUrl = (baseCfg as any).kokoroUrl;
+    if ((baseCfg as any).chatterboxUrl) extendedCfg.chatterboxUrl = (baseCfg as any).chatterboxUrl;
+    if ((baseCfg as any).chatterboxVariant) {
+      extendedCfg.chatterboxVariant = (baseCfg as any).chatterboxVariant;
+    }
+    if ((baseCfg as any).qwen3TtsUrl) extendedCfg.qwen3TtsUrl = (baseCfg as any).qwen3TtsUrl;
+    if ((baseCfg as any).qwen3Instruct) extendedCfg.qwen3Instruct = (baseCfg as any).qwen3Instruct;
+    const bq = baseCfg as any;
+    if (bq.qwen3DoSample !== undefined) extendedCfg.qwen3DoSample = bq.qwen3DoSample;
+    if (bq.qwen3Temperature !== undefined) extendedCfg.qwen3Temperature = bq.qwen3Temperature;
+    if (bq.qwen3TopP !== undefined) extendedCfg.qwen3TopP = bq.qwen3TopP;
+    if (bq.qwen3TopK !== undefined) extendedCfg.qwen3TopK = bq.qwen3TopK;
+    if (bq.qwen3RepetitionPenalty !== undefined) extendedCfg.qwen3RepetitionPenalty = bq.qwen3RepetitionPenalty;
+    if (bq.qwen3MaxNewTokens !== undefined) extendedCfg.qwen3MaxNewTokens = bq.qwen3MaxNewTokens;
+    if (bq.qwen3NonStreamingMode !== undefined) extendedCfg.qwen3NonStreamingMode = bq.qwen3NonStreamingMode;
+    if (bq.qwen3SubtalkerDoSample !== undefined) extendedCfg.qwen3SubtalkerDoSample = bq.qwen3SubtalkerDoSample;
+    if (bq.qwen3SubtalkerTopK !== undefined) extendedCfg.qwen3SubtalkerTopK = bq.qwen3SubtalkerTopK;
+    if (bq.qwen3SubtalkerTopP !== undefined) extendedCfg.qwen3SubtalkerTopP = bq.qwen3SubtalkerTopP;
+    if (bq.qwen3SubtalkerTemperature !== undefined) {
+      extendedCfg.qwen3SubtalkerTemperature = bq.qwen3SubtalkerTemperature;
+    }
+    if (bq.qwen3Streaming !== undefined) extendedCfg.qwen3Streaming = bq.qwen3Streaming;
+    if (bq.coquiTemperature !== undefined) extendedCfg.coquiTemperature = bq.coquiTemperature;
+    if (bq.coquiLengthPenalty !== undefined) extendedCfg.coquiLengthPenalty = bq.coquiLengthPenalty;
+    if (bq.coquiRepetitionPenalty !== undefined) extendedCfg.coquiRepetitionPenalty = bq.coquiRepetitionPenalty;
+    if (bq.coquiTopK !== undefined) extendedCfg.coquiTopK = bq.coquiTopK;
+    if (bq.coquiTopP !== undefined) extendedCfg.coquiTopP = bq.coquiTopP;
+    if (bq.coquiSpeed !== undefined) extendedCfg.coquiSpeed = bq.coquiSpeed;
+    if (bq.coquiSplitSentences !== undefined) extendedCfg.coquiSplitSentences = bq.coquiSplitSentences;
+    if (diagnostics) {
+      (extendedCfg as any).diagnostics = ttsDiagnosticsPayload(baseCfg);
+    }
+    res.json(extendedCfg);
+    return;
+  }
+
+  const safe = tenant.config.getSafeTtsConfig();
+  const payload: SafeTtsPublicConfig & { mode: string; diagnostics?: Record<string, unknown> } = {
+    ...safe,
+    mode: safe.ttsMode,
+  };
+  if (diagnostics) {
+    payload.diagnostics = ttsDiagnosticsPayload(tenant.config.getTtsConfig());
+  }
+
+  res.json(payload);
 });
 
 app.post("/api/tts/config", async (req: AuthedRequest, res) => {
@@ -2476,25 +2501,45 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
     }
   }
 
-  // Return extended config with all fields
-  const response: ExtendedTtsConfig = {
-    ...updated,
-    mode: configUpdate.ttsMode,
-    ttsMode: configUpdate.ttsMode,
-    defaultVoiceMode: configUpdate.defaultVoiceMode,
-    clonedVoice: configUpdate.clonedVoice,
-    coquiXttsUrl: configUpdate.coquiXttsUrl,
-    kokoroUrl: configUpdate.kokoroUrl,
-    chatterboxUrl: configUpdate.chatterboxUrl,
-    chatterboxVariant: configUpdate.chatterboxVariant,
-    qwen3TtsUrl: configUpdate.qwen3TtsUrl,
-    qwen3Instruct: configUpdate.qwen3Instruct,
-  };
+  const diagnostics =
+    typeof req.query?.diagnostics === "string" && req.query.diagnostics === "1" && req.ctx?.isSuperAdmin;
 
-  res.json({
-    ...response,
+  if (req.ctx?.isSuperAdmin) {
+    const response: ExtendedTtsConfig = {
+      ...updated,
+      mode: configUpdate.ttsMode,
+      ttsMode: configUpdate.ttsMode,
+      defaultVoiceMode: configUpdate.defaultVoiceMode,
+      clonedVoice: configUpdate.clonedVoice,
+      coquiXttsUrl: configUpdate.coquiXttsUrl,
+      kokoroUrl: configUpdate.kokoroUrl,
+      chatterboxUrl: configUpdate.chatterboxUrl,
+      chatterboxVariant: configUpdate.chatterboxVariant,
+      qwen3TtsUrl: configUpdate.qwen3TtsUrl,
+      qwen3Instruct: configUpdate.qwen3Instruct,
+    };
+    const payload: Record<string, unknown> = {
+      ...response,
+      ...(runtimePublish ? { runtimePublish } : {}),
+    };
+    if (diagnostics) {
+      payload.diagnostics = ttsDiagnosticsPayload(updated);
+    }
+    res.json(payload);
+    return;
+  }
+
+  const safeOut = tenant.config.getSafeTtsConfig();
+  const payload: Record<string, unknown> = {
+    ...safeOut,
+    mode: safeOut.ttsMode,
     ...(runtimePublish ? { runtimePublish } : {}),
-  });
+  };
+  if (diagnostics) {
+    payload.diagnostics = ttsDiagnosticsPayload(updated);
+  }
+
+  res.json(payload);
 });
 
 app.post("/api/tts/preview", async (req, res) => {
@@ -2744,20 +2789,22 @@ app.get("/api/admin/health", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
 
+  const ar = req as AuthedRequest;
   const cfg = tenant.config.get();
-  const stt = tenant.config.getSttConfig();
-  const tts = tenant.config.getTtsConfig();
+  const safeTts = tenant.config.getSafeTtsConfig();
+  const safeStt = tenant.config.getSafeSttPublic();
 
   const hasOpenAIApiKey = Boolean(cfg.openaiApiKey || process.env.OPENAI_API_KEY);
+  const localLlmConfigured = Boolean((cfg.localUrl || "").trim());
 
   const llmStatus =
     cfg.provider === "openai"
       ? hasOpenAIApiKey
         ? "ready"
         : "missing_api_key"
-      : cfg.localUrl
-      ? "configured"
-      : "defaulting";
+      : localLlmConfigured
+        ? "configured"
+        : "defaulting";
 
   const activeCallsByTenant: Record<string, number> = {};
   let activeCallsGlobal = 0;
@@ -2769,7 +2816,14 @@ app.get("/api/admin/health", (req, res) => {
     activeCallsGlobal += n;
   }
 
-  res.json({
+  const ttsAny =
+    safeTts.xttsEndpointConfigured ||
+    safeTts.coquiXttsEndpointConfigured ||
+    safeTts.kokoroEndpointConfigured ||
+    safeTts.chatterboxEndpointConfigured ||
+    safeTts.qwen3EndpointConfigured;
+
+  const payload: Record<string, unknown> = {
     server: "ok",
     serverUptimeSec: Math.floor(process.uptime()),
     activeCallsGlobal,
@@ -2777,32 +2831,43 @@ app.get("/api/admin/health", (req, res) => {
     llm: {
       provider: cfg.provider,
       status: llmStatus,
-      localUrl: cfg.localUrl,
       model: cfg.openaiModel,
       hasOpenAIApiKey,
+      localLlmEndpointConfigured: localLlmConfigured,
     },
     stt: {
-      status: stt.whisperUrl ? "configured" : "missing",
-      whisperUrl: stt.whisperUrl,
+      status: safeStt.whisperEndpointConfigured ? "configured" : "missing",
+      whisperEndpointConfigured: safeStt.whisperEndpointConfigured,
     },
     tts: {
-      status:
-        tts.xttsUrl || tts.coquiXttsUrl || tts.kokoroUrl || tts.chatterboxUrl || tts.qwen3TtsUrl
-          ? "configured"
-          : "missing",
-      xttsUrl: tts.xttsUrl,
-      coquiXttsUrl: tts.coquiXttsUrl,
-      kokoroUrl: tts.kokoroUrl,
-      chatterboxUrl: tts.chatterboxUrl,
-      qwen3TtsUrl: tts.qwen3TtsUrl,
-      chatterboxVariant: tts.chatterboxVariant,
-      ttsMode: tts.ttsMode,
-      voiceId: tts.voiceId,
-      language: tts.language,
-      preset: tts.preset,
-      rate: tts.rate,
+      status: ttsAny ? "configured" : "missing",
+      ttsMode: safeTts.ttsMode,
+      voiceId: safeTts.voiceId,
+      language: safeTts.language,
+      preset: safeTts.preset,
+      rate: safeTts.rate,
+      chatterboxVariant: safeTts.chatterboxVariant,
+      xttsEndpointConfigured: safeTts.xttsEndpointConfigured,
+      kokoroEndpointConfigured: safeTts.kokoroEndpointConfigured,
+      coquiXttsEndpointConfigured: safeTts.coquiXttsEndpointConfigured,
+      chatterboxEndpointConfigured: safeTts.chatterboxEndpointConfigured,
+      qwen3EndpointConfigured: safeTts.qwen3EndpointConfigured,
     },
-  });
+  };
+
+  const diagnostics =
+    typeof ar.query?.diagnostics === "string" && ar.query.diagnostics === "1" && ar.ctx?.isSuperAdmin;
+  if (diagnostics) {
+    const fullTts = tenant.config.getTtsConfig();
+    const fullStt = tenant.config.getSttConfig();
+    payload.diagnostics = {
+      stt: { whisperUrl: redactHttpUrlToPlaceholder(fullStt.whisperUrl) },
+      tts: ttsDiagnosticsPayload(fullTts),
+      llm: { localUrl: redactHttpUrlToPlaceholder(cfg.localUrl) },
+    };
+  }
+
+  res.json(payload);
 });
 
 app.get("/api/admin/analytics", (req, res) => {

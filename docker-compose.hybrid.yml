@@ -1,0 +1,13 @@
+# =============================================================================
+# VeraLux — hybrid deployment overlay (SKELETON — operator-defined split)
+# =============================================================================
+# Full split-stack automation is NOT implemented in compose alone. Typical pattern:
+#   - Cloud: postgres, redis, control (and optionally runtime with external AI URLs).
+#   - GPU host: Whisper + TTS (+ optional vLLM/brain) reachable over VPN/private network.
+#
+# Merge this file for documentation / future overrides only. See docs/HYBRID_DEPLOYMENT.md.
+# =============================================================================
+x-veralux-deployment-profile: hybrid
+x-veralux-hybrid-status: skeleton-only
+
+services: {}

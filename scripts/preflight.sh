@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./scripts/preflight.sh
-#   ./scripts/preflight.sh --ci .env.example   # CI/template: no placeholder failures, minimal docker checks
+#   ./scripts/preflight.sh --ci .env.example   # CI/template: placeholder secret *values* are not enforced like prod; structural checks (e.g. SECRET_ENCRYPTION_KEY byte length when SECRET_MANAGER=db) still run when the key is set
 #   PREFLIGHT_STRICT=1 ./scripts/preflight.sh  # treat warnings as failures
 set -euo pipefail
 
@@ -267,13 +267,15 @@ if [[ "$PREFLIGHT_CI" != "1" ]] && [[ -z "$TEL_PHONE" ]]; then
   warn "TELNYX_PHONE_NUMBER is empty — OK if DIDs are configured only in the admin UI / DB."
 fi
 
-# --- SECRET_ENCRYPTION_KEY length (control plane expects strong key) ---
+# --- SECRET_ENCRYPTION_KEY length (must match control-plane/src/secretStore.ts for SECRET_MANAGER=db) ---
 SEK="$(read_kv SECRET_ENCRYPTION_KEY)"
-if [[ -n "$SEK" ]] && [[ "$PREFLIGHT_CI" != "1" ]]; then
-  len=${#SEK}
-  if [[ "$len" -lt 16 ]]; then
-    fail "SECRET_ENCRYPTION_KEY is too short ($len chars); use at least 16+ random characters"
-    remediation "openssl rand -hex 24"
+SM="$(trim_lower "$(read_kv SECRET_MANAGER)")"
+[[ -z "$SM" ]] && SM="db"
+if [[ "$SM" == "db" ]] && [[ -n "$SEK" ]]; then
+  sek_bytes=$(LC_ALL=C printf '%s' "$SEK" | wc -c | awk '{print $1}')
+  if [[ "${sek_bytes:-0}" -lt 32 ]]; then
+    fail "SECRET_ENCRYPTION_KEY must be at least 32 UTF-8 bytes when SECRET_MANAGER=db (got ${sek_bytes:-0} bytes; matches control plane AES-256 key material)"
+    remediation "openssl rand -hex 32"
   fi
 fi
 

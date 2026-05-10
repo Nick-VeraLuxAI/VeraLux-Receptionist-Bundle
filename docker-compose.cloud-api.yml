@@ -1,0 +1,17 @@
+# =============================================================================
+# VeraLux — cloud-api deployment overlay (merge AFTER docker-compose.yml)
+# =============================================================================
+# Use with: ./scripts/deploy-profile.sh --profile cloud-api
+#
+# This file does NOT remove services from the base compose graph; it documents
+# the supported operator workflow:
+#   - Do NOT enable compose profiles `gpu` or `cpu` (no local Whisper/Chatterbox).
+#   - Point WHISPER_URL, CHATTERBOX_URL / KOKORO_URL / COQUI_XTTS_URL / QWEN3_TTS_URL
+#     at external HTTPS endpoints from your env file.
+#   - Set HEALTH_VOICE_DEPENDENCIES=configured when providers lack local-style GET /health.
+#
+# Core services started: postgres, redis, control, runtime (same ports as base compose).
+# =============================================================================
+x-veralux-deployment-profile: cloud-api
+
+services: {}

@@ -175,8 +175,12 @@ services:
       - REDIS_URL=redis://redis:6379
       - CONTROL_URL=http://control:4000
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      # Readiness: when true, GET /health/ready checks Whisper + TTS HTTP (see HEALTH_MODEL.md).
+      # Readiness: HEALTH_VOICE_DEPENDENCIES = strict | configured | disabled (legacy true/false still accepted; see HEALTH_MODEL.md).
       - HEALTH_VOICE_DEPENDENCIES=${HEALTH_VOICE_DEPENDENCIES:-true}
+      - DEPLOYMENT_PROFILE=${DEPLOYMENT_PROFILE:-}
+      - STT_HEALTH_URL=${STT_HEALTH_URL:-}
+      - TTS_HEALTH_URL=${TTS_HEALTH_URL:-}
+      - LLM_HEALTH_URL=${LLM_HEALTH_URL:-}
       # LLM / OpenAI
       - LLM_PROVIDER=${LLM_PROVIDER:-openai}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
