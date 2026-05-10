@@ -19,10 +19,10 @@ git diff --name-only
 ```
 
 **Branch:** `sprint-2a-portable-deployment`  
-**HEAD commit:** `35ece91` (same as `/opt/...` at review time) — **local working tree carries uncommitted Sprint 2A + other edits**; `/opt` is not necessarily checked out on this feature branch.
+**Baseline (pre-Sprint-2A work):** `35ece91`  
+**Tip after finalization commits:** see **`git log sprint-2a-portable-deployment`** (includes **`979af98`** main payload plus small doc-only follow-ups).
 
-**Short status:** 21 modified tracked files, 18 untracked paths (see categorization below).  
-**Diff stat (tracked):** 21 files, **+1427 / −931** lines (dominated by `package-lock.json` churn).
+**At original review time:** 21 modified tracked files + 18 untracked paths; changes are now **committed** on the branch (see **`docs/SPRINT_2A_FINALIZATION_REPORT.md`**).
 
 ---
 
