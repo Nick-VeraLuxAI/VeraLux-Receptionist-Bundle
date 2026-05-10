@@ -41,7 +41,8 @@ No secrets or env dumps are stored in this report.
 
 **Executed in repo (automation session):** **One atomic commit** was created (lockfile + mixed `package.json` coupling):
 
-- **`979af98`** — `chore(release): readiness gate and deps; feat(deploy): Sprint 2A portable profiles`
+- **`979af98`** — `chore(release): readiness gate and deps; feat(deploy): Sprint 2A portable profiles` (main payload)
+- **`a9a239f`** — `docs: record Sprint 2A atomic commit id in finalization reports` (pointer from docs to **`979af98`**)
 
 For a **three-commit** history, use **`docs/SPRINT_2A_COMMIT_PLAN.md`** and interactive staging (`git add -p`) on a branch reset or follow-up refactor **before** pushing shared branches.
 
