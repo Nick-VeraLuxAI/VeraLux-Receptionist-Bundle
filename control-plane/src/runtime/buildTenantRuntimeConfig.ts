@@ -8,6 +8,7 @@ import {
   type RuntimeCallQuality,
   type RuntimeTenantConfig,
 } from "./runtimeContract";
+import { runtimeTenantLlmRoutingSchema } from "@veralux/shared";
 
 export type BuildRuntimeConfigErrorCode =
   | "no_dids"
@@ -50,6 +51,13 @@ function defaultAudio(
     runtimeManaged: true,
     ...existing,
   };
+}
+
+function extractLlmRoutingForPublish(tenant: TenantContext): RuntimeTenantConfig["llmRouting"] {
+  const raw = tenant.operatorState?.llmPortal;
+  if (!raw || typeof raw !== "object") return undefined;
+  const parsed = runtimeTenantLlmRoutingSchema.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function buildLlmContext(tenant: TenantContext): NonNullable<RuntimeTenantConfig["llmContext"]> {
@@ -327,6 +335,11 @@ export function buildTenantRuntimeConfig(
       : existing?.callQuality;
   if (mergedCallQuality) {
     (base as { callQuality?: RuntimeCallQuality }).callQuality = mergedCallQuality;
+  }
+
+  const llmRouting = extractLlmRoutingForPublish(tenant);
+  if (llmRouting) {
+    (base as { llmRouting?: typeof llmRouting }).llmRouting = llmRouting;
   }
 
   if (!base.webhookSecret && !base.webhookSecretRef) {

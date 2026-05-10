@@ -422,6 +422,29 @@
       </section>
 
       <section class="owner-panel">
+        <h2>Optional: your OpenAI API key</h2>
+        <p class="help">
+          If you prefer your own OpenAI billing, paste a key here. It is encrypted on the server, never shown again, and is not exposed to browsers after save.
+          Leave on <strong>VeraLux default</strong> to use the platform voice model settings.
+        </p>
+        <div id="owner-llm-status" class="help" style="margin-bottom: 8px;"></div>
+        <label for="owner-llm-mode">Mode</label>
+        <select id="owner-llm-mode">
+          <option value="platform_default">VeraLux default</option>
+          <option value="tenant_api_key">My OpenAI API key</option>
+        </select>
+        <label for="owner-llm-model">Model (when using your key)</label>
+        <input id="owner-llm-model" type="text" placeholder="gpt-4o-mini" />
+        <label for="owner-llm-key">API key (write-only)</label>
+        <input id="owner-llm-key" type="password" autocomplete="off" placeholder="sk-…" />
+        <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+          <button type="button" id="owner-llm-save">Save</button>
+          <button type="button" class="secondary" id="owner-llm-test">Test key (uses typed key)</button>
+        </div>
+        <div id="owner-llm-save-status" class="help" style="margin-top: 8px;"></div>
+      </section>
+
+      <section class="owner-panel">
         <h2>When to transfer calls</h2>
         <p class="help">Who should the receptionist transfer callers to? Add yourself or your team (name, number, role).</p>
         <div class="row">
@@ -1011,6 +1034,7 @@
           
           // Also load voice config
           loadVoiceConfig().catch(() => {});
+          loadOwnerLlmConfig().catch(() => {});
           const tenantsList = tenantsRes.tenants || [];
           const me = tenantsList.find((t) => t.id === OWNER_TENANT_ID) || { id: OWNER_TENANT_ID, name: "My business", numbers: [] };
           const myTelnyxNumbers = me.numbers || [];
@@ -1074,6 +1098,78 @@
           const status = await ownerFetch("/api/admin/stripe/status");
           stripeConfigured = !!status.configured;
         } catch { stripeConfigured = false; }
+      }
+
+      async function loadOwnerLlmConfig() {
+        const st = $("owner-llm-status");
+        st.textContent = "";
+        try {
+          const cfg = await ownerFetch("/api/owner/llm-config");
+          $("owner-llm-mode").value = cfg.mode === "tenant_api_key" ? "tenant_api_key" : "platform_default";
+          if (cfg.model) $("owner-llm-model").value = cfg.model;
+          $("owner-llm-key").value = "";
+          const bits = [];
+          if (cfg.configured) bits.push("API key on file");
+          else if (cfg.mode === "tenant_api_key") bits.push("No API key saved yet");
+          if (cfg.fingerprint) bits.push(`Fingerprint …${String(cfg.fingerprint).slice(-6)}`);
+          if (cfg.lastTestedAt) bits.push(`Last test: ${cfg.lastTestedAt} (${cfg.lastStatus || "?"})`);
+          st.textContent = bits.join(" · ") || "Using platform default.";
+        } catch {
+          st.textContent = "Could not load LLM settings.";
+        }
+      }
+
+      async function saveOwnerLlmConfig() {
+        const statusEl = $("owner-llm-save-status");
+        statusEl.textContent = "";
+        const mode = $("owner-llm-mode").value;
+        const model = ($("owner-llm-model").value || "").trim() || "gpt-4o-mini";
+        const apiKey = ($("owner-llm-key").value || "").trim();
+        const body = { mode, tenantProvider: "openai", tenantModel: model, tenantKeyErrorPolicy: "platform_default" };
+        if (apiKey) body.apiKey = apiKey;
+        $("owner-llm-save").disabled = true;
+        try {
+          const cfg = await ownerFetch("/api/owner/llm-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          $("owner-llm-key").value = "";
+          statusEl.style.color = "var(--success)";
+          statusEl.textContent = "Saved. " + (cfg.configured ? "Tenant key active." : "Using platform default.");
+          await loadOwnerLlmConfig();
+        } catch (e) {
+          statusEl.style.color = "var(--danger)";
+          statusEl.textContent = "Save failed.";
+        } finally {
+          $("owner-llm-save").disabled = false;
+        }
+      }
+
+      async function testOwnerLlmKey() {
+        const statusEl = $("owner-llm-save-status");
+        statusEl.textContent = "";
+        const apiKey = ($("owner-llm-key").value || "").trim();
+        const model = ($("owner-llm-model").value || "").trim() || "gpt-4o-mini";
+        if (!apiKey) {
+          statusEl.textContent = "Enter an API key to test.";
+          return;
+        }
+        $("owner-llm-test").disabled = true;
+        try {
+          const r = await ownerFetch("/api/owner/llm-config/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apiKey, model }),
+          });
+          statusEl.style.color = r.ok ? "var(--success)" : "var(--danger)";
+          statusEl.textContent = r.ok ? "Key accepted by OpenAI." : `Test failed: ${r.status || "error"}`;
+        } catch {
+          statusEl.style.color = "var(--danger)";
+          statusEl.textContent = "Test request failed.";
+        } finally {
+          $("owner-llm-test").disabled = false;
+        }
       }
 
       function renderBilling(sub) {
@@ -2464,6 +2560,8 @@
         $("owner-portal-pass-save").addEventListener("click", () =>
           requireAuth(() => saveOwnerPortalPasscode())
         );
+        $("owner-llm-save").addEventListener("click", () => requireAuth(() => saveOwnerLlmConfig()));
+        $("owner-llm-test").addEventListener("click", () => requireAuth(() => testOwnerLlmKey()));
         $("owner-save-numbers").addEventListener("click", () => requireAuth(() => saveAndProvisionNumber()));
         $("owner-numbers").addEventListener("keydown", (e) => {
           if (e.key === "Enter") requireAuth(() => saveAndProvisionNumber());

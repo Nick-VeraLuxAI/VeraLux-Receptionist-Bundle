@@ -112,3 +112,19 @@ test("normalizeE164 throws on invalid format", () => {
   assert.throws(() => normalizeE164("12345"), /invalid_e164/);
   assert.throws(() => normalizeE164("15551234567"), /invalid_e164/);
 });
+
+test("runtimeContract accepts optional llmRouting", () => {
+  const parsed = parseRuntimeTenantConfig(
+    baseConfig({
+      llmRouting: {
+        mode: "tenant_api_key",
+        tenantProvider: "openai",
+        tenantModel: "gpt-4o-mini",
+        tenantApiKeyConfigured: true,
+        tenantKeyErrorPolicy: "platform_default",
+      },
+    }),
+  );
+  assert.equal(parsed.llmRouting.mode, "tenant_api_key");
+  assert.equal(parsed.llmRouting.tenantModel, "gpt-4o-mini");
+});

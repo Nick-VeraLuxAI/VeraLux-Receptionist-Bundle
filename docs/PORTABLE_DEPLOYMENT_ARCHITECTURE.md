@@ -113,7 +113,7 @@ The system is **already partially portable**: a single `docker-compose.yml` runs
 | **LLM** | Control: `LLM_PROVIDER` `local` \| `openai`; Runtime: `BRAIN_USE_LOCAL`, `BRAIN_URL`, OpenAI env for paths that call OpenAI directly | No single **`LLM_PROVIDER`** enum mirrored everywhere; “OpenAI-compatible base URL” is split across **brain** (`OPENAI_BASE_URL`) and control **`LOCAL_LLM_URL`** / OpenAI. |
 | **STT** | `whisper_http` (+ legacy mode names) → `WhisperHttpProvider` | No **`STT_PROVIDER`** env; no first-class **Deepgram / Telnyx / cloud OpenAI** provider without new module. |
 | **TTS** | `TTS_MODE` + URL per backend | Works if HTTP server matches expected routes; **no** generic “OpenAI TTS” adapter in contract. |
-| **Health** | **`HEALTH_VOICE_DEPENDENCIES`**: `strict` (default) \| `configured` \| `disabled`; optional **`STT_HEALTH_URL`**, **`TTS_HEALTH_URL`**, **`LLM_HEALTH_URL`** | **`configured`** skips mandatory provider `/health` probes unless explicit health URLs are set. |
+| **Health** | **`HEALTH_VOICE_DEPENDENCIES`**: `strict` (default) \| `configured` \| `disabled`; optional **`STT_HEALTH_URL`**, **`TTS_HEALTH_URL`**, **`LLM_HEALTH_URL`**; strict brain gating via **`BRAIN_HEALTH_REQUIRED`** (default false) | **`configured`** skips mandatory provider `/health` probes unless explicit health URLs are set. **`BRAIN_HEALTH_REQUIRED=false`** keeps Redis/STT/TTS strict while brain HTTP stays non-blocking. |
 | **Fallback** | STT retries / unclear reprompt in runtime; TTS/cache | No automatic **fallback chain** (e.g. local Whisper → cloud) without product change. |
 
 ---

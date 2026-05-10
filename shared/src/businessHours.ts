@@ -178,3 +178,189 @@ export function evaluateBusinessHours(
     timezone: cfg.timezone,
   };
 }
+
+/** True when at least one weekday entry exists in the weekly map. */
+export function hasTenantBusinessSchedule(cfg: BusinessHoursConfig): boolean {
+  return BUSINESS_DAY_KEYS.some((k) => cfg.weekly[k] !== undefined);
+}
+
+function formatHmToVoice(hm: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hm.trim());
+  if (!m) return hm.trim();
+  let h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(min)) return hm.trim();
+  const suffix = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  const minPart = min === 0 ? "" : `:${String(min).padStart(2, "0")}`;
+  return `${h}${minPart} ${suffix}`;
+}
+
+function dayLongLabel(k: BusinessDayKey): string {
+  const labels: Record<BusinessDayKey, string> = {
+    mon: "Monday",
+    tue: "Tuesday",
+    wed: "Wednesday",
+    thu: "Thursday",
+    fri: "Friday",
+    sat: "Saturday",
+    sun: "Sunday",
+  };
+  return labels[k];
+}
+
+function describeDayVoice(day?: z.infer<typeof dayHoursSchema>): string {
+  if (!day) return "closed";
+  if ("closed" in day && day.closed) return "closed";
+  if ("open" in day && "close" in day) {
+    return `${formatHmToVoice(day.open)} to ${formatHmToVoice(day.close)}`;
+  }
+  return "closed";
+}
+
+function wantsHoursIntent(t: string): boolean {
+  return (
+    t.includes("hour") ||
+    t.includes("open") ||
+    t.includes("close") ||
+    t.includes("closing") ||
+    t.includes("shut") ||
+    t.includes("when are you") ||
+    t.includes("what time") ||
+    t.includes("schedule") ||
+    t.includes("operating") ||
+    /(^|\s)are you open(\?|\s|$)/.test(t) ||
+    /(^|\s)are you closed(\?|\s|$)/.test(t)
+  );
+}
+
+function wantsCloseIntent(t: string): boolean {
+  return (
+    t.includes("close") ||
+    t.includes("closing") ||
+    t.includes("shut") ||
+    (t.includes("what time") && t.includes("close"))
+  );
+}
+
+function wantsOpenIntent(t: string): boolean {
+  if (wantsCloseIntent(t)) return false;
+  return (
+    t.includes("when do you open") ||
+    t.includes("when are you open") ||
+    (t.includes("what time") && t.includes("open")) ||
+    (t.includes("opening") && (t.includes("when") || t.includes("what time")))
+  );
+}
+
+function wantsStatusIntent(t: string): boolean {
+  return /(^|\s)are you open(\?|\s|$)/.test(t) || /(^|\s)are you closed(\?|\s|$)/.test(t);
+}
+
+function clipAfterHours(msg: string, max = 200): string {
+  const s = msg.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "").trim();
+  if (!s) return "";
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+function monFriUniformVoice(cfg: BusinessHoursConfig): string | null {
+  const mon = cfg.weekly.mon;
+  const tue = cfg.weekly.tue;
+  const wed = cfg.weekly.wed;
+  const thu = cfg.weekly.thu;
+  const fri = cfg.weekly.fri;
+  const days = [mon, tue, wed, thu, fri];
+  if (days.some((d) => d === undefined)) return null;
+  const voice = describeDayVoice(mon);
+  if (voice === "closed") return null;
+  for (const d of [tue, wed, thu, fri]) {
+    if (describeDayVoice(d) !== voice) return null;
+  }
+  const sat = cfg.weekly.sat;
+  const sun = cfg.weekly.sun;
+  const satC = describeDayVoice(sat);
+  const sunC = describeDayVoice(sun);
+  const weekendClosed =
+    (sat === undefined || satC === "closed") && (sun === undefined || sunC === "closed");
+  if (!weekendClosed) return null;
+  return `We're open Monday through Friday, ${voice}. We're closed Saturday and Sunday.`;
+}
+
+function weeklySummaryVoice(cfg: BusinessHoursConfig): string {
+  const compact = monFriUniformVoice(cfg);
+  if (compact) return compact;
+  const parts: string[] = [];
+  for (const k of BUSINESS_DAY_KEYS) {
+    const line = `${dayLongLabel(k)}: ${describeDayVoice(cfg.weekly[k])}`;
+    parts.push(line);
+  }
+  const joined = parts.join(" ");
+  return joined.length > 360 ? `${joined.slice(0, 357)}…` : joined;
+}
+
+/**
+ * Deterministic, voice-friendly answer from structured tenant business hours.
+ * Returns null when config is missing/invalid, no schedule is defined, or the
+ * utterance is not hours-related (caller may be asking about something else).
+ */
+export function voiceReplyFromBusinessHours(
+  transcript: string,
+  raw: unknown,
+  now = new Date(),
+): string | null {
+  const t = transcript.trim().toLowerCase();
+  if (!t) return null;
+  if (!wantsHoursIntent(t)) return null;
+
+  const parsed = businessHoursSchema.safeParse(raw);
+  if (!parsed.success || !hasTenantBusinessSchedule(parsed.data)) return null;
+
+  const cfg = parsed.data;
+  const ev = evaluateBusinessHours(cfg, now);
+  const dayKey = currentDayKeyInZone(now, cfg.timezone);
+  const hm = currentHmInZone(now, cfg.timezone);
+  const day = dayKey ? cfg.weekly[dayKey] : undefined;
+  const ah = cfg.afterHoursMessage?.trim() ? clipAfterHours(cfg.afterHoursMessage) : "";
+
+  if (wantsStatusIntent(t)) {
+    if (ev.isOpen) {
+      return "Yes — we're open right now.";
+    }
+    const base = "We're closed right now.";
+    return ah ? `${base} ${ah}` : base;
+  }
+
+  const todayClosed =
+    !dayKey ||
+    !day ||
+    ("closed" in day && day.closed) ||
+    !("open" in day && "close" in day);
+
+  if (wantsCloseIntent(t)) {
+    if (todayClosed) {
+      const base = "We're closed today.";
+      return ah ? `${base} ${ah}` : base;
+    }
+    const d = day as { open: string; close: string };
+    const closeV = formatHmToVoice(d.close);
+    return `We close at ${closeV} today.`;
+  }
+
+  if (wantsOpenIntent(t)) {
+    if (todayClosed) {
+      const base = "We're closed today.";
+      return ah ? `${base} ${ah}` : base;
+    }
+    const d = day as { open: string; close: string };
+    const openV = formatHmToVoice(d.open);
+    return `We open at ${openV} today.`;
+  }
+
+  // General hours / schedule / "when are you" without open/close specificity
+  const weekly = weeklySummaryVoice(cfg);
+  if (ah && !ev.isOpen) {
+    return `${weekly} ${ah}`;
+  }
+  return weekly;
+}

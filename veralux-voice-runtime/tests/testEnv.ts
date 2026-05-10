@@ -25,6 +25,8 @@ const defaults: Record<string, string> = {
   CAP_PREFIX: 'cap',
   /** Integration tests have no real Whisper/TTS; readiness is Redis-only. */
   HEALTH_VOICE_DEPENDENCIES: 'false',
+  /** Default tests to local keyword brain (no HTTP brain / no OpenAI). */
+  PLATFORM_LLM_PROVIDER: 'brain_local',
 };
 
 export function setTestEnv(): void {

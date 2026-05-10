@@ -1131,8 +1131,8 @@
 
                   <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 8px;">
                     <button type="button" id="save-portal-tts">Save voice / TTS</button>
-                    <button type="button" class="secondary" id="portal-runtime-publish-from-tenant" title="Push saved voice/STT to Redis for live calls">
-                      Publish to voice runtime (Redis)
+                    <button type="button" class="secondary" id="portal-runtime-publish-from-tenant" title="Advanced: full republish after saving voice form. Saving voice/TTS already updates Redis when enabled — use this only if support asks or after a sync error.">
+                      Advanced: Full republish (Redis)
                     </button>
                   </div>
                   <div id="portal-runtime-publish-status" class="help" style="margin-top: 6px; min-height: 16px;"></div>
@@ -1437,7 +1437,11 @@
           headers.set("X-Active-Tenant", tenantId);
         }
         setPortalAuthHeaders(headers);
-        const res = await fetch(url, { ...opts, headers });
+        const fetchOpts = { ...opts, headers, cache: opts.cache ?? "no-store" };
+        const res = await fetch(url, fetchOpts);
+        if (res.status === 429) {
+          throw new Error("rate_limited");
+        }
         if (!res.ok) throw new Error(await res.text());
         return res.json();
       }
@@ -1767,6 +1771,22 @@
         }
       }
 
+      function formatPortalRuntimePublishSuffix(data) {
+        if (!data || data.saved !== true) return "";
+        if (data.published) {
+          const iso = data.lastRuntimePublishedAt;
+          const t = iso
+            ? new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+            : "";
+          return ` Voice runtime: live${t ? ` (published ${t})` : ""}.`;
+        }
+        if (data.publishSkippedReason === "runtime_admin_disabled") {
+          return " Voice auto-publish is off on this server.";
+        }
+        const err = data.publishError ? String(data.publishError).slice(0, 120) : "sync failed";
+        return ` Voice runtime: saved only — ${err}.`;
+      }
+
       async function savePortalBusinessHours() {
         const msg = $("portal-bh-msg");
         const line = $("portal-bh-status-line");
@@ -1780,12 +1800,13 @@
           });
           renderPortalBhEditor(mergePortalBhForEditor(data.businessHours));
           const open = data.openNow ? "Open now" : "Closed now";
-          if (msg) msg.textContent = `${open} — saved.`;
+          if (msg) msg.textContent = `${open} — saved.${formatPortalRuntimePublishSuffix(data)}`;
           const sum = String(data.summary || "")
             .split("\n")
             .slice(0, 2)
             .join(" · ");
           if (line) line.textContent = `${open}${sum ? " · " + sum : ""}`;
+          void loadPortalRuntimeSync();
         } catch (_) {
           if (msg) msg.textContent = "Save failed — check timezone and HH:MM fields.";
         }
@@ -1814,11 +1835,14 @@
           const data = await apiFetch(`/api/owner/calls?limit=50&filter=${encodeURIComponent(q)}`);
           portalCallsCache = Array.isArray(data.calls) ? data.calls : [];
           renderPortalCallsList();
-        } catch (_) {
+        } catch (e) {
           portalCallsCache = [];
           list.innerHTML = "";
           empty.hidden = false;
-          empty.textContent = "Could not load calls.";
+          empty.textContent =
+            e && String((e && e.message) || e) === "rate_limited"
+              ? "Too many requests — wait a moment and use Refresh."
+              : "Could not load calls.";
         }
       }
 
@@ -2126,7 +2150,7 @@
 
       async function savePrompts() {
         try {
-          await apiFetch("/api/admin/prompts", {
+          const pr = await apiFetch("/api/admin/prompts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -2137,10 +2161,11 @@
               schemaHint: "",
             }),
           });
-          $("prompt-status").textContent = "Saved!";
+          $("prompt-status").textContent = "Saved!" + formatPortalRuntimePublishSuffix(pr);
           refreshLiveSummary();
           void loadPortalHandoffState();
-          setTimeout(() => { $("prompt-status").textContent = ""; }, 3000);
+          void loadPortalRuntimeSync();
+          setTimeout(() => { $("prompt-status").textContent = ""; }, 6000);
         } catch (err) {
           $("prompt-status").textContent = "Save failed: " + err.message;
         }
@@ -2896,8 +2921,8 @@
       async function loadAnalytics() {
         try {
           const data = await apiFetch("/api/admin/analytics");
-          const calls = data.callCount ?? "—";
-          const msgs = data.callerMessageCount ?? "—";
+          const calls = data.callCount ?? data.totalCalls ?? "—";
+          const msgs = data.callerMessageCount ?? data.totalCallerMessages ?? "—";
           const sc = $("stat-calls");
           const sm = $("stat-messages");
           if (sc) sc.textContent = calls;

@@ -237,8 +237,13 @@
               <div id="health-status" class="signal-flow-field" role="list" data-flow-active="0" aria-label="Runtime signal path"></div>
               <div class="ops-dashboard-actions ops-dashboard-actions--split" style="margin-top: 16px">
                 <button type="button" class="secondary" id="operator-force-health">Force health pull</button>
-                <button type="button" id="overview-sync-business" title="Same as Models → Voice → Publish to voice runtime for this tenant">
-                  Sync this business to voice runtime
+                <button
+                  type="button"
+                  class="secondary"
+                  id="overview-sync-business"
+                  title="Advanced / recovery: republish full voice runtime config from Postgres to Redis. Not needed after a normal Save — saves on Business hours, Models &amp; Prompts, Forwarding &amp; Products, and Voice already publish automatically."
+                >
+                  Advanced: Republish runtime config
                 </button>
                 <button type="button" class="secondary" id="overview-test-call" disabled title="Automated test call from the dashboard is not available yet. Place a PSTN test from your phone, then use Mark test call completed.">
                   Test call (coming soon)
@@ -493,6 +498,11 @@
                   </div>
                   <div id="config-status" class="small" style="margin-top: 8px"></div>
                 </form>
+                <p class="small muted" style="margin-top: 14px; max-width: 640px">
+                  <strong>Voice-call LLM (runtime):</strong> use
+                  <code>GET/POST /api/admin/tenants/&lt;tenantId&gt;/llm-config</code> for tenant OpenAI mode, fingerprint, and tests.
+                  Published config never includes raw keys — see <code>docs/TENANT_LLM_API_KEYS.md</code>.
+                </p>
               </section>
             </div>
 
@@ -783,7 +793,7 @@
 
                   <div class="row models-wizard__actions" style="margin-top: 16px; flex-wrap: wrap; gap: 8px">
                     <button type="submit">Save voice settings</button>
-                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Saves this Step 3 form first (voice, URL, mode), then publishes full tenant config to Redis for live calls">
+                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Saves this Step 3 voice form, then runs a full republish (same as Overview → Advanced republish). Recovery: use if a save reported a sync error.">
                       Publish to voice runtime (Redis)
                     </button>
                   </div>
@@ -1894,7 +1904,11 @@
           opts.headers = headers;
           delete opts.skipTenantHeader;
 
-          const res = await fetch(url, opts);
+          const fetchOpts = { ...opts, cache: opts.cache ?? "no-store" };
+          const res = await fetch(url, fetchOpts);
+          if (res.status === 429) {
+            throw new Error("rate_limited");
+          }
           if (!res.ok) throw new Error(await res.text());
           return res.json();
         } catch (err) {
@@ -1952,6 +1966,62 @@
         } catch (_) {
           el.textContent = "—";
           if (syncEl) syncEl.textContent = "—";
+        }
+      }
+
+      /** Appends human-readable voice-runtime publish outcome from API (saved/published flags). */
+      function formatRuntimePublishSuffix(data) {
+        if (!data || data.saved !== true) return "";
+        if (data.published) {
+          const iso = data.lastRuntimePublishedAt;
+          const t = iso
+            ? new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+            : "";
+          return ` Voice runtime: live${t ? ` (published ${t})` : ""}.`;
+        }
+        if (data.publishSkippedReason === "runtime_admin_disabled") {
+          return " Voice runtime auto-publish is off on this server — ask ops to enable or use Advanced republish.";
+        }
+        const err = data.publishError ? String(data.publishError).slice(0, 140) : "sync failed";
+        return ` Voice runtime: save only — ${err}. Try Advanced → Republish runtime config.`;
+      }
+
+      async function republishRuntimeConfigAdvancedFromOverview() {
+        if (!currentTenantId) {
+          setStatus("Select a business first.", "err");
+          return;
+        }
+        if (!adminAuthorized) {
+          requestAdminPasscode(() => void republishRuntimeConfigAdvancedFromOverview());
+          return;
+        }
+        setStatus("Republishing runtime config…", "ok");
+        try {
+          const headers = new Headers();
+          headers.set("X-Tenant-ID", currentTenantId);
+          headers.set("X-Active-Tenant", currentTenantId);
+          if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+          const res = await fetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/publish-from-tenant`,
+            { method: "POST", headers },
+          );
+          let body = {};
+          try {
+            body = await res.json();
+          } catch (_) {}
+          if (!res.ok) {
+            const msg =
+              typeof body.message === "string"
+                ? body.message
+                : typeof body.error === "string"
+                  ? body.error
+                  : res.statusText;
+            throw new Error(msg || "Publish failed");
+          }
+          setStatus("Runtime config republished to Redis.", "ok");
+          void refreshOverviewRuntimeRedisHint();
+        } catch (e) {
+          setStatus("Republish failed: " + (e.message || String(e)), "err");
         }
       }
 
@@ -2119,8 +2189,9 @@
           );
           renderAdminBhEditor(mergeBhForEditor(data.businessHours));
           const open = data.openNow ? "Open now" : "Closed now";
-          if (msg) msg.textContent = `${open} — saved.`;
+          if (msg) msg.textContent = `${open} — saved.${formatRuntimePublishSuffix(data)}`;
           setStatus("Business hours saved", "ok");
+          void refreshOverviewRuntimeRedisHint();
         } catch (err) {
           if (msg) msg.textContent = "Save failed — check timezone and HH:MM fields.";
           setStatus("Business hours save failed: " + err.message, "err");
@@ -2721,13 +2792,14 @@
           schemaHint: $("schemaHint").value,
         };
         try {
-          await fetchJSON("/api/admin/prompts", {
+          const pr = await fetchJSON("/api/admin/prompts", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
           });
-          $("prompt-status").textContent = "Prompts saved.";
+          $("prompt-status").textContent = "Prompts saved." + formatRuntimePublishSuffix(pr);
           setStatus("Prompts saved", "ok");
+          void refreshOverviewRuntimeRedisHint();
           await loadPrompts();
         } catch (err) {
           $("prompt-status").textContent = "Save failed: " + err.message;
@@ -5282,13 +5354,14 @@
       async function saveForwardingProfiles() {
         const status = $("fp-status");
         try {
-          await fetchJSON("/api/admin/forwarding-profiles", {
+          const fp = await fetchJSON("/api/admin/forwarding-profiles", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ profiles: forwardingProfilesCache }),
           });
-          if (status) status.textContent = "Saved.";
+          if (status) status.textContent = "Saved." + formatRuntimePublishSuffix(fp);
           setStatus("Forwarding profiles saved", "ok");
+          void refreshOverviewRuntimeRedisHint();
         } catch (err) {
           if (status) status.textContent = "Save failed: " + err.message;
           setStatus("Forwarding save failed", "err");
@@ -5300,13 +5373,14 @@
         if (notesEl) pricingCache.notes = notesEl.value.trim();
         const status = $("price-status");
         try {
-          await fetchJSON("/api/admin/pricing", {
+          const prc = await fetchJSON("/api/admin/pricing", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(pricingCache),
           });
-          if (status) status.textContent = "Saved.";
+          if (status) status.textContent = "Saved." + formatRuntimePublishSuffix(prc);
           setStatus("Pricing saved", "ok");
+          void refreshOverviewRuntimeRedisHint();
         } catch (err) {
           if (status) status.textContent = "Save failed: " + err.message;
           setStatus("Pricing save failed", "err");
@@ -5540,14 +5614,7 @@
           window.location.href = `mailto:${encodeURIComponent(email)}?subject=${subject}&body=${body}`;
         });
 
-        $("overview-sync-business")?.addEventListener("click", () => {
-          const btn = $("admin-runtime-publish-from-tenant");
-          if (!btn) {
-            setStatus("Open Models & Prompts to load publish controls, then try again.", "err");
-            return;
-          }
-          btn.click();
-        });
+        $("overview-sync-business")?.addEventListener("click", () => void republishRuntimeConfigAdvancedFromOverview());
         $("overview-mark-test-call")?.addEventListener("click", () => void markOverviewTestCallCompleted());
         $("admin-bh-save")?.addEventListener("click", () => void saveAdminBusinessHours());
         const ownerPortalOpen = $("owner-portal-open");
@@ -5668,6 +5735,7 @@
           refreshCallsBtn.addEventListener("click", () => {
             setStatus("Refreshing calls…", "ok");
             loadCalls();
+            void loadAnalytics();
           });
         }
 
@@ -5954,11 +6022,11 @@
         const startApp = () => {
           loadTenants().then(() => {
             refreshAll();
-            setInterval(loadHealth, 15000);
-            setInterval(loadAnalytics, 20000);
-            setInterval(loadCalls, 20000);
-            setInterval(loadAudit, 30000);
-            setInterval(loadAdminKeys, 45000);
+            setInterval(loadHealth, 25000);
+            setInterval(loadAnalytics, 35000);
+            setInterval(loadCalls, 35000);
+            setInterval(loadAudit, 45000);
+            setInterval(loadAdminKeys, 120000);
           });
         };
 

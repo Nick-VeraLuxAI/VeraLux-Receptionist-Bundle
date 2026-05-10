@@ -83,6 +83,24 @@ const llmContextSchema = z.object({
 
 export type RuntimeLLMContext = z.infer<typeof llmContextSchema>;
 
+/** DB / secret-store key for tenant-owned OpenAI API key (control plane only). */
+export const TENANT_LLM_OPENAI_SECRET_KEY = "llm_openai_api_key" as const;
+
+/**
+ * Tenant LLM routing published to Redis for the voice runtime.
+ * Raw API keys never appear here — only flags and models. Keys are resolved server-side.
+ */
+export const runtimeTenantLlmRoutingSchema = z.object({
+  mode: z.enum(["platform_default", "tenant_api_key"]),
+  tenantProvider: z.enum(["openai"]).optional(),
+  tenantModel: z.string().min(1).max(128).optional(),
+  /** True when an encrypted tenant secret exists for {@link TENANT_LLM_OPENAI_SECRET_KEY}. */
+  tenantApiKeyConfigured: z.boolean().optional(),
+  tenantKeyErrorPolicy: z.enum(["platform_default", "fail"]).optional(),
+});
+
+export type RuntimeTenantLlmRouting = z.infer<typeof runtimeTenantLlmRoutingSchema>;
+
 // ---------------------------------------------------------------------------
 // TTS mode schemas
 // ---------------------------------------------------------------------------
@@ -384,6 +402,8 @@ const runtimeTenantConfigBaseSchema = z
     lastRuntimePublishedAt: z.string().datetime().optional(),
     /** Call Quality Analytics + Raw Audio Diagnostics policy (control plane → Redis). */
     callQuality: runtimeCallQualitySchema.optional(),
+    /** Voice-call LLM provider selection (no secrets). */
+    llmRouting: runtimeTenantLlmRoutingSchema.optional(),
   })
   // passthrough allows the runtime to accept fields added by a newer control plane
   // without breaking validation

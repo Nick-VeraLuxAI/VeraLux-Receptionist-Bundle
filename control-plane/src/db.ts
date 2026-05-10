@@ -499,24 +499,57 @@ export async function getCallByIdForTenantDb(
   }
 }
 
-export async function upsertCalls(
-  tenantId: string,
-  calls: CallRow[]
-): Promise<void> {
-  const invalid = calls.find((call) => !isUuid(call.id));
-  if (invalid) {
-    console.warn("[db] upsertCalls skipped invalid call id", {
-      tenantId,
-      callId: invalid.id,
+/** Upsert one call row without wiping other rows for the tenant (call history safe). */
+export async function upsertCallRowMerge(row: CallRow): Promise<void> {
+  if (!isUuid(row.id)) {
+    console.warn("[db] upsertCallRowMerge skipped invalid call id", {
+      tenant_id: row.tenant_id,
+      callId: row.id,
     });
     return;
   }
 
   const client = await pool.connect();
   try {
+    const leadJson = JSON.stringify(row.lead || {});
+    const historyJson = JSON.stringify(row.history || []);
+    await client.query(
+      `
+      insert into calls (id, tenant_id, caller_id, stage, lead, history, created_at, updated_at)
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, now(), now())
+      on conflict (id) do update
+      set caller_id = excluded.caller_id,
+          stage = excluded.stage,
+          lead = excluded.lead,
+          history = excluded.history,
+          updated_at = now()
+    `,
+      [row.id, row.tenant_id, row.caller_id, row.stage, leadJson, historyJson],
+    );
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Merge in-memory active calls into Postgres. Does **not** delete historical rows
+ * (ended calls must remain for owner portal / admin lists).
+ */
+export async function upsertCalls(
+  tenantId: string,
+  calls: CallRow[]
+): Promise<void> {
+  const client = await pool.connect();
+  try {
     await client.query("begin");
-    await client.query("delete from calls where tenant_id = $1", [tenantId]);
     for (const call of calls) {
+      if (!isUuid(call.id)) {
+        console.warn("[db] upsertCalls skipped invalid call id", {
+          tenantId,
+          callId: call.id,
+        });
+        continue;
+      }
       const leadJson = JSON.stringify(call.lead || {});
       const historyJson = JSON.stringify(call.history || []);
       await client.query(
@@ -537,7 +570,7 @@ export async function upsertCalls(
           call.stage,
           leadJson,
           historyJson,
-        ]
+        ],
       );
     }
     await client.query("COMMIT");

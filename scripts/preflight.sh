@@ -228,6 +228,24 @@ if [[ "$PREFLIGHT_CI" != "1" ]]; then
       remediation "Set OPENAI_API_KEY or set LLM_PROVIDER=local and LOCAL_LLM_URL (see .env.internal.example)."
     fi
   fi
+
+  # Voice runtime (veralux-voice-runtime) platform LLM — default brain_local does not need OpenAI or HTTP brain.
+  vplat="$(trim_lower "$(read_kv PLATFORM_LLM_PROVIDER)")"
+  [[ -z "$vplat" ]] && vplat="brain_local"
+  if [[ "$vplat" == "brain_http" || "$vplat" == "http_brain" || "$vplat" == "remote_brain" ]]; then
+    bu="$(trim_lower "$(read_kv BRAIN_URL)")"
+    if [[ -z "$bu" ]]; then
+      fail "PLATFORM_LLM_PROVIDER=brain_http but BRAIN_URL is empty"
+      remediation "Set BRAIN_URL to the HTTP brain base (e.g. http://brain:3001/reply) or use PLATFORM_LLM_PROVIDER=brain_local."
+    fi
+  fi
+  if [[ "$vplat" == "openai" || "$vplat" == "gpt" || "$vplat" == "chatgpt" ]]; then
+    voa="$(read_kv OPENAI_API_KEY)"
+    if is_empty_or_placeholder_secret "$voa"; then
+      fail "PLATFORM_LLM_PROVIDER=openai but OPENAI_API_KEY is missing or placeholder in voice env"
+      remediation "Set a real OPENAI_API_KEY for the voice runtime, or set PLATFORM_LLM_PROVIDER=brain_local (default)."
+    fi
+  fi
 fi
 
 # --- Public URLs (production sanity) ---

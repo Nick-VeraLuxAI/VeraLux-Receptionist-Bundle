@@ -248,6 +248,8 @@ export class CallSession {
   private deferredTranscript?: { text: string; source?: 'partial_fallback' | 'final' };
   private firstPartialAt?: number;
   private lastSpeechStartAtMs = 0;
+  /** Last frame where STT saw gate_rms, gate_peak, or is_speech while listening (even if utterance never opened). */
+  private lastSttGatePositiveAtMs = 0;
   private lastDecodedFrameAtMs = 0;
   private lastInboundMediaAtMs = 0; // ✅ inbound PCM received (authoritative)
   private rxDumpActive = false;
@@ -259,6 +261,7 @@ export class CallSession {
   // pick reasonable defaults; you can env-ize later
   private readonly deadAirListeningGraceMs = 1200;  // prevents immediate reprompt right after enter LISTENING
   private readonly deadAirAfterSpeechStartGraceMs = 1500; // prevents reprompt while user has started speaking but transcript not ready
+  private readonly deadAirDeferRecentSttSignalMs = env.DEAD_AIR_DEFER_RECENT_STT_SIGNAL_MS;
   // ===== STT in-flight tracking (prevents dead-air reprompt while Whisper HTTP is running) =====
   private sttInFlightCount = 0;
   // ===== Late FINAL grace window (accept FINAL transcript briefly after hangup) =====
@@ -536,6 +539,12 @@ export class CallSession {
         tts_segment_queue_depth: this.ttsSegmentQueueDepth,
         playback_flag_active: this.playbackState.active,
       }),
+      onSttListeningGateActivity: (p) => {
+        if (this.state !== 'LISTENING' || !this.active) return;
+        if (p.is_speech || p.gate_rms || p.gate_peak) {
+          this.lastSttGatePositiveAtMs = Date.now();
+        }
+      },
     });
   }
 
@@ -970,6 +979,7 @@ export class CallSession {
         } else {
           const reply = await generateAssistantReply({
             tenantId: this.tenantId,
+            tenantConfig: this.fullTenantConfig,
             callControlId: this.callControlId,
             transcript,
             history: this.conversationHistory,
@@ -1922,6 +1932,25 @@ export class CallSession {
       return;
     }
 
+    // 3a) Recent STT gate energy / speech classification but no finalized transcript — avoid reprompt loop
+    if (
+      this.lastSttGatePositiveAtMs > 0 &&
+      now - this.lastSttGatePositiveAtMs < this.deadAirDeferRecentSttSignalMs
+    ) {
+      log.info(
+        {
+          event: 'dead_air_deferred_recent_speech',
+          ms_since_stt_gate_positive: Math.round(now - this.lastSttGatePositiveAtMs),
+          defer_window_ms: this.deadAirDeferRecentSttSignalMs,
+          stt_in_flight: this.sttInFlightCount,
+          ...this.logContext,
+        },
+        'dead air deferred: recent likely speech at STT gate',
+      );
+      this.scheduleDeadAirTimer();
+      return;
+    }
+
     // 3b) If we have NOT received inbound media since entering LISTENING, never reprompt yet
     if (
       this.listeningSinceAtMs > 0 &&
@@ -2447,6 +2476,7 @@ export class CallSession {
             try {
               const reply = await generateAssistantReply({
                 tenantId: this.tenantId,
+                tenantConfig: this.fullTenantConfig,
                 callControlId: this.callControlId,
                 transcript: trimmed,
                 history: this.conversationHistory,
@@ -2648,6 +2678,7 @@ export class CallSession {
       try {
         reply = await generateAssistantReply({
           tenantId: this.tenantId,
+          tenantConfig: this.fullTenantConfig,
           callControlId: this.callControlId,
           transcript,
           history: this.conversationHistory,
@@ -2756,6 +2787,7 @@ export class CallSession {
       reply = await generateAssistantReplyStream(
         {
           tenantId: this.tenantId,
+          tenantConfig: this.fullTenantConfig,
           callControlId: this.callControlId,
           transcript,
           history: this.conversationHistory,

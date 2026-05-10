@@ -40,9 +40,10 @@ function captureFetch(): {
 }
 
 async function loadBrain() {
-  // Force BRAIN_URL so brain HTTP path is taken.
+  // Force HTTP brain path (platform default), independent of leftover BRAIN_URL in .env.
   process.env.BRAIN_URL = 'http://test-brain.local/reply';
   process.env.BRAIN_USE_LOCAL = 'false';
+  process.env.PLATFORM_LLM_PROVIDER = 'brain_http';
   process.env.BRAIN_TIMEOUT_MS = '1500';
   return await import('../src/ai/brainClient');
 }

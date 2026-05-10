@@ -8,7 +8,9 @@ import { incProviderCircuitOpen, incProviderTimeout } from '../metrics';
 import { withCircuitBreaker } from '../providers/circuitBreaker';
 import { ConversationTurn } from '../calls/types';
 import type { TransferProfile } from '../tenants/tenantConfig';
+import type { RuntimeTenantConfig } from '@veralux/shared';
 import { defaultBrainReply } from './defaultBrain';
+import { resolveLlmExecutionPlan, type LlmExecutionPlan } from './llmProviderResolve';
 
 /** Per-tenant context for the assistant: pricing, products, hours, policies, etc. Keys are section names; values are text. */
 export type AssistantContext = Record<string, string>;
@@ -51,6 +53,10 @@ export type AssistantReplyForensics = {
 
 export interface AssistantReplyInput {
   tenantId?: string;
+  /** Full tenant runtime config (Redis); used for per-tenant LLM routing. */
+  tenantConfig?: RuntimeTenantConfig | null;
+  /** Optional wall clock for local-brain business-hours evaluation (tests only). */
+  referenceTime?: Date;
   callControlId: string;
   transcript: string;
   history: ConversationTurn[];
@@ -67,6 +73,7 @@ export type AssistantReplySource =
   | 'brain_http'
   | 'brain_http_stream'
   | 'brain_local_default'
+  | 'openai_direct'
   | 'quick_reply'
   | 'fallback_error';
 
@@ -193,6 +200,103 @@ function parseSseBlock(block: string): { event: string; data: string } | null {
   return { event, data: dataLines.join('\n') };
 }
 
+async function generateOpenAiDirectReply(
+  input: AssistantReplyInput,
+  plan: Extract<LlmExecutionPlan, { route: 'openai_direct' }>,
+): Promise<AssistantReplyResult> {
+  const sysParts: string[] = [];
+  const p = sanitizePrompts(input.prompts);
+  if (p?.systemPreamble) sysParts.push(p.systemPreamble);
+  if (p?.policyPrompt) sysParts.push(p.policyPrompt);
+  if (p?.voicePrompt) sysParts.push(p.voicePrompt);
+  if (p?.schemaHint) sysParts.push(p.schemaHint);
+  if (input.assistantContext && Object.keys(input.assistantContext).length > 0) {
+    sysParts.push(
+      'Business context:\n' +
+        Object.entries(input.assistantContext)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n'),
+    );
+  }
+  const system = sysParts.join('\n\n').trim() || 'You are a helpful professional phone receptionist. Keep replies concise for voice.';
+  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+    { role: 'system', content: system },
+    ...input.history.map((t) => ({
+      role: (t.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+      content: t.content,
+    })),
+    { role: 'user', content: input.transcript },
+  ];
+  const url = `${plan.baseUrl.replace(/\/$/, '')}/chat/completions`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.BRAIN_TIMEOUT_MS);
+  try {
+    await input.forensics?.recordLlmRequestPayload({
+      route: 'openai_direct',
+      tenantId: input.tenantId,
+      callControlId: input.callControlId,
+      model: plan.model,
+      history_turns: input.history.length,
+    });
+    const response = await withCircuitBreaker({
+      key: 'openai_direct',
+      failureThreshold: 3,
+      openMs: 20_000,
+      onOpen: () => incProviderCircuitOpen('openai_direct'),
+      action: () =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${plan.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: plan.model,
+            messages,
+            max_tokens: 512,
+            temperature: 0.4,
+          }),
+          signal: controller.signal,
+        }),
+    });
+    if (!response.ok) {
+      const body = await readResponseText(response);
+      const preview = body.length > 500 ? `${body.slice(0, 500)}...` : body;
+      throw new Error(`openai reply failed ${response.status}: ${preview}`);
+    }
+    const data = (await response.json()) as { choices?: { message?: { content?: unknown } }[] };
+    const text =
+      typeof data.choices?.[0]?.message?.content === 'string' ? data.choices[0].message.content.trim() : '';
+    if (!text) {
+      throw new Error('openai reply missing text');
+    }
+    const result: AssistantReplyResult = { text, source: 'openai_direct' };
+    await input.forensics?.recordLlmResponse({ text: result.text, source: result.source });
+    return result;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.name === 'AbortError' || /aborted|timeout/i.test(error.message))
+    ) {
+      incProviderTimeout('brain_http');
+    }
+    log.error(
+      {
+        err: error,
+        event: 'openai_reply_failed',
+        call_control_id: input.callControlId,
+        tenant_id: input.tenantId,
+      },
+      'openai direct reply failed',
+    );
+    const fb = { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' as const };
+    await input.forensics?.recordLlmResponse(fb);
+    return fb;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function readSseStream(
   response: Response,
   onEvent: (event: { event: string; data: string }) => boolean | void,
@@ -245,7 +349,38 @@ async function readSseStream(
 export async function generateAssistantReply(
   input: AssistantReplyInput,
 ): Promise<AssistantReplyResult> {
-  if (env.BRAIN_USE_LOCAL || !env.BRAIN_URL) {
+  const plan = await resolveLlmExecutionPlan({
+    tenantId: input.tenantId,
+    tenantConfig: input.tenantConfig ?? null,
+  });
+
+  log.info(
+    {
+      event: 'llm_provider_resolution',
+      route: plan.route,
+      resolution_source: plan.resolutionSource,
+      tenant_id: input.tenantId,
+      call_control_id: input.callControlId,
+    },
+    'llm execution plan',
+  );
+
+  if (plan.route === 'fallback_error') {
+    log.warn(
+      {
+        event: 'provider_resolution_failed',
+        reason: plan.reason,
+        tenant_id: input.tenantId,
+        call_control_id: input.callControlId,
+      },
+      'llm provider resolution failed',
+    );
+    const fb = { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' as const };
+    await input.forensics?.recordLlmResponse(fb);
+    return fb;
+  }
+
+  if (plan.route === 'brain_local') {
     await input.forensics?.recordLlmRequestPayload({
       route: 'brain_local_default',
       tenantId: input.tenantId,
@@ -257,6 +392,8 @@ export async function generateAssistantReply(
       transcript: input.transcript,
       tenantId: input.tenantId,
       assistantContext: input.assistantContext,
+      businessHours: input.tenantConfig?.llmContext?.businessHours,
+      referenceTime: input.referenceTime,
     });
     log.info(
       {
@@ -264,8 +401,6 @@ export async function generateAssistantReply(
         source: 'brain_local_default',
         tenant_id: input.tenantId,
         call_control_id: input.callControlId,
-        brain_use_local: env.BRAIN_USE_LOCAL,
-        has_brain_url: !!env.BRAIN_URL,
       },
       'brain routed to local default',
     );
@@ -273,7 +408,11 @@ export async function generateAssistantReply(
     return { text, source: 'brain_local_default' };
   }
 
-  const url = buildBrainUrl(env.BRAIN_URL);
+  if (plan.route === 'openai_direct') {
+    return generateOpenAiDirectReply(input, plan);
+  }
+
+  const url = buildBrainUrl(plan.baseUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.BRAIN_TIMEOUT_MS);
 
@@ -373,11 +512,15 @@ export async function generateAssistantReplyStream(
   input: AssistantReplyInput,
   onToken: (chunk: string) => void,
 ): Promise<AssistantReplyResult> {
-  if (env.BRAIN_USE_LOCAL || !env.BRAIN_URL || !env.BRAIN_STREAMING_ENABLED) {
+  const plan = await resolveLlmExecutionPlan({
+    tenantId: input.tenantId,
+    tenantConfig: input.tenantConfig ?? null,
+  });
+  if (plan.route !== 'brain_http' || !env.BRAIN_STREAMING_ENABLED) {
     return generateAssistantReply(input);
   }
 
-  const streamUrl = buildBrainStreamUrl(env.BRAIN_URL);
+  const streamUrl = buildBrainStreamUrl(plan.baseUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), env.BRAIN_TIMEOUT_MS);
   const startedAt = Date.now();

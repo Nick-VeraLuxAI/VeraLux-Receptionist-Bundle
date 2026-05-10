@@ -43,6 +43,7 @@ function baseTenantContext(overrides = {}) {
       name: overrides.name || "Tenant A",
       numbers: ["+15551234567"],
     },
+    businessHours: overrides.businessHours !== undefined ? overrides.businessHours : {},
     forwardingProfiles: [],
     pricing: { items: [], notes: undefined },
     config: {
@@ -119,6 +120,26 @@ test("buildTenantRuntimeConfig omits greetingText when blank (env fallback appli
       undefined,
       "blank greeting is not published; runtime falls back to env.GREETING_TEXT",
     );
+  } finally {
+    if (prevSecret !== undefined) process.env.TELNYX_WEBHOOK_SECRET = prevSecret;
+    else delete process.env.TELNYX_WEBHOOK_SECRET;
+  }
+});
+
+test("buildTenantRuntimeConfig publishes validated businessHours into llmContext", () => {
+  const prevSecret = process.env.TELNYX_WEBHOOK_SECRET;
+  process.env.TELNYX_WEBHOOK_SECRET = "whsec_test_sprint0";
+  try {
+    const bh = {
+      timezone: "America/New_York",
+      weekly: { mon: { open: "11:30", close: "16:45" } },
+    };
+    const tenant = baseTenantContext({ id: "bh-pub", businessHours: bh });
+    const cfg = buildTenantRuntimeConfig(tenant, null, null, null);
+    const parsed = parseRuntimeTenantConfig(cfg);
+    assert.equal(parsed.llmContext.businessHours?.timezone, "America/New_York");
+    assert.equal(parsed.llmContext.businessHours?.weekly?.mon?.open, "11:30");
+    assert.equal(parsed.llmContext.businessHours?.weekly?.mon?.close, "16:45");
   } finally {
     if (prevSecret !== undefined) process.env.TELNYX_WEBHOOK_SECRET = prevSecret;
     else delete process.env.TELNYX_WEBHOOK_SECRET;

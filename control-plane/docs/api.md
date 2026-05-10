@@ -55,7 +55,7 @@ Data the receptionist can use when talking to callers (transfer targets and pric
 
 ### Analytics and calls (control plane)
 - `GET /api/admin/analytics`: basic analytics summary
-- `GET /api/admin/calls`: in-memory call snapshots (legacy/diagnostic)
+- `GET /api/admin/calls`: recent calls from **Postgres** (`calls` table), same tenant scope as other admin APIs; **`Cache-Control: no-store`**
 
 ### Admin keys and audit logs
 - `GET /api/admin/auth/keys`: list admin keys

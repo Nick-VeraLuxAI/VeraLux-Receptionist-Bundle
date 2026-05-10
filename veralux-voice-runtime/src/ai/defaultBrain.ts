@@ -1,3 +1,6 @@
+import { businessHoursSchema, hasTenantBusinessSchedule, voiceReplyFromBusinessHours } from '@veralux/shared';
+import { log } from '../log';
+
 /** Per-tenant context: pricing, products, hours, policies, etc. Keys are section names; values are text. */
 export type AssistantContext = Record<string, string>;
 
@@ -5,10 +8,35 @@ export function defaultBrainReply(args: {
   transcript: string;
   tenantId?: string;
   assistantContext?: AssistantContext;
+  /** Structured hours from published runtime tenant config (`llmContext.businessHours`). */
+  businessHours?: unknown;
+  /** Optional clock for deterministic tests; live calls omit so "now" is real wall time. */
+  referenceTime?: Date;
 }): string {
-  void args.tenantId;
   const text = args.transcript.trim().toLowerCase();
   const ctx = args.assistantContext;
+
+  const bhParsed = businessHoursSchema.safeParse(args.businessHours);
+  const schedulePresent =
+    bhParsed.success && hasTenantBusinessSchedule(bhParsed.data);
+  const structured = voiceReplyFromBusinessHours(
+    args.transcript,
+    args.businessHours ?? undefined,
+    args.referenceTime ?? new Date(),
+  );
+  if (structured) {
+    log.info(
+      {
+        event: 'local_brain_business_hours_used',
+        tenant_id: args.tenantId ?? null,
+        timezone: bhParsed.success ? bhParsed.data.timezone : null,
+        schedule_present: schedulePresent,
+        source: 'tenant_config',
+      },
+      'local default brain used tenant business hours',
+    );
+    return structured;
+  }
 
   // If we have context, use it for pricing / products / hours / other sections
   if (ctx && Object.keys(ctx).length > 0) {
@@ -61,6 +89,26 @@ export function defaultBrainReply(args: {
         }
       }
     }
+  }
+
+  if (
+    text.includes('open') ||
+    text.includes('close') ||
+    text.includes('closing') ||
+    text.includes('hour') ||
+    text.includes('when are you') ||
+    text.includes('what time')
+  ) {
+    log.info(
+      {
+        event: 'local_brain_business_hours_used',
+        tenant_id: args.tenantId ?? null,
+        timezone: bhParsed.success ? bhParsed.data.timezone : null,
+        schedule_present: schedulePresent,
+        source: 'fallback_default',
+      },
+      'local default brain hours fallback (no structured tenant schedule or no match)',
+    );
   }
 
   // Fallback when no context or no match

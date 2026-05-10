@@ -22,4 +22,7 @@ export {
   type TransferProfile,
   type QuickReplyIntent,
   quickReplyIntentSchema,
+  runtimeTenantLlmRoutingSchema,
+  TENANT_LLM_OPENAI_SECRET_KEY,
+  type RuntimeTenantLlmRouting,
 } from "@veralux/shared";

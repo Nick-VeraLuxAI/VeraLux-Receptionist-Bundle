@@ -4,7 +4,13 @@ const { spawn } = require("node:child_process");
 const { randomUUID, createHmac } = require("node:crypto");
 const { Pool } = require("pg");
 const Redis = require("ioredis");
-const { pingPool, recordTenantCallStarted, recordTenantCallEnded, closePool } = require("../dist/db.js");
+const {
+  pingPool,
+  recordTenantCallStarted,
+  recordTenantCallEnded,
+  closePool,
+  listCallsForTenantDb,
+} = require("../dist/db.js");
 
 const PORT = Number(process.env.CP_IT_PORT || 4199);
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -536,6 +542,94 @@ test("Sprint 0: /api/tts/config rejects raw provider URL fields from non-superad
     );
     assert.equal(r.body.error, "provider_url_admin_only");
   }
+});
+
+test("Business hours PATCH returns saved + published flags (auto-publish contract)", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantId = `bh-pub-${randomUUID().slice(0, 8)}`;
+  await createTenant(tenantId, "+15550100888");
+  const bhBody = {
+    timezone: "UTC",
+    weekly: {
+      mon: { open: "09:00", close: "17:00" },
+      tue: { open: "09:00", close: "17:00" },
+      wed: { open: "09:00", close: "17:00" },
+      thu: { open: "09:00", close: "17:00" },
+      fri: { open: "09:00", close: "17:00" },
+      sat: { closed: true },
+      sun: { closed: true },
+    },
+  };
+  const bh = await req(`/api/admin/tenants/${tenantId}/business-hours`, {
+    method: "PATCH",
+    headers: adminHeaders(tenantId),
+    body: JSON.stringify(bhBody),
+  });
+  assert.equal(bh.status, 200, `business hours patch must succeed (got ${bh.status})`);
+  assert.equal(bh.body?.saved, true, "response must include saved: true");
+  assert.equal(typeof bh.body?.published, "boolean", "response must include published boolean");
+  if (bh.body.published) {
+    assert.ok(
+      bh.body.lastRuntimePublishedAt === null || typeof bh.body.lastRuntimePublishedAt === "string",
+      "lastRuntimePublishedAt should be null or ISO string when published",
+    );
+  }
+});
+
+test("Call history: POST /api/runtime/calls end persists; GET /api/admin/calls lists from DB", async (t) => {
+  if (!setupOk) return t.skip("integration precondition failed: infrastructure not reachable");
+  const tenantId = `chist-${randomUUID().slice(0, 8)}`;
+  await createTenant(tenantId, "+15550100901");
+  const telnyxCc = `v3:test-cc-${randomUUID().slice(0, 8)}`;
+  const postEnd = await req("/api/runtime/calls", {
+    method: "POST",
+    headers: adminHeaders(tenantId),
+    body: JSON.stringify({
+      tenantId,
+      callId: telnyxCc,
+      action: "end",
+      transcript: "caller: hi\nassistant: hello",
+      callState: {
+        callerId: "+15550001234",
+        stage: "end",
+        lead: { source: "pstn" },
+        history: [{ role: "caller", content: "What are your hours?" }],
+      },
+    }),
+  });
+  assert.equal(postEnd.status, 200, `runtime end must persist (got ${postEnd.status})`);
+
+  const listed = await req("/api/admin/calls", { headers: adminHeaders(tenantId) });
+  assert.equal(listed.status, 200);
+  const cc = listed.headers.get("cache-control") || "";
+  assert.ok(cc.includes("no-store"), "admin calls must be no-store");
+  const calls = listed.body?.calls || [];
+  assert.ok(Array.isArray(calls));
+  const hit = calls.find(
+    (c) =>
+      c &&
+      c.lead &&
+      typeof c.lead === "object" &&
+      String(c.lead.voiceCallControlId || "") === telnyxCc,
+  );
+  assert.ok(hit, "admin list should include persisted call (voiceCallControlId match)");
+
+  const fromDb = await listCallsForTenantDb(tenantId, 20);
+  assert.ok(fromDb.some((r) => r.lead && String((r.lead || {}).voiceCallControlId || "") === telnyxCc));
+
+  const analytics = await req("/api/admin/analytics", { headers: adminHeaders(tenantId) });
+  assert.equal(analytics.status, 200, `analytics must load (got ${analytics.status})`);
+  const ccHdr = analytics.headers.get("cache-control") || "";
+  assert.ok(ccHdr.includes("no-store"), "admin analytics must be no-store");
+  assert.ok(
+    Number(analytics.body?.totalCalls || 0) >= 1,
+    "analytics totalCalls must reflect persisted calls",
+  );
+  assert.equal(analytics.body?.totalCalls, analytics.body?.callCount);
+  assert.ok(
+    Number(analytics.body?.totalCallerMessages || 0) >= 1,
+    "caller messages should be counted from persisted history",
+  );
 });
 
 test("cleanup integration resources", async () => {

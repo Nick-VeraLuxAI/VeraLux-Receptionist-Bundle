@@ -46,9 +46,9 @@ When **`strict`** (default; legacy `true`):
 - **Redis** — `PING`.
 - **Whisper** — HTTP `GET` on **`STT_HEALTH_URL`** if set, otherwise the health URL derived from **`WHISPER_URL`** (same rules as `GET /health`).
 - **TTS** — HTTP `GET` on **`TTS_HEALTH_URL`** if set, otherwise the **`/health`** URL for the backend selected by **`TTS_MODE`** (`KOKORO_URL` → host `/health`, Coqui/Chatterbox/Qwen3 → base + `/health`).
-- **Brain (optional)** — when **`LLM_HEALTH_URL`** is set, that URL is probed; otherwise **`BRAIN_URL`** is normalized to **`/health`** when not using local brain.
+- **Brain (optional by default)** — strict mode only performs an HTTP brain probe when **`BRAIN_HEALTH_REQUIRED=true`**. The probe URL is **`LLM_HEALTH_URL`** if set, otherwise **`BRAIN_URL`** normalized to **`/health`** (same origin rules as before; strips trailing **`/reply`** / **`/reply/stream`**). When **`BRAIN_HEALTH_REQUIRED=false`** (default), JSON reports **`checks.brain.status`** as **`skipped_optional`**, **`not_configured`**, or **`skipped_local`** without failing overall readiness. When **`BRAIN_USE_LOCAL=true`**, no HTTP brain probe runs (**`skipped_local`**).
 
-All probed URLs must return HTTP “ok” (fetch `response.ok`) within the server timeout (5s per dependency, parallel).
+All probed URLs (those that run) must return HTTP “ok” (fetch `response.ok`) within the server timeout (5s per dependency, parallel).
 
 When **`configured`**:
 
@@ -85,7 +85,7 @@ When **`disabled`** (legacy `false`):
 ## 5. Optional LLM (vLLM + brain-gpt4o)
 
 - **Compose:** Services **`vllm-qwen`** and **`brain`** use profile **`llm`**, attach to **`veralux-network`**, and are started by **`scripts/start-production.sh`** when **`VERALUX_ENABLE_LOCAL_LLM`**, **`VERALUX_EXTRA_COMPOSE_PROFILES`**, or a non-local **`BRAIN_URL`** targeting **`http://brain…`** is set (see **`deploy/production-env-fragment.env`**). **`brain`** `depends_on` **`vllm-qwen`** `service_healthy`; **`OPENAI_BASE_URL`** inside the brain container points at **`http://vllm-qwen:8000/v1`**.
-- **`GET /health/voice` (runtime):** When **`BRAIN_USE_LOCAL=false`** and **`BRAIN_URL`** is set, the runtime probes **`GET /health`** on the brain **origin** (strips a trailing **`/reply`** or **`/reply/stream`**). When **`BRAIN_USE_LOCAL=true`**, that HTTP brain probe is skipped (in-process keyword brain only).
+- **`GET /health/voice` (runtime):** When **`BRAIN_HEALTH_REQUIRED=true`**, **`BRAIN_USE_LOCAL=false`**, and a brain health target exists (**`LLM_HEALTH_URL`** or derived from **`BRAIN_URL`**), the runtime probes **`GET /health`** on that URL. When **`BRAIN_HEALTH_REQUIRED=false`** (default), the brain HTTP check does not gate readiness (see §3 **`strict`**). When **`BRAIN_USE_LOCAL=true`**, the HTTP brain probe is skipped (in-process keyword brain only).
 - **Host verification:** If **`BRAIN_USE_LOCAL=true`** and you run a brain container on the host, **`scripts/healthcheck.sh`** may request **`http://127.0.0.1:${BRAIN_PORT}/health`**. It does **not** probe vLLM on the host unless you add your own check (vLLM may only be reachable on **`VLLM_PORT`**).
 
 **OpenAI / remote LLM:** No container healthcheck; readiness of external APIs is **not** part of Docker or **`GET /health/ready`**.

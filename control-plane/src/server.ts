@@ -1,6 +1,6 @@
 import "./env";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { timingSafeEqual } from "crypto";
+import { timingSafeEqual, randomUUID } from "crypto";
 import dotenv from "dotenv";
 import { createServer, type AddressInfo } from "net";
 import path from "path";
@@ -89,6 +89,7 @@ import {
   recordTenantCallEnded,
   listCallsForTenantDb,
   getCallByIdForTenantDb,
+  upsertCallRowMerge,
   getTenantCallQualitySettings,
   updateTenantCallQualitySettings,
   consumeTenantNextCallDiagnostics,
@@ -97,9 +98,18 @@ import {
   expireStaleRawAudioDiagnostics,
   type TenantCallQualitySettingsRow,
 } from "./db";
-import { tenantCallQualityRowToRuntime } from "./callQualityMaps";
-import type { RuntimeCallQuality } from "@veralux/shared";
-import { maskCallerId, summarizeHistory, isMissedCallRow } from "./callSanitizer";
+import { getCallAnalyticsPayloadForTenant } from "./callAnalyticsFromDb";
+import {
+  trySyncTenantRuntimeConfigForLimits,
+  autoPublishTenantRuntimeAfterSave,
+  syncTenantRuntimeConfigForLimits,
+} from "./tenantRuntimePublish";
+import {
+  maskCallerId,
+  summarizeHistory,
+  isMissedCallRow,
+  normalizeHistoryForAdminUi,
+} from "./callSanitizer";
 import { rateLimit } from "./rateLimit";
 import { ipRateLimit } from "./middleware/ipRateLimit";
 import { closeRedis as closeRateLimitRedis } from "./redis";
@@ -122,6 +132,7 @@ import {
   changeOwnerPasscodeIfValid,
   changeOwnerPortalPasswordIfValid,
 } from "./ownerAuth";
+import { registerTenantLlmRoutes } from "./tenantLlmHandlers";
 import {
   hashPortalPassword,
   verifyPortalPassword,
@@ -833,53 +844,6 @@ function clearCoquiGenFields(u: Record<string, unknown>): void {
   u.coquiSplitSentences = undefined;
 }
 
-/**
- * Syncs a tenant's LLM context (forwarding profiles, pricing, prompts) to the
- * existing RuntimeTenantConfig in Redis. If no config exists yet, logs a warning.
- */
-async function syncLLMContextToRuntime(tenant: TenantContext): Promise<void> {
-  try {
-    const existing = await getTenantConfig(tenant.id);
-    if (!existing) {
-      console.debug(`[syncLLMContext] No runtime config for tenant ${tenant.id}, skipping LLM context sync`);
-      return;
-    }
-
-    const prompts = tenant.config.getPrompts();
-    const updatedConfig: RuntimeTenantConfig = {
-      ...existing,
-      llmContext: {
-        forwardingProfiles: tenant.forwardingProfiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          number: p.number,
-          role: p.role,
-        })),
-        pricing: {
-          items: tenant.pricing.items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            price: item.price,
-            description: item.description,
-          })),
-          notes: tenant.pricing.notes,
-        },
-        prompts: {
-          systemPreamble: prompts.systemPreamble,
-          schemaHint: prompts.schemaHint,
-          policyPrompt: prompts.policyPrompt,
-          voicePrompt: prompts.voicePrompt,
-        },
-      },
-    };
-
-    await publishTenantConfig(tenant.id, updatedConfig);
-    console.debug(`[syncLLMContext] Updated LLM context for tenant ${tenant.id}`);
-  } catch (err) {
-    console.error(`[syncLLMContext] Failed to sync LLM context for tenant ${tenant.id}:`, err);
-  }
-}
-
 function respondVoiceRuntimeMoved(res: express.Response) {
   return res.status(410).json({
     error: "voice_runtime_moved",
@@ -988,37 +952,9 @@ function ensureRuntimeAdminEnabled(res: express.Response): boolean {
   return true;
 }
 
-async function syncTenantRuntimeConfigForLimits(tenantId: string): Promise<void> {
-  if (!ENABLE_RUNTIME_ADMIN) return;
-  const tenant = tenants.getOrCreate(tenantId);
-  let existing: RuntimeTenantConfig | null = null;
-  try {
-    existing = await getTenantConfig(tenantId);
-  } catch {
-    existing = null;
-  }
-  const limits = await getTenantLimits(tenantId);
-  let cq: RuntimeCallQuality | null = null;
-  try {
-    cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenantId));
-  } catch (e) {
-    logger.warn("call_quality_settings_unavailable", {
-      tenantId,
-      err: e instanceof Error ? e.message : String(e),
-    });
-  }
-  const parsed = buildTenantRuntimeConfig(tenant, existing, limits, cq);
-  await publishTenantConfig(tenantId, parsed);
-}
-
-async function trySyncTenantRuntimeConfigForLimits(tenantId: string): Promise<boolean> {
-  try {
-    await syncTenantRuntimeConfigForLimits(tenantId);
-    return true;
-  } catch (error) {
-    logger.warn("limits runtime sync failed", { tenantId, err: error });
-    return false;
-  }
+function adminActorRole(req: AuthedRequest): string {
+  if (req.ctx?.isSuperAdmin) return "superadmin";
+  return req.ctx?.role ?? "admin";
 }
 
 function ensureTenantAccess(
@@ -1038,6 +974,16 @@ function ensureTenantAccess(
   }
   return true;
 }
+
+registerTenantLlmRoutes(app, {
+  mergeOperatorState: (tenantId, patch) => tenants.mergeOperatorState(tenantId, patch),
+  afterMutation: trySyncTenantRuntimeConfigForLimits,
+  adminGuard,
+  ensureTenantAccess,
+  getAdminToken,
+  verifyOwnerPortalToken,
+  tenantsGetOrCreate: (id) => tenants.getOrCreate(id),
+});
 
 async function requireTenantFeature(
   req: AuthedRequest,
@@ -1645,6 +1591,34 @@ const ttsApiRateLimiter = rateLimit({
   useRedis: ADMIN_RATE_USE_REDIS,
 });
 
+const adminSharedRateLimiter = rateLimit({
+  windowMs: ADMIN_RATE_WINDOW_MS,
+  max: ADMIN_RATE_MAX,
+  keyFn: (req) => getAdminToken(req) || req.ip || "anon",
+  useRedis: ADMIN_RATE_USE_REDIS,
+});
+
+/** Frequent dashboard GETs share one limiter bucket; exempt light polling paths from the cap. */
+function adminApiRateLimitUnlessPollingGet(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  if (req.method === "GET") {
+    const pathOnly = (req.originalUrl || req.url || "").split("?")[0];
+    if (
+      pathOnly === "/api/admin/calls" ||
+      pathOnly.startsWith("/api/admin/analytics") ||
+      pathOnly === "/api/admin/health" ||
+      pathOnly.startsWith("/api/admin/health/")
+    ) {
+      next();
+      return;
+    }
+  }
+  adminSharedRateLimiter(req, res, next);
+}
+
 /**
  * Voice preview async flow polls ~once per second for minutes; the default admin
  * cap (100 / 5 min) would 429 mid-synthesis and break preview behind Cloudflare.
@@ -1670,12 +1644,7 @@ function ttsApiRateLimitUnlessPreviewPoll(
 app.use(
   "/api/admin",
   adminCorsGuard,
-  rateLimit({
-    windowMs: ADMIN_RATE_WINDOW_MS,
-    max: ADMIN_RATE_MAX,
-    keyFn: (req) => getAdminToken(req) || req.ip || "anon",
-    useRedis: ADMIN_RATE_USE_REDIS,
-  }),
+  adminApiRateLimitUnlessPollingGet,
   adminGuard("viewer")
 );
 
@@ -1797,26 +1766,50 @@ app.get("/api/admin/prompts", (req, res) => {
   res.json(tenant.config.getPrompts());
 });
 
-app.post("/api/admin/prompts", async (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
+app.post(
+  "/api/admin/prompts",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenant = getTenantForAdmin(req, res);
+    if (!tenant) return;
 
-  const { systemPreamble, schemaHint, policyPrompt, voicePrompt, greetingText } =
-    req.body as Partial<PromptConfig>;
+    const { systemPreamble, schemaHint, policyPrompt, voicePrompt, greetingText } =
+      req.body as Partial<PromptConfig>;
 
-  const updated = tenant.config.setPrompts({
-    systemPreamble,
-    schemaHint,
-    policyPrompt,
-    voicePrompt,
-    greetingText,
-  });
+    logger.info("tenant_settings_save_attempt", {
+      event: "tenant_settings_save_attempt",
+      tenantId: tenant.id,
+      settingArea: "prompts",
+      actorRole: adminActorRole(req),
+    });
+    const updated = tenant.config.setPrompts({
+      systemPreamble,
+      schemaHint,
+      policyPrompt,
+      voicePrompt,
+      greetingText,
+    });
 
-  tenants.persistConfig(tenant.id);
-  // Sync LLM context to Redis for the voice runtime
-  await syncLLMContextToRuntime(tenant);
-  res.json(updated);
-});
+    tenants.persistConfig(tenant.id);
+    logger.info("tenant_settings_save_success", {
+      event: "tenant_settings_save_success",
+      tenantId: tenant.id,
+      settingArea: "prompts",
+      actorRole: adminActorRole(req),
+    });
+    const publish = await autoPublishTenantRuntimeAfterSave(tenant.id, {
+      settingArea: "prompts",
+      actorRole: adminActorRole(req),
+    });
+    res.json({
+      ...updated,
+      saved: true,
+      published: publish.published,
+      lastRuntimePublishedAt: publish.lastRuntimePublishedAt,
+      ...(publish.publishError ? { publishError: publish.publishError } : {}),
+      ...(publish.publishSkippedReason ? { publishSkippedReason: publish.publishSkippedReason } : {}),
+    });
+  }),
+);
 
 /* ────────────────────────────────────────────────
    Admin – LLM context (forwarding profiles + pricing)
@@ -1831,29 +1824,53 @@ app.get("/api/admin/forwarding-profiles", (req, res) => {
   });
 });
 
-app.post("/api/admin/forwarding-profiles", async (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
-  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "multiLocation"))) return;
-  const raw = req.body?.profiles;
-  const profiles = Array.isArray(raw)
-    ? raw
-        .filter((p: unknown) => p != null && typeof (p as any).name === "string")
-        .map((p: any) =>
-          createForwardingProfile({
-            id: p.id,
-            name: String(p.name).trim(),
-            number: typeof p.number === "string" ? p.number.trim() : "",
-            role: typeof p.role === "string" ? p.role.trim() : "",
-          })
-        )
-    : [];
-  const updated = tenants.setForwardingProfiles(tenant.id, profiles);
-  if (!updated) return res.status(404).json({ error: "tenant_not_found" });
-  // Sync LLM context to Redis for the voice runtime
-  await syncLLMContextToRuntime(updated);
-  res.json({ profiles: updated.forwardingProfiles });
-});
+app.post(
+  "/api/admin/forwarding-profiles",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenant = getTenantForAdmin(req, res);
+    if (!tenant) return;
+    if (!(await requireTenantFeature(req, res, tenant.id, "multiLocation"))) return;
+    const raw = req.body?.profiles;
+    const profiles = Array.isArray(raw)
+      ? raw
+          .filter((p: unknown) => p != null && typeof (p as any).name === "string")
+          .map((p: any) =>
+            createForwardingProfile({
+              id: p.id,
+              name: String(p.name).trim(),
+              number: typeof p.number === "string" ? p.number.trim() : "",
+              role: typeof p.role === "string" ? p.role.trim() : "",
+            }),
+          )
+      : [];
+    logger.info("tenant_settings_save_attempt", {
+      event: "tenant_settings_save_attempt",
+      tenantId: tenant.id,
+      settingArea: "forwarding_profiles",
+      actorRole: adminActorRole(req),
+    });
+    const updated = tenants.setForwardingProfiles(tenant.id, profiles);
+    if (!updated) return res.status(404).json({ error: "tenant_not_found" });
+    logger.info("tenant_settings_save_success", {
+      event: "tenant_settings_save_success",
+      tenantId: tenant.id,
+      settingArea: "forwarding_profiles",
+      actorRole: adminActorRole(req),
+    });
+    const publish = await autoPublishTenantRuntimeAfterSave(tenant.id, {
+      settingArea: "forwarding_profiles",
+      actorRole: adminActorRole(req),
+    });
+    res.json({
+      profiles: updated.forwardingProfiles,
+      saved: true,
+      published: publish.published,
+      lastRuntimePublishedAt: publish.lastRuntimePublishedAt,
+      ...(publish.publishError ? { publishError: publish.publishError } : {}),
+      ...(publish.publishSkippedReason ? { publishSkippedReason: publish.publishSkippedReason } : {}),
+    });
+  }),
+);
 
 app.get("/api/admin/pricing", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
@@ -1864,17 +1881,41 @@ app.get("/api/admin/pricing", (req, res) => {
   });
 });
 
-app.post("/api/admin/pricing", async (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
-  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "crmIntegration"))) return;
-  const parsed = parsePricingInfo(req.body);
-  const updated = tenants.setPricing(tenant.id, parsed);
-  if (!updated) return res.status(404).json({ error: "tenant_not_found" });
-  // Sync LLM context to Redis for the voice runtime
-  await syncLLMContextToRuntime(updated);
-  res.json(updated.pricing);
-});
+app.post(
+  "/api/admin/pricing",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenant = getTenantForAdmin(req, res);
+    if (!tenant) return;
+    if (!(await requireTenantFeature(req, res, tenant.id, "crmIntegration"))) return;
+    const parsed = parsePricingInfo(req.body);
+    logger.info("tenant_settings_save_attempt", {
+      event: "tenant_settings_save_attempt",
+      tenantId: tenant.id,
+      settingArea: "pricing",
+      actorRole: adminActorRole(req),
+    });
+    const updated = tenants.setPricing(tenant.id, parsed);
+    if (!updated) return res.status(404).json({ error: "tenant_not_found" });
+    logger.info("tenant_settings_save_success", {
+      event: "tenant_settings_save_success",
+      tenantId: tenant.id,
+      settingArea: "pricing",
+      actorRole: adminActorRole(req),
+    });
+    const publish = await autoPublishTenantRuntimeAfterSave(tenant.id, {
+      settingArea: "pricing",
+      actorRole: adminActorRole(req),
+    });
+    res.json({
+      ...updated.pricing,
+      saved: true,
+      published: publish.published,
+      lastRuntimePublishedAt: publish.lastRuntimePublishedAt,
+      ...(publish.publishError ? { publishError: publish.publishError } : {}),
+      ...(publish.publishSkippedReason ? { publishSkippedReason: publish.publishSkippedReason } : {}),
+    });
+  }),
+);
 
 /* ────────────────────────────────────────────────
    Admin – Subscription / Billing
@@ -2471,16 +2512,7 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
     | undefined;
   if (ENABLE_RUNTIME_ADMIN) {
     try {
-      const existing = await getTenantConfig(tenant.id);
-      const tenantLimits = await getTenantLimits(tenant.id);
-      let cq: RuntimeCallQuality | null = null;
-      try {
-        cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenant.id));
-      } catch {
-        cq = null;
-      }
-      const parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits, cq);
-      await publishTenantConfig(tenant.id, parsed);
+      await syncTenantRuntimeConfigForLimits(tenant.id);
       runtimePublish = { ok: true };
     } catch (err: unknown) {
       if (err instanceof BuildRuntimeConfigError) {
@@ -2870,14 +2902,18 @@ app.get("/api/admin/health", (req, res) => {
   res.json(payload);
 });
 
-app.get("/api/admin/analytics", (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
-  void requireTenantFeature(req as AuthedRequest, res, tenant.id, "advancedAnalytics").then((ok) => {
-    if (!ok) return;
-    res.json(tenant.analytics.snapshot());
-  });
-});
+app.get(
+  "/api/admin/analytics",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenant = getTenantForAdmin(req, res);
+    if (!tenant) return;
+    if (!(await requireTenantFeature(req, res, tenant.id, "advancedAnalytics"))) return;
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Pragma", "no-cache");
+    const payload = await getCallAnalyticsPayloadForTenant(tenant.id);
+    res.json(payload);
+  }),
+);
 
 /**
  * POST endpoint for the voice runtime to report analytics events.
@@ -2915,11 +2951,45 @@ app.post("/api/runtime/analytics", adminGuard("admin"), (req: AuthedRequest, res
   return res.status(400).json({ error: "invalid_event", validEvents: ["call_started", "caller_message"] });
 });
 
-app.get("/api/admin/calls", (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
-  res.json({ calls: tenant.calls.listCalls() });
-});
+app.get(
+  "/api/admin/calls",
+  asyncHandler(async (req: AuthedRequest, res) => {
+    const tenant = getTenantForAdmin(req, res);
+    if (!tenant) return;
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Pragma", "no-cache");
+    const rows = await listCallsForTenantDb(tenant.id, 100);
+    const calls = rows.map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      callerId: row.caller_id,
+      stage: row.stage,
+      lead: row.lead,
+      history: normalizeHistoryForAdminUi(row.history),
+    }));
+    res.json({ calls });
+  }),
+);
+
+/** Superadmin-only: confirm Postgres has recent call rows for a tenant (no PII). */
+app.get(
+  "/api/admin/diagnostics/call-db-check",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    if (!requireSuperAdminCtx(req, res)) return;
+    const rawTid = typeof req.query.tenantId === "string" ? req.query.tenantId.trim() : "";
+    const tenantId = rawTid || DEFAULT_TENANT_ID;
+    if (!ensureTenantAccess(req, res, tenantId)) return;
+    res.setHeader("Cache-Control", "no-store, private");
+    const rows = await listCallsForTenantDb(tenantId, 1);
+    res.json({
+      tenantId,
+      hasRows: rows.length > 0,
+      latestCallId: rows[0]?.id ?? null,
+      latestUpdatedAt: rows[0]?.updated_at ?? null,
+    });
+  }),
+);
 
 /**
  * POST endpoint for the voice runtime to report call state updates.
@@ -2975,36 +3045,96 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, r
   }
 
   if (action === "end" && callId) {
-    // Capture call data before deleting
-    const endingCall = tenant.calls.getCall(callId);
-    tenant.calls.deleteCall(callId);
+    const ccLog = String(callId).trim().slice(0, 120);
+    logger.info("call_history_store_attempt", {
+      event: "call_history_store_attempt",
+      tenantId,
+      callControlId: ccLog,
+    });
 
-    // Fire workflow event bus (async, don't block response)
-    if (endingCall) {
-      const durationMs =
-        endingCall.createdAt
-          ? Date.now() - endingCall.createdAt
-          : undefined;
-      await recordTenantCallEnded({
+    const endingCall = tenant.calls.getCall(callId);
+    const historyForDb = Array.isArray(callState?.history)
+      ? (callState!.history as unknown[])
+      : endingCall
+        ? (endingCall.history as unknown[])
+        : [];
+
+    try {
+      if (endingCall) {
+        const mergedLead = {
+          ...(typeof endingCall.lead === "object" && endingCall.lead
+            ? (endingCall.lead as Record<string, unknown>)
+            : {}),
+          ...(typeof callState?.lead === "object" && callState.lead
+            ? callState.lead
+            : {}),
+          voiceCallControlId: callId,
+        };
+        await upsertCallRowMerge({
+          id: endingCall.id,
+          tenant_id: tenantId,
+          caller_id: callState?.callerId ?? endingCall.callerId ?? null,
+          stage: "end",
+          lead: mergedLead,
+          history: historyForDb,
+        });
+        tenant.calls.deleteCall(callId);
+      } else {
+        const mergedLead = {
+          ...(typeof callState?.lead === "object" && callState.lead
+            ? callState.lead
+            : {}),
+          voiceCallControlId: callId,
+        };
+        await upsertCallRowMerge({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          caller_id: callState?.callerId ?? null,
+          stage: "end",
+          lead: mergedLead,
+          history: historyForDb,
+        });
+      }
+      logger.info("call_history_store_success", {
+        event: "call_history_store_success",
         tenantId,
-        durationMs,
-        fallbackUsed: String(req.body?.replySource || "").includes("fallback"),
+        callControlId: ccLog,
       });
-      const workflowEvent: CallEndedEvent = {
-        type: "call_ended",
+    } catch (err) {
+      logger.error("call_history_store_failed", {
+        event: "call_history_store_failed",
         tenantId,
-        callId,
-        callerId: endingCall.callerId,
-        durationMs,
-        turns: endingCall.history as any,
-        transcript: req.body.transcript,
-        lead: endingCall.lead as any,
-        timestamp: new Date().toISOString(),
-      };
-      handleCallEnded(workflowEvent).catch(err => {
-        console.error("[runtime/calls] Workflow event bus error:", err);
+        callControlId: ccLog,
+        err: err instanceof Error ? err.message : String(err),
       });
+      return res.status(500).json({ error: "call_history_persist_failed" });
     }
+
+    const durationMs =
+      endingCall?.createdAt != null
+        ? Date.now() - endingCall.createdAt
+        : undefined;
+    await recordTenantCallEnded({
+      tenantId,
+      durationMs,
+      fallbackUsed: String((req.body as { replySource?: string })?.replySource || "").includes(
+        "fallback",
+      ),
+    });
+    const workflowEvent: CallEndedEvent = {
+      type: "call_ended",
+      tenantId,
+      callId,
+      callerId: endingCall?.callerId ?? callState?.callerId,
+      durationMs,
+      turns: (historyForDb as any) ?? [],
+      transcript: (req.body as { transcript?: string }).transcript,
+      lead: (endingCall?.lead as any) ?? callState?.lead ?? {},
+      timestamp: new Date().toISOString(),
+    };
+    handleCallEnded(workflowEvent).catch(err => {
+      console.error("[runtime/calls] Workflow event bus error:", err);
+    });
 
     return res.json({ status: "ok", ended: true });
   }
@@ -3130,9 +3260,34 @@ app.patch(
     if (!parsed.success) {
       return res.status(400).json({ error: "invalid_business_hours", details: parsed.error.issues });
     }
+    logger.info("tenant_settings_save_attempt", {
+      event: "tenant_settings_save_attempt",
+      tenantId,
+      settingArea: "business_hours",
+      actorRole: adminActorRole(req),
+    });
     tenants.setBusinessHours(tenantId, parsed.data);
     const ev = evaluateBusinessHours(parsed.data);
-    res.json({ businessHours: parsed.data, openNow: ev.isOpen, summary: ev.summary });
+    logger.info("tenant_settings_save_success", {
+      event: "tenant_settings_save_success",
+      tenantId,
+      settingArea: "business_hours",
+      actorRole: adminActorRole(req),
+    });
+    const publish = await autoPublishTenantRuntimeAfterSave(tenantId, {
+      settingArea: "business_hours",
+      actorRole: adminActorRole(req),
+    });
+    res.json({
+      businessHours: parsed.data,
+      openNow: ev.isOpen,
+      summary: ev.summary,
+      saved: true,
+      published: publish.published,
+      lastRuntimePublishedAt: publish.lastRuntimePublishedAt,
+      ...(publish.publishError ? { publishError: publish.publishError } : {}),
+      ...(publish.publishSkippedReason ? { publishSkippedReason: publish.publishSkippedReason } : {}),
+    });
   }),
 );
 
@@ -3188,9 +3343,35 @@ app.patch("/api/owner/business-hours", async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "invalid_business_hours", details: parsed.error.issues });
     }
-    tenants.setBusinessHours(session.tenantId, parsed.data);
+    const tenantId = session.tenantId;
+    logger.info("tenant_settings_save_attempt", {
+      event: "tenant_settings_save_attempt",
+      tenantId,
+      settingArea: "business_hours",
+      actorRole: "owner_portal",
+    });
+    tenants.setBusinessHours(tenantId, parsed.data);
     const ev = evaluateBusinessHours(parsed.data);
-    res.json({ businessHours: parsed.data, openNow: ev.isOpen, summary: ev.summary });
+    logger.info("tenant_settings_save_success", {
+      event: "tenant_settings_save_success",
+      tenantId,
+      settingArea: "business_hours",
+      actorRole: "owner_portal",
+    });
+    const publish = await autoPublishTenantRuntimeAfterSave(tenantId, {
+      settingArea: "business_hours",
+      actorRole: "owner_portal",
+    });
+    res.json({
+      businessHours: parsed.data,
+      openNow: ev.isOpen,
+      summary: ev.summary,
+      saved: true,
+      published: publish.published,
+      lastRuntimePublishedAt: publish.lastRuntimePublishedAt,
+      ...(publish.publishError ? { publishError: publish.publishError } : {}),
+      ...(publish.publishSkippedReason ? { publishSkippedReason: publish.publishSkippedReason } : {}),
+    });
   } catch (err) {
     console.error("PATCH /api/owner/business-hours error:", err);
     res.status(500).json({ error: "business_hours_write_failed" });
@@ -3203,6 +3384,8 @@ app.get("/api/owner/calls", async (req, res) => {
     if (!raw) return res.status(401).json({ error: "auth_required" });
     const session = await verifyOwnerPortalToken(raw);
     if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Pragma", "no-cache");
     const lim = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const filter = typeof req.query.filter === "string" ? req.query.filter : "all";
     const rows = await listCallsForTenantDb(session.tenantId, lim);
@@ -3229,6 +3412,8 @@ app.get("/api/owner/calls/:callId", async (req, res) => {
     if (!raw) return res.status(401).json({ error: "auth_required" });
     const session = await verifyOwnerPortalToken(raw);
     if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
+    res.setHeader("Cache-Control", "no-store, private");
+    res.setHeader("Pragma", "no-cache");
     const callId = req.params.callId?.trim();
     if (!callId) return res.status(400).json({ error: "call_id_required" });
     const row = await getCallByIdForTenantDb(session.tenantId, callId);
@@ -3892,27 +4077,8 @@ app.post(
     if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
     if (!ensureTenantAccess(req as AuthedRequest, res, tenantId)) return;
 
-    const tenant = tenants.getOrCreate(tenantId);
-
-    let existing: RuntimeTenantConfig | null;
     try {
-      existing = await getTenantConfig(tenantId);
-    } catch (err) {
-      console.error("POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant getTenantConfig:", err);
-      return res.status(500).json({ error: "runtime_config_read_failed" });
-    }
-
-    let parsed: RuntimeTenantConfig;
-    try {
-      const tenantLimits = await getTenantLimits(tenantId);
-      let cq: RuntimeCallQuality | null = null;
-      try {
-        await expireStaleRawAudioDiagnostics();
-        cq = tenantCallQualityRowToRuntime(await getTenantCallQualitySettings(tenantId));
-      } catch {
-        cq = null;
-      }
-      parsed = buildTenantRuntimeConfig(tenant, existing, tenantLimits, cq);
+      await syncTenantRuntimeConfigForLimits(tenantId);
     } catch (err: unknown) {
       if (err instanceof BuildRuntimeConfigError) {
         return res.status(400).json({
@@ -3920,14 +4086,22 @@ app.post(
           message: err.message,
         });
       }
-      throw err;
-    }
-
-    try {
-      await publishTenantConfig(tenantId, parsed);
-    } catch (err) {
       console.error("POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant error:", err);
       return res.status(500).json({ error: "runtime_publish_failed" });
+    }
+
+    let parsed: RuntimeTenantConfig | null;
+    try {
+      parsed = await getTenantConfig(tenantId);
+    } catch (err) {
+      console.error("POST /api/admin/runtime/tenants/:tenantId/publish-from-tenant getTenantConfig:", err);
+      return res.status(500).json({ error: "runtime_config_read_failed" });
+    }
+    if (!parsed) {
+      return res.status(500).json({
+        error: "runtime_publish_failed",
+        message: "Published config could not be read back from Redis.",
+      });
     }
 
     const includeSecrets = shouldIncludeRuntimeSecrets(req);

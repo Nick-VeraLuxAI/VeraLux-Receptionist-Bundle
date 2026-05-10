@@ -43,7 +43,7 @@ Set in `.env` (and optionally `.env.internal`):
 ## Health and readiness
 
 - Runtime **`GET /health/voice`** and **`GET /health/ready`** (when `HEALTH_VOICE_DEPENDENCIES=true`) probe **Whisper** and **active TTS** HTTP **`/health`** endpoints derived from env (`veralux-voice-runtime/src/routes/health.ts`).
-- Optional **brain** probe if `BRAIN_URL` is set and `BRAIN_USE_LOCAL` is false.
+- **Brain** HTTP is **optional** for readiness unless **`BRAIN_HEALTH_REQUIRED=true`** (default false). With the optional **`llm`** profile off, leave **`BRAIN_HEALTH_REQUIRED=false`** so a template **`BRAIN_URL`** does not block **`/health/voice`**.
 
 ---
 

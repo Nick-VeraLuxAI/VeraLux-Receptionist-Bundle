@@ -160,7 +160,10 @@ const EnvSchema = z.object({
   STT_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   /** When set in strict mode, probe this URL instead of deriving TTS `/health` from mode URLs. */
   TTS_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
-  /** When set in strict mode, probe this URL instead of deriving brain `/health` from `BRAIN_URL`. */
+  /**
+   * When set in strict mode, probe this URL instead of deriving brain `/health` from `BRAIN_URL`.
+   * When `BRAIN_HEALTH_REQUIRED=true`, strict mode probes `LLM_HEALTH_URL` if set, else derived brain `/health`.
+   */
   LLM_HEALTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
 
   /* ───────────────────────── Telnyx ───────────────────────── */
@@ -310,6 +313,14 @@ const EnvSchema = z.object({
   /* Dead air protection */
   DEAD_AIR_MS: z.coerce.number().int().positive(),
   DEAD_AIR_NO_FRAMES_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(1500)),
+  /**
+   * If inbound audio recently showed gate-level energy (RMS/peak) or STT classified speech but
+   * Whisper never ran, defer “Are you still there?” reprompts for this many ms.
+   */
+  DEAD_AIR_DEFER_RECENT_STT_SIGNAL_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(4000),
+  ),
 
   /** When STT returns empty/noise or errors (after retries), play a TTS reprompt instead of staying silent. */
   STT_UNCLEAR_REPROMPT_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
@@ -432,6 +443,11 @@ const EnvSchema = z.object({
   /* ───────────────────────── Brain / LLM ───────────────────────── */
   /** When true, use local default brain (keyword rules). When false or unset, use BRAIN_URL if set (e.g. GPT-4o API). */
   BRAIN_USE_LOCAL: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /**
+   * When false (default), strict `/health/voice` does not fail readiness if brain HTTP is unreachable
+   * (e.g. `BRAIN_URL` set but compose profile `llm` not started). Set true when the HTTP brain must be up.
+   */
+  BRAIN_HEALTH_REQUIRED: z.preprocess(stringToBoolean, z.boolean().default(false)),
   BRAIN_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   BRAIN_TIMEOUT_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(8000)),
   BRAIN_STREAMING_ENABLED: z.preprocess(stringToBoolean, z.boolean().default(true)),
@@ -440,6 +456,18 @@ const EnvSchema = z.object({
   BRAIN_STREAM_FIRST_AUDIO_MAX_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(2000)),
   BRAIN_STREAM_SEGMENT_MIN_CHARS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(120)),
   BRAIN_STREAM_SEGMENT_NEXT_CHARS: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(180)),
+  /**
+   * Platform default for voice-call LLM routing: `brain_local` (keyword brain), `brain_http`, or `openai`.
+   * Aliases: `brain` / `local` → brain_local. Does not force HTTP brain merely because BRAIN_URL is set.
+   */
+  PLATFORM_LLM_PROVIDER: z.preprocess(emptyToUndefined, z.string().min(1).default('brain_local')),
+  /** Legacy voice env; used only when PLATFORM_LLM_PROVIDER is unset (prefer PLATFORM_LLM_PROVIDER). */
+  LLM_PROVIDER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Platform OpenAI key when PLATFORM_LLM_PROVIDER=openai. */
+  OPENAI_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('gpt-4o-mini')),
+  /** Optional OpenAI-compatible API base (default https://api.openai.com/v1). */
+  OPENAI_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
 
   /* ───────────────────────── Call transcript / summarizer ───────────────────────── */
   /** When set, write full call transcript (caller + assistant text) to this dir at teardown. No audio. */

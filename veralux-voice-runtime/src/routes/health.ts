@@ -3,6 +3,17 @@ import { getRedisClient } from '../redis/client';
 import { env } from '../env';
 import { log } from '../log';
 import { incDependencyUnavailable } from '../metrics';
+import {
+  executeStrictVoiceBrainGate,
+  resolveStrictVoiceBrainPlan,
+  voiceStrictPlaneReady,
+  type BrainVoiceCheckPayload,
+} from '../healthBrainGate';
+import {
+  effectiveVoicePlatformLlmRaw,
+  isDisallowedPlaceholderApiKey,
+  normalizePlatformLlmKind,
+} from '../ai/llmProviderResolve';
 
 export const healthRouter = Router();
 
@@ -122,12 +133,6 @@ function effectiveTtsHealthUrl(): string | undefined {
   return ttsHealthUrl();
 }
 
-function effectiveLlmHealthUrl(): string | undefined {
-  const explicit = env.LLM_HEALTH_URL?.trim();
-  if (explicit) return explicit;
-  return brainHealthUrl();
-}
-
 function ttsConfigPresent(): boolean {
   return Boolean(ttsHealthUrl());
 }
@@ -139,7 +144,7 @@ function voiceConfigConfigured(): { ok: boolean; error?: string } {
   return { ok: true };
 }
 
-/** Strict voice-plane readiness: Redis + STT/TTS HTTP health (legacy) + optional Brain HTTP. */
+/** Strict voice-plane readiness: Redis + STT/TTS HTTP health + brain HTTP only when BRAIN_HEALTH_REQUIRED=true. */
 healthRouter.get('/voice', async (_req, res) => {
   const mode = voiceDepsMode();
   const redis = await checkRedis();
@@ -198,7 +203,12 @@ healthRouter.get('/voice', async (_req, res) => {
   // strict
   const wUrl = effectiveSttHealthUrl();
   const tUrl = effectiveTtsHealthUrl();
-  const bUrl = effectiveLlmHealthUrl();
+  const brainPlan = resolveStrictVoiceBrainPlan({
+    brainUseLocal: env.BRAIN_USE_LOCAL,
+    brainHealthRequired: env.BRAIN_HEALTH_REQUIRED,
+    llmHealthUrl: env.LLM_HEALTH_URL,
+    derivedBrainHealthUrl: brainHealthUrl(),
+  });
 
   if (!wUrl || !tUrl) {
     log.warn({ event: 'health_voice_misconfigured', whisper_configured: Boolean(wUrl), tts_configured: Boolean(tUrl) });
@@ -212,29 +222,41 @@ healthRouter.get('/voice', async (_req, res) => {
     });
   }
 
-  const [whisper, tts, brain] = await Promise.all([
+  const [whisper, tts, brainOutcome] = await Promise.all([
     checkUrl(wUrl),
     checkUrl(tUrl),
-    bUrl ? checkUrl(bUrl) : Promise.resolve(undefined),
+    executeStrictVoiceBrainGate(brainPlan, checkUrl),
   ]);
-  const checks: HealthStatus['checks'] & { brain?: { ok: boolean; latency_ms?: number; error?: string } } = {
+  const platKind = normalizePlatformLlmKind(effectiveVoicePlatformLlmRaw());
+  const openaiPlatformBad = platKind === 'openai' && isDisallowedPlaceholderApiKey(env.OPENAI_API_KEY);
+  const checks: HealthStatus['checks'] & { brain?: BrainVoiceCheckPayload; openai_platform?: Record<string, unknown> } = {
     redis,
     whisper,
     tts,
+    brain: brainOutcome.brainCheck,
+    ...(platKind === 'openai'
+      ? {
+          openai_platform: openaiPlatformBad
+            ? { ok: false, status: 'invalid_placeholder', reason: 'OPENAI_API_KEY_missing_or_placeholder' }
+            : { ok: true, status: 'ok' },
+        }
+      : { openai_platform: { ok: true, status: 'not_applicable' } }),
   };
-  if (brain !== undefined) checks.brain = brain;
 
-  const sttOk = whisper.ok;
-  const ttsOk = tts.ok;
-  const brainOk = brain === undefined ? true : brain.ok;
-  const ready = redis.ok && sttOk && ttsOk && brainOk;
+  const ready = voiceStrictPlaneReady({
+    redisOk: redis.ok,
+    sttOk: whisper.ok,
+    ttsOk: tts.ok,
+    brainOk: brainOutcome.brainOk,
+    platformOpenaiOk: !openaiPlatformBad,
+  });
 
   return res.status(ready ? 200 : 503).json({
     status: ready ? 'ok' : 'not_ready',
     endpoint: '/health/voice',
     checks,
     voice_dependencies_checked: true,
-    brain_checked: Boolean(bUrl),
+    brain_checked: brainOutcome.brainChecked,
     health_voice_dependency_mode: mode,
   });
 });
@@ -293,7 +315,12 @@ healthRouter.get('/ready', async (_req, res) => {
 
   const wUrl = effectiveSttHealthUrl();
   const tUrl = effectiveTtsHealthUrl();
-  const bUrl = effectiveLlmHealthUrl();
+  const brainPlan = resolveStrictVoiceBrainPlan({
+    brainUseLocal: env.BRAIN_USE_LOCAL,
+    brainHealthRequired: env.BRAIN_HEALTH_REQUIRED,
+    llmHealthUrl: env.LLM_HEALTH_URL,
+    derivedBrainHealthUrl: brainHealthUrl(),
+  });
 
   if (!wUrl || !tUrl) {
     return res.status(503).json({
@@ -305,23 +332,35 @@ healthRouter.get('/ready', async (_req, res) => {
     });
   }
 
-  const [whisper, tts, brain] = await Promise.all([
+  const [whisper, tts, brainOutcome] = await Promise.all([
     checkUrl(wUrl),
     checkUrl(tUrl),
-    bUrl ? checkUrl(bUrl) : Promise.resolve(undefined),
+    executeStrictVoiceBrainGate(brainPlan, checkUrl),
   ]);
   if (whisper) checks.whisper = whisper;
   if (tts) checks.tts = tts;
-  const extras: Record<string, unknown> = { voice_dependencies_checked: true, health_voice_dependency_mode: mode };
-  if (brain !== undefined) {
-    extras.brain_checked = Boolean(bUrl);
-    (checks as typeof checks & { brain?: { ok: boolean; latency_ms?: number; error?: string } }).brain = brain;
-  }
+  (checks as typeof checks & { brain?: BrainVoiceCheckPayload }).brain = brainOutcome.brainCheck;
+  const platKind = normalizePlatformLlmKind(effectiveVoicePlatformLlmRaw());
+  const openaiPlatformBad = platKind === 'openai' && isDisallowedPlaceholderApiKey(env.OPENAI_API_KEY);
+  (checks as typeof checks & { openai_platform?: Record<string, unknown> }).openai_platform =
+    platKind === 'openai'
+      ? openaiPlatformBad
+        ? { ok: false, status: 'invalid_placeholder', reason: 'OPENAI_API_KEY_missing_or_placeholder' }
+        : { ok: true, status: 'ok' }
+      : { ok: true, status: 'not_applicable' };
+  const extras: Record<string, unknown> = {
+    voice_dependencies_checked: true,
+    health_voice_dependency_mode: mode,
+    brain_checked: brainOutcome.brainChecked,
+  };
 
-  const sttOk = whisper.ok;
-  const ttsOk = tts.ok;
-  const brainOk = brain === undefined ? true : brain.ok;
-  const ready = redis.ok && sttOk && ttsOk && brainOk;
+  const ready = voiceStrictPlaneReady({
+    redisOk: redis.ok,
+    sttOk: whisper.ok,
+    ttsOk: tts.ok,
+    brainOk: brainOutcome.brainOk,
+    platformOpenaiOk: !openaiPlatformBad,
+  });
 
   return res.status(ready ? 200 : 503).json({
     status: ready ? 'ok' : 'not_ready',

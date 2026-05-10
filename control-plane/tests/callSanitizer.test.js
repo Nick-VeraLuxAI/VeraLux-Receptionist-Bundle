@@ -1,6 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { maskCallerId, summarizeHistory, isMissedCallRow } = require("../dist/callSanitizer.js");
+const {
+  maskCallerId,
+  summarizeHistory,
+  isMissedCallRow,
+  normalizeHistoryForAdminUi,
+} = require("../dist/callSanitizer.js");
 
 test("maskCallerId redacts to last four", () => {
   assert.equal(maskCallerId("+15551234567"), "••••••4567");
@@ -21,4 +26,15 @@ test("isMissedCallRow detects stage and lead", () => {
   assert.equal(isMissedCallRow({ stage: "missed", lead: {} }), true);
   assert.equal(isMissedCallRow({ stage: "completed", lead: { missed: true } }), true);
   assert.equal(isMissedCallRow({ stage: "completed", lead: {} }), false);
+});
+
+test("normalizeHistoryForAdminUi maps runtime turns to admin UI shape", () => {
+  const out = normalizeHistoryForAdminUi([
+    { role: "caller", content: "What are your hours?" },
+    { role: "assistant", content: "We open at nine." },
+  ]);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].from, "caller");
+  assert.equal(out[0].message, "What are your hours?");
+  assert.equal(out[1].from, "assistant");
 });

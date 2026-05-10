@@ -116,6 +116,12 @@ export interface ChunkedSTTOptions {
   /** Extra fields merged into `stt_pipeline_diag` (session state, inbound media age, etc.). */
   getPipelineDiagContext?: () => Record<string, unknown>;
 
+  /**
+   * Fires on inbound frames after playback gate opens while `isListening()` is true,
+   * when any of gate_rms / gate_peak / is_speech is true (used to defer dead-air reprompts).
+   */
+  onSttListeningGateActivity?: (p: { gate_rms: boolean; gate_peak: boolean; is_speech: boolean }) => void;
+
   // Input coming into ingest()
   inputCodec?: 'pcmu' | 'pcm16le';
   sampleRate?: number; // if inputCodec=pcmu default 8000; if pcm16le default 16000
@@ -152,7 +158,18 @@ const DEFAULT_PARTIAL_MIN_MS = 600;
 // Speech detection defaults (env.ts may override)
 const DEFAULT_SPEECH_RMS_FLOOR = 0.015;
 const DEFAULT_SPEECH_PEAK_FLOOR = 0.045;
-const DEFAULT_SPEECH_FRAMES_REQUIRED = 8;
+/** Consecutive frames at/above gate to open an utterance (PSTN syllables often alternate RMS vs peak per 20 ms frame). */
+const DEFAULT_SPEECH_FRAMES_REQUIRED = 5;
+
+/**
+ * When VAD is off, allow opening speech if one dimension dips briefly but rolling energy + min/max ratios
+ * still look like sustained caller speech (not used during playback-only barge-in path beyond shared isSpeech).
+ */
+const STT_ALT_SPEECH_ROLLING_OR_ENABLED = parseBool(process.env.STT_ALT_SPEECH_ROLLING_OR_PATH_ENABLED, true);
+const STT_ALT_ROLLING_RMS_MULT = numEnv('STT_ALT_SPEECH_ROLLING_RMS_MULT', 0.76);
+const STT_ALT_ROLLING_PEAK_MULT = numEnv('STT_ALT_SPEECH_ROLLING_PEAK_MULT', 0.5);
+const STT_ALT_MAX_DIM_RATIO = numEnv('STT_ALT_SPEECH_MAX_DIM_RATIO', 0.88);
+const STT_ALT_MIN_DIM_RATIO = numEnv('STT_ALT_SPEECH_MIN_DIM_RATIO', 0.36);
 
 // Replay guard defaults
 const DEFAULT_RX_DEDUPE_WINDOW = 32;
@@ -224,8 +241,8 @@ const T5_ADAPTIVE_PEAK_MULT = numEnv('STT_ADAPTIVE_PEAK_MULTIPLIER', 1.55);
 const T5_ADAPTIVE_MIN_RMS = numEnv('STT_ADAPTIVE_FLOOR_MIN_RMS', 0.01);
 const T5_ADAPTIVE_MIN_PEAK = numEnv('STT_ADAPTIVE_FLOOR_MIN_PEAK', 0.03);
 /** Max effective RMS/peak gate thresholds (0 = no cap). Keeps Tier-5 adaptivity from exceeding PSTN levels. */
-const T5_EFFECTIVE_RMS_CAP = numEnvNonEmpty('STT_EFFECTIVE_RMS_CAP', 0.019);
-const T5_EFFECTIVE_PEAK_CAP = numEnvNonEmpty('STT_EFFECTIVE_PEAK_CAP', 0.056);
+const T5_EFFECTIVE_RMS_CAP = numEnvNonEmpty('STT_EFFECTIVE_RMS_CAP', 0.021);
+const T5_EFFECTIVE_PEAK_CAP = numEnvNonEmpty('STT_EFFECTIVE_PEAK_CAP', 0.058);
 
 const T5_LATE_FINAL_WATCHDOG_ENABLED = parseBool(process.env.STT_LATE_FINAL_WATCHDOG_ENABLED, true);
 const T5_LATE_FINAL_WATCHDOG_MS = clampN(numEnv('STT_LATE_FINAL_WATCHDOG_MS', 8000), 3000, 30000);
@@ -528,8 +545,25 @@ export class ChunkedSTT {
   private rollingPeak = 0;
   private lastRawFrameStats: { rms: number; peak: number } = { rms: 0, peak: 0 };
   private lastGateLogAtMs = 0;
+  /** When a frame fails both strict gates but RMS/peak ratio still suggests speech (Whisper not invoked for other reasons). */
+  private lastWhisperNotCalledReasonAtMs = 0;
+
+  /** Pre-utterance gate observability + streak decay tuning */
+  private readonly speechStreakPartialDecay: number;
+  private peakPreUtteranceStreak = 0;
+  private preSpeechFramesRms = 0;
+  private preSpeechFramesPeak = 0;
+  private preSpeechFramesBoth = 0;
+  private preSpeechFramesOrPath = 0;
+  private candidateStartEmitted = false;
+  private lastCandidateDropLogAtMs = 0;
 
   private readonly getPipelineDiagContext?: () => Record<string, unknown>;
+  private readonly onSttListeningGateActivity?: (p: {
+    gate_rms: boolean;
+    gate_peak: boolean;
+    is_speech: boolean;
+  }) => void;
   private readonly pipelineDiagOnPlayback: boolean;
   private pipelineDiagTimer: NodeJS.Timeout | undefined;
 
@@ -616,7 +650,14 @@ export class ChunkedSTT {
     this.isCallActive = opts.isCallActive;
     this.getPostPlaybackGraceMs = opts.getPostPlaybackGraceMs;
     this.getPipelineDiagContext = opts.getPipelineDiagContext;
+    this.onSttListeningGateActivity = opts.onSttListeningGateActivity;
     this.pipelineDiagOnPlayback = env.STT_PIPELINE_DIAG_ON_PLAYBACK;
+
+    this.speechStreakPartialDecay = clamp(
+      Math.floor(safeNum(process.env.STT_SPEECH_STREAK_PARTIAL_DECAY, 1)),
+      1,
+      4,
+    );
 
     this.inputCodec = opts.inputCodec ?? 'pcmu';
 
@@ -766,6 +807,8 @@ export class ChunkedSTT {
           late_final_watchdog_ms: T5_LATE_FINAL_WATCHDOG_MS,
           pipeline_diag_interval_ms: env.STT_PIPELINE_DIAG_INTERVAL_MS,
           pipeline_diag_on_playback: env.STT_PIPELINE_DIAG_ON_PLAYBACK,
+          alt_speech_rolling_or_enabled: STT_ALT_SPEECH_ROLLING_OR_ENABLED,
+          speech_streak_partial_decay: this.speechStreakPartialDecay,
           empty_final_extra_tries: this.emptyFinalExtraTries,
           final_error_extra_tries: this.finalErrorExtraTries,
           final_retry_backoff_ms: this.finalRetryBackoffMs,
@@ -1387,12 +1430,6 @@ export class ChunkedSTT {
     const effectiveRmsFloor = this.getEffectiveRmsFloor();
     const effectivePeakFloor = this.getEffectivePeakFloor();
 
-    // PSTN syllables vary per 20 ms frame; compare loudest of instant + short rolling energy to the floor.
-    const rmsForGate = Math.max(stats.rms, this.rollingRms);
-    const peakForGate = Math.max(stats.peak, this.rollingPeak);
-    const gateRms = rmsForGate >= effectiveRmsFloor;
-    const gatePeak = peakForGate >= effectivePeakFloor;
-
     // === VAD: speech decision ===
     if (this.vadEnabled && this.vadReady && this.vad) {
       const pcmForVad =
@@ -1424,7 +1461,13 @@ export class ChunkedSTT {
       else vadSpeechDecision = this.vadSpeechNow;
     }
 
-    const isSpeech = this.disableGates ? true : (vadSpeechDecision ?? (gateRms && gatePeak));
+    const speechDec = this.computeFrameSpeechDecision(
+      stats,
+      effectiveRmsFloor,
+      effectivePeakFloor,
+      vadSpeechDecision,
+    );
+    const { gateRms, gatePeak, isSpeech, usedRollingOrPath } = speechDec;
 
     if (isSpeech && !gatedForPlayback) {
       this.sawSpeech = true;
@@ -1503,8 +1546,13 @@ export class ChunkedSTT {
       return;
     }
 
-
-
+    if (!gatedForPlayback && this.isListening?.() && (gateRms || gatePeak || isSpeech)) {
+      this.onSttListeningGateActivity?.({
+        gate_rms: gateRms,
+        gate_peak: gatePeak,
+        is_speech: isSpeech,
+      });
+    }
 
 
 
@@ -1522,6 +1570,7 @@ export class ChunkedSTT {
           vad_decision: vadSpeechDecision,
           gate_rms: gateRms,
           gate_peak: gatePeak,
+          rolling_or_path: usedRollingOrPath,
           rms: stats.rms,
           peak: stats.peak,
           energy_ste: Number(steFromRms(stats.rms).toFixed(10)),
@@ -1594,11 +1643,44 @@ export class ChunkedSTT {
       this.addPreRollFrame(pcm16, frameMs);
 
       if (isSpeech) {
+        if (gateRms) this.preSpeechFramesRms += 1;
+        if (gatePeak) this.preSpeechFramesPeak += 1;
+        if (gateRms && gatePeak) this.preSpeechFramesBoth += 1;
+        if (usedRollingOrPath) this.preSpeechFramesOrPath += 1;
+
         this.silenceFrameStreak = 0;
         this.silenceToFinalizeTimer = undefined;
         this.speechFrameStreak += 1;
+        this.peakPreUtteranceStreak = Math.max(this.peakPreUtteranceStreak, this.speechFrameStreak);
+        if (!this.candidateStartEmitted && this.speechFrameStreak === 1) {
+          this.candidateStartEmitted = true;
+          log.info(
+            {
+              event: 'stt_candidate_started',
+              speech_frames_required: this.speechFramesRequired,
+              rms: Number(stats.rms.toFixed(5)),
+              peak: Number(stats.peak.toFixed(5)),
+              effective_rms_floor: Number(effectiveRmsFloor.toFixed(5)),
+              effective_peak_floor: Number(effectivePeakFloor.toFixed(5)),
+              gate_rms: gateRms,
+              gate_peak: gatePeak,
+              rolling_or_path: usedRollingOrPath,
+              ...(this.logContext ?? {}),
+            },
+            'stt gate candidate started',
+          );
+        }
       } else {
-        this.speechFrameStreak = 0;
+        const partialEnergy = gateRms || gatePeak;
+        if (partialEnergy && this.speechFrameStreak > 0) {
+          this.speechFrameStreak = Math.max(0, this.speechFrameStreak - this.speechStreakPartialDecay);
+          this.peakPreUtteranceStreak = Math.max(this.peakPreUtteranceStreak, this.speechFrameStreak);
+        } else if (!partialEnergy) {
+          this.maybeEmitCandidateDropped('silence_reset', stats, speechDec);
+          this.speechFrameStreak = 0;
+        } else {
+          this.speechFrameStreak = 0;
+        }
       }
 
       if (isSpeech && this.speechFrameStreak >= this.speechFramesRequired) {
@@ -1764,6 +1846,25 @@ export class ChunkedSTT {
   }
 
   private startSpeech(stats: { rms: number; peak: number }, frameMs: number): void {
+    log.info(
+      {
+        event: 'stt_gate_summary_per_utterance',
+        frames_gate_rms: this.preSpeechFramesRms,
+        frames_gate_peak: this.preSpeechFramesPeak,
+        frames_both_gates: this.preSpeechFramesBoth,
+        frames_rolling_or_path: this.preSpeechFramesOrPath,
+        peak_pre_utterance_streak: this.peakPreUtteranceStreak,
+        speech_frames_required: this.speechFramesRequired,
+        rms_floor: this.speechRmsFloor,
+        peak_floor: this.speechPeakFloor,
+        effective_rms_floor: Number(this.getEffectiveRmsFloor().toFixed(5)),
+        effective_peak_floor: Number(this.getEffectivePeakFloor().toFixed(5)),
+        ...(this.logContext ?? {}),
+      },
+      'stt gate summary for accepted utterance',
+    );
+    this.resetPreUtteranceGateCounters();
+
     this.forensicsUtteranceSeq += 1;
     this.activeForensicsUtteranceId = `utt-${this.forensicsUtteranceSeq}`;
     this.recordForensicsTimeline('vad_speech_start', {
@@ -1954,6 +2055,10 @@ export class ChunkedSTT {
 
     // ✅ FIX: never finalize during playback/grace
     if (this.playbackGateActive()) {
+      this.maybeLogWhisperNotCalled('playback_gate_active_at_finalize', {
+        utterance_bytes: this.utteranceBytes,
+        utterance_ms: Math.round(this.utteranceMs),
+      });
       // During playback/grace, do not finalize or send STT.
       // Keep buffering state so we can finalize once gate clears.
       return;
@@ -2082,6 +2187,7 @@ export class ChunkedSTT {
           },
           'skipping STT enqueue because call is inactive',
         );
+        this.maybeLogWhisperNotCalled('call_inactive', { kind: meta.reason, payload_bytes: payloadPcm16.length });
         return;
       }
 
@@ -2113,6 +2219,11 @@ export class ChunkedSTT {
         },
         'stt enqueue skipped (already in-flight)',
       );
+      this.maybeLogWhisperNotCalled('stt_inflight', {
+        kind: meta.reason,
+        payload_bytes: payloadPcm16.length,
+        in_flight_kind: this.inFlightKind,
+      });
       return;
     }
 
@@ -2134,6 +2245,11 @@ export class ChunkedSTT {
         },
         'stt enqueue blocked by playback/grace gate (NO WHISPER REQUEST WILL BE SENT)',
       );
+      this.maybeLogWhisperNotCalled('playback_gate_at_enqueue', {
+        kind: meta.reason,
+        payload_bytes: payloadPcm16.length,
+        playback_active: !!this.isPlaybackActive?.(),
+      });
       return;
     }
 
@@ -2208,7 +2324,13 @@ export class ChunkedSTT {
     signal: AbortSignal,
   ): Promise<void> {
     this.handlePlaybackTransitionIfNeeded();
-    if (this.playbackGateActive()) return;
+    if (this.playbackGateActive()) {
+      this.maybeLogWhisperNotCalled('playback_gate_before_http', {
+        kind: meta.reason,
+        payload_bytes: payloadPcm16.length,
+      });
+      return;
+    }
     if (this.isCallActive && !this.isCallActive()) {
       if (!this.allowFinalDuringCallEndDrain(meta.reason)) return;
     }
@@ -2435,6 +2557,132 @@ export class ChunkedSTT {
     return Math.min(v, cap);
   }
 
+  private computeFrameSpeechDecision(
+    stats: { rms: number; peak: number },
+    effectiveRmsFloor: number,
+    effectivePeakFloor: number,
+    vadSpeechDecision: boolean | null,
+  ): {
+    gateRms: boolean;
+    gatePeak: boolean;
+    bothGates: boolean;
+    usedRollingOrPath: boolean;
+    isSpeech: boolean;
+    ratioRms: number;
+    ratioPeak: number;
+  } {
+    const rmsForGate = Math.max(stats.rms, this.rollingRms);
+    const peakForGate = Math.max(stats.peak, this.rollingPeak);
+    const gateRms = rmsForGate >= effectiveRmsFloor;
+    const gatePeak = peakForGate >= effectivePeakFloor;
+    const bothGates = gateRms && gatePeak;
+    const ratioRms = rmsForGate / Math.max(effectiveRmsFloor, 1e-9);
+    const ratioPeak = peakForGate / Math.max(effectivePeakFloor, 1e-9);
+
+    if (this.disableGates) {
+      return {
+        gateRms: true,
+        gatePeak: true,
+        bothGates: true,
+        usedRollingOrPath: false,
+        isSpeech: true,
+        ratioRms,
+        ratioPeak,
+      };
+    }
+
+    if (vadSpeechDecision != null) {
+      return {
+        gateRms,
+        gatePeak,
+        bothGates,
+        usedRollingOrPath: false,
+        isSpeech: vadSpeechDecision,
+        ratioRms,
+        ratioPeak,
+      };
+    }
+
+    const rollingAlign =
+      this.rollingRms >= effectiveRmsFloor * STT_ALT_ROLLING_RMS_MULT &&
+      this.rollingPeak >= effectivePeakFloor * STT_ALT_ROLLING_PEAK_MULT;
+    const strongEnough =
+      Math.max(ratioRms, ratioPeak) >= STT_ALT_MAX_DIM_RATIO &&
+      Math.min(ratioRms, ratioPeak) >= STT_ALT_MIN_DIM_RATIO;
+    const anyGate = gateRms || gatePeak;
+    const usedRollingOrPath =
+      STT_ALT_SPEECH_ROLLING_OR_ENABLED &&
+      !bothGates &&
+      anyGate &&
+      rollingAlign &&
+      strongEnough;
+    const isSpeech = bothGates || usedRollingOrPath;
+
+    return { gateRms, gatePeak, bothGates, usedRollingOrPath, isSpeech, ratioRms, ratioPeak };
+  }
+
+  private resetPreUtteranceGateCounters(): void {
+    this.peakPreUtteranceStreak = 0;
+    this.preSpeechFramesRms = 0;
+    this.preSpeechFramesPeak = 0;
+    this.preSpeechFramesBoth = 0;
+    this.preSpeechFramesOrPath = 0;
+    this.candidateStartEmitted = false;
+  }
+
+  private maybeEmitCandidateDropped(
+    reason: string,
+    stats: { rms: number; peak: number },
+    speechDec: {
+      ratioRms: number;
+      ratioPeak: number;
+    },
+  ): void {
+    const hadProgress =
+      this.peakPreUtteranceStreak > 0 || this.preSpeechFramesRms > 0 || this.preSpeechFramesPeak > 0;
+    if (!hadProgress) return;
+
+    const now = this.nowMs();
+    if (now - this.lastCandidateDropLogAtMs >= 2000) {
+      this.lastCandidateDropLogAtMs = now;
+      log.info(
+        {
+          event: 'stt_candidate_dropped_reason',
+          reason,
+          peak_streak: this.peakPreUtteranceStreak,
+          frames_gate_rms: this.preSpeechFramesRms,
+          frames_gate_peak: this.preSpeechFramesPeak,
+          frames_both_gates: this.preSpeechFramesBoth,
+          frames_rolling_or_path: this.preSpeechFramesOrPath,
+          rms: Number(stats.rms.toFixed(5)),
+          peak: Number(stats.peak.toFixed(5)),
+          ratio_rms: Number(speechDec.ratioRms.toFixed(3)),
+          ratio_peak: Number(speechDec.ratioPeak.toFixed(3)),
+          effective_rms_floor: Number(this.getEffectiveRmsFloor().toFixed(5)),
+          effective_peak_floor: Number(this.getEffectivePeakFloor().toFixed(5)),
+          ...(this.logContext ?? {}),
+        },
+        'stt candidate dropped before utterance opened',
+      );
+    }
+    this.resetPreUtteranceGateCounters();
+  }
+
+  private maybeLogWhisperNotCalled(reason: string, extra?: Record<string, unknown>): void {
+    const now = this.nowMs();
+    if (now - this.lastWhisperNotCalledReasonAtMs < 800) return;
+    this.lastWhisperNotCalledReasonAtMs = now;
+    log.info(
+      {
+        event: 'whisper_not_called_reason',
+        reason,
+        ...(extra ?? {}),
+        ...(this.logContext ?? {}),
+      },
+      'whisper not called',
+    );
+  }
+
   private resolveGateClosedReason(
     gateRms: boolean,
     gatePeak: boolean,
@@ -2638,6 +2886,7 @@ export class ChunkedSTT {
     this.utteranceFrames = [];
 
     this.speechFrameStreak = 0;
+    this.resetPreUtteranceGateCounters();
     this.playbackSpeechStreak = 0;
 
     this.silenceFrameStreak = 0;
