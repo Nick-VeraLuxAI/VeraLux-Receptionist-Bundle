@@ -39,7 +39,11 @@ No secrets or env dumps are stored in this report.
 
 **Plan:** Prefer **three commits** (hardening → Sprint 2A → docs) **or** one **atomic** commit when `package-lock.json` + mixed `control-plane/package.json` make a clean split risky.
 
-**Executed in repo (automation session):** See git log after this report lands — if a commit is present, its message summarizes both scopes; otherwise only **`docs/SPRINT_2A_COMMIT_PLAN.md`** applies and commits were left to the operator.
+**Executed in repo (automation session):** **One atomic commit** was created (lockfile + mixed `package.json` coupling):
+
+- **`979af98`** — `chore(release): readiness gate and deps; feat(deploy): Sprint 2A portable profiles`
+
+For a **three-commit** history, use **`docs/SPRINT_2A_COMMIT_PLAN.md`** and interactive staging (`git add -p`) on a branch reset or follow-up refactor **before** pushing shared branches.
 
 ---
 

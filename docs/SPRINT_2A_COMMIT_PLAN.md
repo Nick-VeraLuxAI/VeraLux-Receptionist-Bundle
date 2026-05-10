@@ -101,4 +101,4 @@ If reviewers are uncomfortable with interactive patches, use **one atomic commit
 
 **One commit** with a **dual-scope body** (hardening + Sprint 2A) and the same file set as `git status` today, **or** follow §1–§3 using `git add -p` for `control-plane/package.json` and coordinated lockfile commits.
 
-See **`docs/SPRINT_2A_FINALIZATION_REPORT.md`** for what was actually executed in the automation session (if any).
+**Executed:** one atomic commit **`979af98`** (`chore(release): readiness gate and deps; feat(deploy): Sprint 2A portable profiles`) on `sprint-2a-portable-deployment`, documented in **`docs/SPRINT_2A_FINALIZATION_REPORT.md`**. Use §1–§3 above only if you **rewrite history** into three commits before merge.
