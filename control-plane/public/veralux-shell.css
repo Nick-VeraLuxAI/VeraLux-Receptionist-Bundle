@@ -1,0 +1,373 @@
+/* VeraLux shared shell — portal & owner (presentation primitives) */
+/* VLX_SHELL_CSS_MARKER:v1 */
+
+:root {
+  --vlx-bg: #050506;
+  --vlx-bg-elevated: #0a0a0c;
+  --vlx-text: #f4f1ea;
+  --vlx-text-soft: #c9c3b5;
+  --vlx-muted: #9a948a;
+  --vlx-primary: #c9a04e;
+  --vlx-primary-dim: rgba(201, 160, 78, 0.35);
+  --vlx-accent: #d4b56a;
+  --vlx-danger: #c45050;
+  --vlx-success: #5cb88a;
+  --vlx-border: rgba(255, 255, 255, 0.1);
+  --vlx-shadow-deep: 0 32px 80px rgba(0, 0, 0, 0.55);
+  --vlx-radius-lg: 20px;
+  --vlx-radius-md: 14px;
+  --vlx-font-sans: "DM Sans", "Outfit", system-ui, sans-serif;
+  --vlx-font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+}
+
+.vlx-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.vlx-section-kicker {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(201, 160, 78, 0.92);
+}
+
+.vlx-section-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--vlx-text, #f4f1ea);
+}
+
+.vlx-section-copy {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--vlx-muted, #9a948a);
+  max-width: 72ch;
+}
+
+.vlx-panel {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: clamp(18px, 2.2vw, 24px);
+  border-radius: var(--vlx-radius-lg, 20px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: linear-gradient(
+    168deg,
+    rgba(20, 19, 22, 0.94) 0%,
+    rgba(11, 11, 13, 0.9) 48%,
+    rgba(8, 8, 10, 0.92) 100%
+  );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 20px 56px rgba(0, 0, 0, 0.38);
+}
+
+.vlx-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(ellipse 75% 55% at 10% -10%, rgba(201, 160, 78, 0.08), transparent 52%);
+  pointer-events: none;
+}
+
+.vlx-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.vlx-panel--metric {
+  padding: 16px 18px;
+}
+
+.vlx-panel--danger {
+  border-color: rgba(196, 80, 80, 0.35);
+}
+
+.vlx-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border: none;
+  transition:
+    transform 0.12s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.vlx-btn:hover {
+  transform: translateY(-1px);
+}
+
+.vlx-btn--primary {
+  background: linear-gradient(135deg, #d4b56a, #9a7328);
+  color: #0a0908;
+  box-shadow: 0 10px 28px rgba(201, 160, 78, 0.22);
+}
+
+.vlx-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--vlx-text, #f4f1ea);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+.vlx-btn--ghost {
+  background: transparent;
+  color: var(--vlx-muted, #9a948a);
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.vlx-btn--ghost:hover {
+  color: var(--vlx-text, #f4f1ea);
+  border-color: rgba(255, 255, 255, 0.12);
+  transform: none;
+}
+
+.vlx-btn--danger {
+  background: rgba(196, 80, 80, 0.2);
+  color: #f0c0c0;
+  border: 1px solid rgba(196, 80, 80, 0.45);
+  box-shadow: none;
+}
+
+.vlx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vlx-badge--success {
+  background: rgba(92, 184, 138, 0.18);
+  color: #8fd4b0;
+  border: 1px solid rgba(92, 184, 138, 0.35);
+}
+
+.vlx-badge--warning {
+  background: rgba(201, 160, 78, 0.15);
+  color: var(--vlx-accent, #d4b56a);
+  border: 1px solid rgba(201, 160, 78, 0.35);
+}
+
+.vlx-badge--danger {
+  background: rgba(196, 80, 80, 0.2);
+  color: #e8a0a0;
+  border: 1px solid rgba(196, 80, 80, 0.35);
+}
+
+.vlx-badge--neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--vlx-muted, #9a948a);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.vlx-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.vlx-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.vlx-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--vlx-muted, #9a948a);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.vlx-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  vertical-align: top;
+}
+
+.vlx-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.vlx-empty {
+  margin: 16px 0;
+  padding: 28px 20px;
+  text-align: center;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.vlx-empty__title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--vlx-text, #f4f1ea);
+}
+
+.vlx-empty__copy {
+  margin: 0;
+  font-size: 13px;
+  color: var(--vlx-muted, #9a948a);
+  line-height: 1.45;
+}
+
+.vlx-alert {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.vlx-alert--success {
+  border-color: rgba(92, 184, 138, 0.35);
+  background: rgba(92, 184, 138, 0.08);
+  color: #b8e6ce;
+}
+
+.vlx-alert--warning {
+  border-color: rgba(201, 160, 78, 0.35);
+  background: rgba(201, 160, 78, 0.08);
+  color: var(--vlx-text-soft, #c9c3b5);
+}
+
+.vlx-alert--danger {
+  border-color: rgba(196, 80, 80, 0.4);
+  background: rgba(196, 80, 80, 0.1);
+  color: #f0c0c0;
+}
+
+.vlx-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 4px 0 20px;
+}
+
+.vlx-metric-tile {
+  padding: 16px 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.vlx-metric-tile__label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vlx-muted, #9a948a);
+}
+
+.vlx-metric-tile__value {
+  margin: 0;
+  font-size: 1.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--vlx-text, #f4f1ea);
+  line-height: 1.1;
+}
+
+/* Portal: client-safe voice section */
+.portal-tts-advanced {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.portal-tts-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--vlx-accent, #d4b56a);
+  list-style: none;
+}
+
+.portal-tts-advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.portal-tts-client .portal-tts-client-only-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Owner: internal banner */
+.vlx-internal-banner {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  border-radius: var(--vlx-radius-md, 14px);
+  border: 1px solid rgba(201, 160, 78, 0.35);
+  background: linear-gradient(135deg, rgba(201, 160, 78, 0.12), rgba(0, 0, 0, 0.25));
+}
+
+.vlx-internal-banner__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--vlx-accent, #d4b56a);
+}
+
+.vlx-internal-banner__copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--vlx-text-soft, #c9c3b5);
+}
+
+.vlx-internal-banner__copy a {
+  color: var(--vlx-primary, #c9a04e);
+}
+
+/* Align portal stat cards with metric tiles when both classes present */
+.portal-stat-card.vlx-metric-tile {
+  border-radius: 14px;
+}
+
+.portal-activity__empty.vlx-empty,
+#overview-activity-empty.vlx-empty,
+#portal-calls-empty.vlx-empty {
+  text-align: center;
+}
+
+.login-card.vlx-panel {
+  max-width: 420px;
+}

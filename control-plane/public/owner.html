@@ -3,11 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>Your Receptionist — VeraLux</title>
     <script src="/apply-branding.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/veralux-shell.css" />
     <style>
       :root {
         --bg: #070708;
@@ -344,9 +349,13 @@
     </style>
   </head>
   <body data-vlx-branding-page="owner">
+    <div class="vlx-internal-banner" role="note">
+      <p class="vlx-internal-banner__title" id="vlx-owner-internal-banner-title">Internal setup tool — VeraLux implementers only</p>
+      <p class="vlx-internal-banner__copy" id="vlx-owner-internal-banner-copy">Clients should use the <a href="/portal">Business Portal</a> to manage their AI receptionist. This page is for provisioning, Telnyx, and technical setup.</p>
+    </div>
     <header class="owner-header">
       <div class="owner-brand">
-        <div class="owner-logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+        <div class="owner-logo"><img class="vlx-brand-logo" src="/veralux-logo.png" alt="VeraLux" /></div>
         <div>
           <h1>Your receptionist</h1>
           <div class="tagline">One place to set up calls, transfers, and pricing.</div>
@@ -410,7 +419,7 @@
 
       <section class="owner-panel">
         <h2>Client portal password</h2>
-        <p class="help">Password for the <strong>client portal</strong> (sign in with email + password at <code>/portal.html</code>). Separate from the admin access token you use to unlock this page.</p>
+        <p class="help">Password for the <strong>Business Portal</strong> (client sign-in at <a href="/portal">/portal</a>). Separate from the admin access token you use to unlock this page.</p>
         <label for="owner-portal-pass-current">Current portal password</label>
         <input id="owner-portal-pass-current" type="password" autocomplete="current-password" />
         <label for="owner-portal-pass-new">New password</label>
@@ -502,15 +511,15 @@
       </section>
 
       <section class="owner-panel">
-        <h2>Quick replies (voice runtime)</h2>
+        <h2>Quick replies</h2>
         <p class="help">
-          Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply. Phrases must be at least 4 characters; the first matching intent wins. Requires voice runtime config already published to Redis.
+          Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply. Phrases must be at least 4 characters; the first matching intent wins. Requires live voice configuration to be active.
         </p>
         <div id="owner-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
         <div id="owner-qr-list"></div>
         <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
           <button type="button" id="owner-qr-add">Add intent</button>
-          <button type="button" id="owner-qr-save">Save to voice runtime</button>
+          <button type="button" id="owner-qr-save" class="vlx-btn vlx-btn--primary">Save quick replies</button>
           <button type="button" class="secondary" id="owner-qr-reload">Reload</button>
         </div>
       </section>
@@ -826,7 +835,7 @@
     </main>
 
     <footer class="owner-footer">
-      Need to change AI model or voice settings? <a href="/admin">Open full admin dashboard</a>.
+      <span class="help">Operator tools: use the <a href="/admin">VeraLux operations console</a> only if you are on the VeraLux team. Clients use the <a href="/portal">Business Portal</a>.</span>
     </footer>
 
     <div id="owner-modal" class="modal">
@@ -884,9 +893,9 @@
             return;
           }
           const c = data.checks || {};
-          if (c.db === false && c.redis === false) setOwnerStatus("DB & Redis down", true, false);
-          else if (c.db === false) setOwnerStatus("DB unavailable", true, false);
-          else if (c.redis === false) setOwnerStatus("Redis unavailable", true, false);
+          if (c.db === false && c.redis === false) setOwnerStatus("Service temporarily unavailable", true, false);
+          else if (c.db === false) setOwnerStatus("Service temporarily unavailable", true, false);
+          else if (c.redis === false) setOwnerStatus("Voice service unavailable", true, false);
           else setOwnerStatus("Unavailable", true, false);
         } catch {
           setOwnerStatus("Unavailable", true, false);
@@ -1389,7 +1398,7 @@
           ownerQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — use admin Voice → Publish to voice runtime (or POST .../publish-from-tenant)."
+              ? "Quick replies are not active on live calls yet — save voice settings in the operations console, then save quick replies."
               : `Loaded ${ownerQuickRepliesCache.length} intent(s).`;
           }
           renderOwnerQuickReplies();
@@ -1456,7 +1465,7 @@
               body: JSON.stringify({ quickReplies }),
             }
           );
-          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          if (st) st.textContent = "Quick replies saved for live calls.";
           await loadOwnerQuickReplies();
           refreshReadyStatus();
         } catch (err) {

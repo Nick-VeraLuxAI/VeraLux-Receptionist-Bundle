@@ -72,6 +72,14 @@ services:
           cpus: "0.25"
           memory: 256M
     environment:
+      # VeraLux OS telemetry reporting
+      - VERALUX_OS_REPORTING_ENABLED=${VERALUX_OS_REPORTING_ENABLED:-false}
+      - VERALUX_OS_URL=${VERALUX_OS_URL:-}
+      - VERALUX_OS_API_KEY=${VERALUX_OS_API_KEY:-}
+      - VERALUX_DEPLOYMENT_ID=${VERALUX_DEPLOYMENT_ID:-receptionist-veratitan-prod}
+      - VERALUX_PRODUCT_TYPE=${VERALUX_PRODUCT_TYPE:-receptionist}
+      - VERALUX_DEPLOYMENT_ENV=${VERALUX_DEPLOYMENT_ENV:-production}
+      - VERALUX_DEPLOYMENT_PUBLIC_URL=${VERALUX_DEPLOYMENT_PUBLIC_URL:-https://voice.veralux.ai}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
@@ -89,6 +97,7 @@ services:
       - ADMIN_API_KEY=${ADMIN_API_KEY}
       - INSTALLER_USERNAME=${INSTALLER_USERNAME:-VeraLux}
       - INSTALLER_PASSWORD=${INSTALLER_PASSWORD:-}
+      - ADMIN_CONSOLE_EMAIL=${ADMIN_CONSOLE_EMAIL:-}
       - ADMIN_ALLOWED_ORIGINS=${ADMIN_ALLOWED_ORIGINS:-http://localhost:4000}
       # Stripe
       - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
@@ -102,7 +111,8 @@ services:
       - SMTP_FROM=${SMTP_FROM:-noreply@veralux.ai}
       # White-label UI + copy (see CUSTOMER_CONFIG_SURFACE.md, GET /api/branding)
       - BRAND_NAME=${BRAND_NAME:-}
-      - BRAND_LOGO_URL=${BRAND_LOGO_URL:-}
+      # Use ${VAR-default}: unset → bundled logo; explicit BRAND_LOGO_URL= in .env → hide (see customerBranding.ts)
+      - BRAND_LOGO_URL=${BRAND_LOGO_URL-/veralux-logo.png}
       - BRAND_LOGO_ALT=${BRAND_LOGO_ALT:-}
       - BRAND_ADMIN_HEADLINE=${BRAND_ADMIN_HEADLINE:-}
       - BRAND_ADMIN_TAGLINE=${BRAND_ADMIN_TAGLINE:-}
@@ -286,7 +296,6 @@ services:
       - "${RUNTIME_PORT:-4001}:4001"
     networks:
       - veralux-network
-
   # =============================================================================
   # Infrastructure Services
   # =============================================================================

@@ -14,7 +14,7 @@ export interface AdminPrincipal {
   id?: string; // db admin key id (undefined when env master key)
   name: string;
   role: AdminRole;
-  source: "db" | "env" | "oidc";
+  source: "db" | "env" | "oidc" | "installer";
   email?: string;
   idpSub?: string; // IMPORTANT: JWT subject, not DB user id
 }
@@ -78,10 +78,12 @@ async function verifyJwtWithJwks(token: string): Promise<JWTPayload | undefined>
 }
 
 async function verifyJwtWithSecret(token: string): Promise<JWTPayload | undefined> {
-  if (!ADMIN_JWT_SECRET) return undefined;
+  const secretStr =
+    (ADMIN_JWT_SECRET || process.env.JWT_SECRET || "").trim();
+  if (!secretStr) return undefined;
 
   const { jwtVerify } = await getJose();
-  const secret = new TextEncoder().encode(ADMIN_JWT_SECRET);
+  const secret = new TextEncoder().encode(secretStr);
 
   try {
     const { payload } = await jwtVerify(token, secret, getJwtVerifyOptions());
@@ -102,6 +104,10 @@ async function authenticateAdminJwt(
 
   if (!payload) return undefined;
 
+  const isConsoleInstaller =
+    (payload as { veralux_console?: unknown }).veralux_console === true ||
+    payload.sub === "installer:console";
+
   const role: AdminRole =
     typeof (payload as any).role === "string" && (payload as any).role === "viewer"
       ? "viewer"
@@ -115,7 +121,7 @@ async function authenticateAdminJwt(
       "oidc-user",
     email: typeof (payload as any).email === "string" ? (payload as any).email : undefined,
     role,
-    source: "oidc",
+    source: isConsoleInstaller ? "installer" : "oidc",
   };
 }
 

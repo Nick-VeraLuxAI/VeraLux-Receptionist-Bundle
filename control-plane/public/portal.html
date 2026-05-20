@@ -3,11 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>Business Portal — VeraLux</title>
     <script src="/apply-branding.js" defer></script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/veralux-shell.css" />
     <style>
       :root {
         --bg: #070708;
@@ -693,14 +698,15 @@
 
     <!-- ═══════════════ LOGIN SCREEN ═══════════════ -->
     <div id="login-screen" class="login-wrap">
-      <div class="login-card">
-        <div class="login-logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+      <div class="login-card vlx-panel">
+        <div class="login-logo"><img class="vlx-brand-logo" src="/veralux-logo.png" alt="VeraLux" /></div>
         <h2 id="login-heading">Welcome back</h2>
-        <p class="subtitle">Sign in with the email and password your operations team set up for this portal.</p>
+        <p id="vlx-portal-tagline" class="subtitle">Manage your AI receptionist</p>
+        <p class="help" style="margin: -4px 0 16px; text-align: center;">Sign in with the email and password your VeraLux team set up for your business.</p>
 
         <div id="login-handoff-banner" class="login-handoff-banner" hidden>
           <p style="margin:0">
-            <strong>Invited from the operations console?</strong>
+            <strong>Invited by your VeraLux team?</strong>
             Use the same email address they saved for your business. Your password should have been shared with you through a secure channel—not the same as your phone system PIN.
           </p>
           <button type="button" class="login-handoff-banner__dismiss" id="login-handoff-dismiss">Dismiss</button>
@@ -713,7 +719,7 @@
         <input id="login-password" type="password" placeholder="Your portal password" autocomplete="current-password" />
 
         <div id="login-error" class="login-error"></div>
-        <button id="login-btn" type="button">Sign in</button>
+        <button id="login-btn" type="button" class="vlx-btn vlx-btn--primary">Sign in</button>
       </div>
     </div>
 
@@ -721,7 +727,7 @@
     <div id="dashboard" class="dashboard">
       <header class="portal-topbar">
         <div class="portal-topbar__brand">
-          <img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="" width="36" height="36" />
+          <img class="vlx-brand-logo" src="/veralux-logo.png" alt="" width="36" height="36" />
           <span id="vlx-portal-header-line">VeraLux · Client portal</span>
         </div>
         <div class="portal-topbar__actions">
@@ -736,26 +742,26 @@
           <h1 class="portal-overview__title" id="portal-business-name"><span id="dash-tenant-name">Your receptionist</span></h1>
           <p class="portal-overview__subtitle">Here’s how your AI receptionist is doing. Review what callers experience on the left, then open a section below when you want to make a change—no need to scan one long form.</p>
 
-          <div class="portal-stat-grid" role="group" aria-label="Summary">
-            <div class="portal-stat-card">
-              <p class="portal-stat-card__label">Calls handled</p>
-              <p class="portal-stat-card__value" id="overview-stat-calls">—</p>
+          <div class="portal-stat-grid vlx-metric-grid" role="group" aria-label="Summary">
+            <div class="portal-stat-card vlx-metric-tile">
+              <p class="portal-stat-card__label vlx-metric-tile__label">Calls handled</p>
+              <p class="portal-stat-card__value vlx-metric-tile__value" id="overview-stat-calls">—</p>
             </div>
-            <div class="portal-stat-card">
-              <p class="portal-stat-card__label">Caller messages</p>
-              <p class="portal-stat-card__value" id="overview-stat-messages">—</p>
+            <div class="portal-stat-card vlx-metric-tile">
+              <p class="portal-stat-card__label vlx-metric-tile__label">Caller messages</p>
+              <p class="portal-stat-card__value vlx-metric-tile__value" id="overview-stat-messages">—</p>
             </div>
-            <div class="portal-stat-card">
-              <p class="portal-stat-card__label">Transfer contacts</p>
-              <p class="portal-stat-card__value" id="overview-stat-contacts">—</p>
+            <div class="portal-stat-card vlx-metric-tile">
+              <p class="portal-stat-card__label vlx-metric-tile__label">Transfer contacts</p>
+              <p class="portal-stat-card__value vlx-metric-tile__value" id="overview-stat-contacts">—</p>
             </div>
-            <div class="portal-stat-card">
-              <p class="portal-stat-card__label">Services &amp; products</p>
-              <p class="portal-stat-card__value" id="overview-stat-services">—</p>
+            <div class="portal-stat-card vlx-metric-tile">
+              <p class="portal-stat-card__label vlx-metric-tile__label">Services &amp; products</p>
+              <p class="portal-stat-card__value vlx-metric-tile__value" id="overview-stat-services">—</p>
             </div>
           </div>
           <p id="portal-runtime-sync-line" class="help" style="margin: -8px 0 20px; font-size: 13px; color: var(--muted)">
-            Voice runtime last synced: —
+            Last updated for live calls: —
           </p>
 
           <div class="portal-activity">
@@ -764,7 +770,7 @@
               <span class="portal-activity__hint">Latest from your receptionist</span>
             </div>
             <ul id="overview-activity-list" class="portal-activity__list" hidden></ul>
-            <p id="overview-activity-empty" class="portal-activity__empty">No leads yet—when callers leave their details, they’ll show up here. Your receptionist is ready to capture them.</p>
+            <p id="overview-activity-empty" class="portal-activity__empty vlx-empty">No leads yet—when callers leave their details, they’ll show up here. Your receptionist is ready to capture them.</p>
           </div>
 
           <div class="portal-activity" style="margin-top: 20px">
@@ -777,7 +783,7 @@
               <button type="button" class="secondary" id="portal-calls-filter-missed">Missed</button>
               <button type="button" class="secondary" id="portal-calls-refresh">Refresh</button>
             </div>
-            <p id="portal-calls-empty" class="portal-activity__empty" hidden>No calls on file yet.</p>
+            <p id="portal-calls-empty" class="portal-activity__empty vlx-empty" hidden>No calls on file yet.</p>
             <ul id="portal-calls-list" class="portal-activity__list" style="padding: 0; list-style: none"></ul>
           </div>
 
@@ -791,7 +797,7 @@
               <input id="portal-pass-new" type="password" autocomplete="new-password" minlength="8" />
               <label for="portal-pass-new2">Confirm new password</label>
               <input id="portal-pass-new2" type="password" autocomplete="new-password" minlength="8" />
-              <button type="button" id="portal-pass-submit" style="margin-top: 8px;">Update password</button>
+              <button type="button" id="portal-pass-submit" class="vlx-btn vlx-btn--primary" style="margin-top: 8px;">Update password</button>
               <p id="portal-pass-msg" class="portal-acc__intro" style="margin-top: 12px; margin-bottom: 0; min-height: 1.25em;"></p>
             </div>
           </details>
@@ -800,7 +806,7 @@
         <div class="portal-workspace">
           <aside class="portal-live" aria-label="What callers experience now">
             <p class="portal-live__label">At a glance</p>
-            <div class="portal-live-card">
+            <div class="portal-live-card vlx-panel">
               <h2 class="portal-live-card__title">Live summary</h2>
               <p class="portal-live-card__sub">This mirrors what you’ve set below. It updates as you edit (save where noted so changes go live on calls).</p>
 
@@ -851,7 +857,7 @@
                   <textarea id="p-policy" rows="3" placeholder="e.g. Don't give out personal phone numbers. Don't promise specific prices. Always offer to take a message if unsure."></textarea>
 
                   <div class="row" style="margin-top: 6px;">
-                    <button type="button" id="save-prompts">Save to receptionist</button>
+                    <button type="button" id="save-prompts" class="vlx-btn vlx-btn--primary">Save to receptionist</button>
                     <button type="button" class="secondary" id="refresh-prompts">Discard unsaved</button>
                   </div>
                   <div id="prompt-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
@@ -864,7 +870,7 @@
               <div class="portal-acc__body">
                 <p class="portal-acc__intro" id="portal-bh-status-line">Loading…</p>
                 <div class="owner-panel-inner">
-                  <label for="portal-bh-timezone">IANA timezone</label>
+                  <label for="portal-bh-timezone">Time zone</label>
                   <input id="portal-bh-timezone" type="text" placeholder="America/New_York" autocomplete="off" />
                   <label for="portal-bh-after" style="margin-top: 10px">After-hours message (optional)</label>
                   <textarea id="portal-bh-after" rows="2" placeholder="Short message when you’re closed"></textarea>
@@ -880,7 +886,7 @@
                     <tbody id="portal-bh-tbody"></tbody>
                   </table>
                   <div class="row" style="margin-top: 12px">
-                    <button type="button" id="portal-bh-save">Save business hours</button>
+                    <button type="button" id="portal-bh-save" class="vlx-btn vlx-btn--primary">Save business hours</button>
                   </div>
                   <p id="portal-bh-msg" class="help" style="margin-top: 8px; min-height: 1.2em"></p>
                 </div>
@@ -903,10 +909,10 @@
               <summary class="portal-acc__summary">Quick replies <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
                 <p class="portal-acc__intro">
-                  <strong>Two paths:</strong> Most questions go to the AI (Qwen) using your <strong>Greeting &amp; tone</strong> context, <strong>services &amp; pricing</strong>, and transfer contacts — no extra setup. <strong>Quick replies</strong> here are optional: when a caller’s words contain a phrase you list, the system speaks your fixed answer <em>without</em> calling the model (faster, predictable). Each phrase must be at least 4 characters; first match wins. Requires voice runtime config in Redis.
+                  Most callers are handled by your AI receptionist using <strong>Greeting &amp; tone</strong>, <strong>services &amp; pricing</strong>, and transfer contacts. <strong>Quick replies</strong> are optional: when a caller says a phrase you list, your receptionist speaks your fixed answer immediately—fast and predictable. Each phrase must be at least 4 characters; the first match wins.
                 </p>
                 <p class="help" style="margin: -8px 0 14px;">
-                  Use <strong>Add FAQ starters</strong> for three local templates from this page. Use <strong>Suggest with AI</strong> to generate more intents from your text (requires <code>OPENAI_API_KEY</code> on the server). Always review and <strong>Save to voice runtime</strong>.
+                  Use <strong>Add FAQ starters</strong> for common templates. Use <strong>Suggest with AI</strong> to draft more (AI suggestions require provider setup on your account). Always review, then <strong>Save quick replies</strong>.
                 </p>
                 <div class="owner-panel-inner">
                   <div id="portal-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
@@ -915,7 +921,7 @@
                     <button type="button" id="portal-qr-add">Add intent</button>
                     <button type="button" class="secondary" id="portal-qr-seed-faq">Add FAQ starters</button>
                     <button type="button" class="secondary" id="portal-qr-suggest-ai">Suggest with AI</button>
-                    <button type="button" id="portal-qr-save">Save to voice runtime</button>
+                    <button type="button" id="portal-qr-save" class="vlx-btn vlx-btn--primary">Save quick replies</button>
                     <button type="button" class="secondary" id="portal-qr-reload">Reload</button>
                   </div>
                 </div>
@@ -923,11 +929,40 @@
             </details>
 
             <details class="portal-acc">
-              <summary class="portal-acc__summary">Voice synthesis (TTS) <span class="portal-acc__chev">▾</span></summary>
+              <summary class="portal-acc__summary">Voice &amp; tone on calls <span class="portal-acc__chev">▾</span></summary>
               <div class="portal-acc__body">
-                <p class="portal-acc__intro">Pick a provider — only settings that apply to that engine are shown. Matches the admin voice step.</p>
-                <div class="owner-panel-inner">
-                  <label for="portal-ttsMode">TTS provider</label>
+                <p class="portal-acc__intro">These settings control how your receptionist sounds on live calls.</p>
+                <div class="owner-panel-inner portal-tts-wrap">
+                  <div class="portal-tts-client vlx-panel" style="margin-bottom: 12px;">
+                    <p class="help" style="margin: 0 0 14px;">Choose how your receptionist sounds. Save when you are done.</p>
+                  <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
+                    <label for="portal-ttsVoiceId" id="portal-tts-voice-id-label">Voice profile</label>
+                    <select id="portal-ttsVoiceId" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Voice"></select>
+                    <p id="portal-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div id="portal-tts-panel-language" style="display: none; margin-top: 12px">
+                    <label for="portal-ttsLanguage" id="portal-tts-language-label">Language</label>
+                    <select id="portal-ttsLanguage" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Language"></select>
+                    <p id="portal-tts-language-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div id="portal-tts-panel-rate" style="display: none; margin-top: 14px">
+                    <label for="portal-ttsRate">Speaking speed <span id="portal-ttsRateValue" class="help" style="float: right">0.95</span></label>
+                    <input id="portal-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
+                    <p id="portal-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
+                  </div>
+
+                  <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 8px;">
+                    <button type="button" id="save-portal-tts" class="vlx-btn vlx-btn--primary">Save voice settings</button>
+                  </div>
+                  <div id="portal-tts-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
+                  </div>
+
+                  <details class="portal-tts-advanced" id="portal-tts-advanced-block">
+                    <summary>Advanced voice settings</summary>
+                    <p class="help" style="margin: 0 0 12px;">Managed by VeraLux support. Most businesses do not need to change these.</p>
+                  <label for="portal-ttsMode">Voice engine (support)</label>
                   <select id="portal-ttsMode" style="width: 100%; padding: 10px 12px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
                     <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
                     <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
@@ -965,7 +1000,7 @@
                       <input type="checkbox" id="portal-qwen3Streaming" style="margin-top: 3px" />
                       <span>
                         <strong>Chunked synthesis (faster first words)</strong><br />
-                        <span class="help" style="font-size: 13px; line-height: 1.4">Splits long replies into sentences so the first line can play sooner. Each part is still a full Qwen3 request. Random sampling makes chunks sound inconsistent; default is off for a steady voice. Publish to Redis after saving.</span>
+                        <span class="help" style="font-size: 13px; line-height: 1.4">Splits long replies into sentences so the first line can play sooner. Each part is synthesized separately. Random sampling makes chunks sound inconsistent; default is off for a steady voice. Apply changes after saving.</span>
                       </span>
                     </label>
                     <details style="margin-top: 12px">
@@ -974,7 +1009,7 @@
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
                         <div>
                           <label for="portal-qwen3DoSample" style="font-weight: 600">Use random sampling</label>
-                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. Default (unset): runtime uses off. <code>do_sample</code></p>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. Default (unset): off for a steady voice.</p>
                           <select id="portal-qwen3DoSample" style="width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text)">
                             <option value="">Default (deterministic)</option><option value="true">On</option><option value="false">Off</option>
                           </select>
@@ -986,7 +1021,7 @@
                         </div>
                         <div>
                           <label class="tts-slider-label" for="portal-qwen3TopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="portal-qwen3TopPVal" class="tts-slider-value">0.92</span></label>
-                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Nucleus sampling 0–1. <code>top_p</code></p>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Nucleus sampling 0–1 (focus diversity).</p>
                           <input id="portal-qwen3TopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
                         </div>
                         <div>
@@ -1028,7 +1063,7 @@
                         </div>
                         <div>
                           <label class="tts-slider-label" for="portal-qwen3SubtalkerTopP"><span style="font-weight: 600">Secondary voice: focus diversity (top‑p)</span><span id="portal-qwen3SubtalkerTopPVal" class="tts-slider-value">0.90</span></label>
-                          <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_p</code></p>
+                          <p class="help" style="margin: 2px 0 4px; font-size: 12px">(secondary top‑p)</p>
                           <input id="portal-qwen3SubtalkerTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.9" />
                         </div>
                         <div>
@@ -1040,18 +1075,6 @@
                     </details>
                   </div>
 
-                  <div id="portal-tts-panel-voice-id" style="display: none; margin-top: 14px">
-                    <label for="portal-ttsVoiceId" id="portal-tts-voice-id-label">Voice ID</label>
-                    <select id="portal-ttsVoiceId" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Voice"></select>
-                    <p id="portal-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
-                  </div>
-
-                  <div id="portal-tts-panel-language" style="display: none; margin-top: 12px">
-                    <label for="portal-ttsLanguage" id="portal-tts-language-label">Language</label>
-                    <select id="portal-ttsLanguage" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px; font-family: inherit" aria-label="Language"></select>
-                    <p id="portal-tts-language-hint" class="help" style="margin-top: 4px;"></p>
-                  </div>
-
                   <div id="portal-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
                     <label for="portal-ttsPreset">Character &amp; pacing preset</label>
                     <select id="portal-ttsPreset" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;">
@@ -1060,13 +1083,13 @@
                       <option value="energetic">Energetic</option>
                       <option value="calm">Calm</option>
                     </select>
-                    <p class="help" style="margin-top: 8px;">Tone and default pace for Coqui XTTS. Works with speaking speed below.</p>
+                    <p class="help" style="margin-top: 8px;">Tone and default pace for this voice profile. Works with speaking speed below.</p>
                   </div>
 
                   <div id="portal-tts-panel-coqui-adv" style="display: none; margin-top: 14px">
                     <details>
                       <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech decoding (optional)</summary>
-                      <p class="help" style="margin: 8px 0">Same ideas as Qwen3: creativity, diversity, repeats. Sliders start at sensible defaults. Your XTTS HTTP server must accept these JSON keys.</p>
+                      <p class="help" style="margin: 8px 0">Optional creativity, diversity, and repeat controls. Sliders start at sensible defaults. Support can tune these if your deployment supports them.</p>
                       <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
                         <div>
                           <label class="tts-slider-label" for="portal-coquiTemperature"><span style="font-weight: 600">Creativity (temperature)</span><span id="portal-coquiTemperatureVal" class="tts-slider-value">0.75</span></label>
@@ -1075,7 +1098,7 @@
                         </div>
                         <div>
                           <label class="tts-slider-label" for="portal-coquiTopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="portal-coquiTopPVal" class="tts-slider-value">0.92</span></label>
-                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                          <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">(top‑p)</p>
                           <input id="portal-coquiTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
                         </div>
                         <div>
@@ -1109,12 +1132,6 @@
                     </details>
                   </div>
 
-                  <div id="portal-tts-panel-rate" style="display: none; margin-top: 14px">
-                    <label for="portal-ttsRate">Speaking speed <span id="portal-ttsRateValue" class="help" style="float: right">0.95</span></label>
-                    <input id="portal-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
-                    <p id="portal-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
-                  </div>
-
                   <div id="portal-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 12px; border-radius: 10px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
                     <h4 id="portal-tts-cloning-heading" style="margin: 0 0 8px; font-size: 13px; color: var(--primary)">Reference / cloning</h4>
                     <label for="portal-defaultVoiceMode">How to pick the voice on each call</label>
@@ -1128,15 +1145,13 @@
                     <input id="portal-clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" style="width: 100%; padding: 10px 12px; margin-top: 6px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.03); color: var(--text); font-size: 14px;" />
                     <p id="portal-voice-cloning-warning" class="help" style="display: none; margin-top: 8px; color: var(--accent-warm);">Cloned mode is selected but no reference URL is set.</p>
                   </div>
-
                   <div class="row" style="margin-top: 14px; flex-wrap: wrap; gap: 8px;">
-                    <button type="button" id="save-portal-tts">Save voice / TTS</button>
-                    <button type="button" class="secondary" id="portal-runtime-publish-from-tenant" title="Advanced: full republish after saving voice form. Saving voice/TTS already updates Redis when enabled — use this only if support asks or after a sync error.">
-                      Advanced: Full republish (Redis)
+                    <button type="button" id="portal-runtime-publish-from-tenant" class="vlx-btn vlx-btn--ghost" title="Support only: republish live configuration after a sync issue.">
+                      Republish configuration
                     </button>
                   </div>
                   <div id="portal-runtime-publish-status" class="help" style="margin-top: 6px; min-height: 16px;"></div>
-                  <div id="portal-tts-status" class="help" style="margin-top: 8px; min-height: 16px;"></div>
+                  </details>
                 </div>
               </div>
             </details>
@@ -1175,7 +1190,7 @@
                   <ul id="price-list" class="owner-list"></ul>
                   <label for="price-notes" style="margin-top: 12px;">Notes for callers (disclaimers, ranges)</label>
                   <textarea id="price-notes" rows="2" placeholder="e.g. All prices are estimates. Final price depends on lawn size."></textarea>
-                  <button type="button" id="price-save" style="margin-top: 6px;">Save pricing</button>
+                  <button type="button" id="price-save" class="vlx-btn vlx-btn--primary" style="margin-top: 6px;">Save pricing</button>
                 </div>
               </div>
             </details>
@@ -1819,10 +1834,10 @@
           const data = await apiFetch("/api/owner/voice-runtime-sync");
           const iso = data.lastRuntimePublishedAt;
           el.textContent = iso
-            ? `Voice runtime last synced: ${new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
-            : "Voice runtime last synced: not published yet (your provider will push updates).";
+            ? `Last updated for live calls: ${new Date(String(iso)).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`
+            : "Last updated for live calls: not published yet (changes apply after you save).";
         } catch (_) {
-          el.textContent = "Voice runtime last synced: —";
+          el.textContent = "Last updated for live calls: —";
         }
       }
 
@@ -2193,7 +2208,7 @@
           portalQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — use Voice → Publish to voice runtime (or ask ops to POST .../publish-from-tenant)."
+              ? "Quick replies are not active on live calls yet — save your voice settings, then save quick replies."
               : `Loaded ${portalQuickRepliesCache.length} intent(s).`;
           }
           renderPortalQuickReplies();
@@ -2261,7 +2276,7 @@
               body: JSON.stringify({ quickReplies }),
             }
           );
-          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          if (st) st.textContent = "Quick replies saved for live calls.";
           await loadPortalQuickReplies();
         } catch (err) {
           if (st) st.textContent = "Save failed: " + err.message;
@@ -2347,7 +2362,7 @@
         if (st) {
           st.textContent =
             added > 0
-              ? `Added ${added} starter intent(s). Edit phrases and replies, then Save to voice runtime.`
+              ? `Added ${added} starter intent(s). Edit phrases and replies, then save quick replies.`
               : "Starters already added (faq_hours, faq_services, faq_pricing). Remove those intents to add again, or add custom intents with Add intent.";
         }
         renderPortalQuickReplies();
@@ -2399,7 +2414,7 @@
           if (st) {
             st.textContent =
               list.length > 0
-                ? `Added ${list.length} AI suggestion(s).${drop} Review, then Save to voice runtime.`
+                ? `Added ${list.length} AI suggestion(s).${drop} Review, then save quick replies.`
                 : `No valid suggestions returned.${drop} Add more detail under Greeting & pricing, or use FAQ starters.`;
           }
           renderPortalQuickReplies();
@@ -2491,13 +2506,13 @@
         if (blurb) {
           const blurbs = {
             kokoro_http:
-              "Kokoro: fast, lightweight voices. Set your server URL and a voice name from your Kokoro install. No cloning on this path.",
+              "Lightweight preset voice. Your VeraLux team configures the backend.",
             coqui_xtts:
-              "Coqui XTTS: built-in voice ID or clone from a reference recording. Language, character preset, and speaking speed apply here.",
+              "Natural preset or custom reference voice. Language, style preset, and speaking speed apply.",
             chatterbox_http:
-              "Chatterbox: voice from a reference clip. Pick the same model variant your server runs; set language; Multilingual needs both.",
+              "Expressive voice from a reference clip. Variant and language must match your deployment.",
             qwen3_tts_http:
-              "Qwen3 CustomVoice: preset speaker and language, optional plain-English style, and optional fine-tuning if you need it.",
+              "Preset speaker and language with optional style tuning.",
           };
           blurb.textContent = blurbs[mode] || "";
         }
@@ -2515,14 +2530,14 @@
         if (rateHint) {
           rateHint.textContent =
             mode === "kokoro_http"
-              ? "1.0 = normal pace. Sent as JSON field rate (maps to synthesis speed on the Kokoro server)."
-              : "1.0 = normal pace. Sent as Coqui XTTS speed unless you set an override in Fine-tune above.";
+              ? "1.0 = normal pace for this voice profile."
+              : "1.0 = normal pace unless you set an override in advanced tuning.";
         }
 
         const cloneHead = $("portal-tts-cloning-heading");
         if (cloneHead) {
           cloneHead.textContent =
-            mode === "chatterbox_http" ? "Reference voice sample (Chatterbox)" : "Clone from reference audio (Coqui XTTS)";
+            mode === "chatterbox_http" ? "Reference voice sample" : "Clone from reference audio";
         }
 
         // Provider URL fields are admin-only; the portal no longer renders or
@@ -2534,11 +2549,11 @@
         const vHint = $("portal-tts-voice-id-hint");
         if (vLabel && vHint) {
           if (mode === "kokoro_http") {
-            vLabel.textContent = "Voice (Kokoro preset)";
-            vHint.textContent = "Choose a voice from the list; it must exist on your Kokoro server.";
+            vLabel.textContent = "Voice profile";
+            vHint.textContent = "Choose the voice callers will hear.";
           } else if (mode === "qwen3_tts_http") {
             vLabel.textContent = "Speaker (built-in preset)";
-            vHint.textContent = "All CustomVoice speakers from the Qwen3 model card.";
+            vHint.textContent = "Choose the voice callers will hear.";
           } else {
             vLabel.textContent = "Built-in voice ID (XTTS)";
             vHint.textContent =
@@ -2554,8 +2569,8 @@
               : mode === "qwen3_tts_http"
                 ? "Full language names (not ISO codes). “Auto” infers from text."
                 : mode === "kokoro_http"
-                  ? "Language is not used for Kokoro HTTP in this stack; voice choice carries locale."
-                  : "Pick a language code for Coqui XTTS.";
+                  ? "Language follows your voice profile selection."
+                  : "Pick the language callers will hear.";
         }
 
         const voiceEl = $("portal-ttsVoiceId");
@@ -2902,7 +2917,7 @@
             let line = "Saved.";
             if (rp) {
               line = rp.ok
-                ? "Saved — live calls will use this voice (Redis updated)."
+                ? "Saved — your receptionist will use this voice on live calls."
                 : `Saved here. Live calls not updated: ${rp.message || rp.error}`;
             }
             st.textContent = line;
@@ -3095,7 +3110,7 @@
             }
             if (st) {
               st.textContent =
-                "Done: voice form saved, then full config published to Redis. New calls should use your selected voice.";
+                "Done: voice settings republished for live calls. New calls should use your selected voice.";
               st.style.color = "var(--success)";
             }
             void loadPortalRuntimeSync();

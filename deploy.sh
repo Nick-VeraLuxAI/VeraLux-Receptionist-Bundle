@@ -10,11 +10,49 @@ cd "$SCRIPT_DIR"
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-COMPOSE_FILE="docker-compose.yml"
 ENV_FILE=".env"
 ENV_EXAMPLE=".env.example"
 PROJECT_NAME="veralux"
 ENV_INTERNAL_FILE=".env.internal"
+
+# Compose file args (default: base only). When a host voice env file is resolved,
+# docker-compose.production.yml is merged so `control` / `runtime` / Postgres / Redis
+# receive env_file (e.g. ADMIN_AUTH_MODE from /etc/veralux/voice-runtime.env).
+COMPOSE_FILES=( -f "$SCRIPT_DIR/docker-compose.yml" )
+
+# -----------------------------------------------------------------------------
+# Optional production overlay: inject VERALUX_COMPOSE_ENV_FILE into containers
+# -----------------------------------------------------------------------------
+resolve_compose_voice_env_overlay() {
+    if [[ "${VERALUX_SKIP_VOICE_ENV_OVERLAY:-}" == "1" ]]; then
+        return 0
+    fi
+
+    local candidate=""
+    if [[ -n "${VERALUX_COMPOSE_ENV_FILE:-}" ]]; then
+        candidate="$VERALUX_COMPOSE_ENV_FILE"
+    elif [[ -n "${VERALUX_VOICE_ENV_FILE:-}" ]]; then
+        candidate="$VERALUX_VOICE_ENV_FILE"
+        export VERALUX_COMPOSE_ENV_FILE="$VERALUX_VOICE_ENV_FILE"
+    elif [[ -f /etc/veralux/voice-runtime.env ]]; then
+        candidate="/etc/veralux/voice-runtime.env"
+        export VERALUX_COMPOSE_ENV_FILE="/etc/veralux/voice-runtime.env"
+    fi
+
+    if [[ -z "$candidate" ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$candidate" ]]; then
+        warn "VERALUX_COMPOSE_ENV_FILE / voice env path set but not a file: $candidate — skipping env_file overlay"
+        unset VERALUX_COMPOSE_ENV_FILE
+        return 0
+    fi
+
+    export VERALUX_COMPOSE_ENV_FILE="$candidate"
+    COMPOSE_FILES=( -f "$SCRIPT_DIR/docker-compose.yml" -f "$SCRIPT_DIR/docker-compose.production.yml" )
+    info "Merging docker-compose.production.yml — container env_file: VERALUX_COMPOSE_ENV_FILE=$VERALUX_COMPOSE_ENV_FILE"
+}
 
 # -----------------------------------------------------------------------------
 # Docker Compose: optional second env file (operator .env + overrides in .env.internal)
@@ -263,16 +301,16 @@ cmd_up() {
     
     # Best-effort pull (don't fail if offline)
     info "Pulling latest images (if available)..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
     
     # Start services
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d "$@"
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile up -d "$@"
     
     # `docker rm` above drops veralux-cloudflared; plain compose omits profile `docker-cloudflared-legacy`.
     # Production: use systemd cloudflared + /etc/cloudflared/config.yml (see PRODUCTION_TOPOLOGY.md).
     if cloudflare_token_configured; then
         info "Restarting Docker Cloudflare Tunnel (CLOUDFLARE_TUNNEL_TOKEN is set; legacy profile)..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared 2>/dev/null || \
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared 2>/dev/null || \
             warn "Docker cloudflared did not start — use systemd tunnel on production, or set CLOUDFLARED_TAG and verify the tunnel token."
     fi
     
@@ -287,27 +325,27 @@ cmd_up() {
 
 cmd_down() {
     info "Stopping Veralux Receptionist..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down "$@"
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" down "$@"
     success "Services stopped."
 }
 
 cmd_restart() {
     info "Restarting Veralux Receptionist..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" restart "$@"
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" restart "$@"
     success "Services restarted."
 }
 
 cmd_status() {
     info "Service Status:"
     echo ""
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" ps
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" ps
 }
 
 cmd_logs() {
     if [[ $# -gt 0 ]]; then
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f "$@"
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" logs -f "$@"
     else
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" logs -f
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" logs -f
     fi
 }
 
@@ -336,7 +374,7 @@ cmd_build() {
     local audio_profile
     audio_profile=$(detect_audio_profile)
 
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile build "$@"
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile build "$@"
 
     success "Build complete!"
 }
@@ -363,10 +401,10 @@ cmd_update() {
     if [[ "${UPDATE_IGNORE_PULL_FAILURES:-}" == "1" ]]; then
         warn "UPDATE_IGNORE_PULL_FAILURES=1 — pull errors will be ignored (not recommended for online managed upgrades)."
         info "Pulling images (best-effort)..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile pull --ignore-pull-failures 2>/dev/null || true
     else
         info "Pulling images for VERSION=$(read_merged_env_value VERSION) (set UPDATE_IGNORE_PULL_FAILURES=1 only for offline/airgap hosts)..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile pull
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile pull
     fi
     
     # Pull optional-profile images when those containers are in use (main pull above omits llm/tunnel profiles).
@@ -374,9 +412,9 @@ cmd_update() {
         local prof="$1"
         shift
         if [[ "${UPDATE_IGNORE_PULL_FAILURES:-}" == "1" ]]; then
-            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile "$prof" pull --ignore-pull-failures "$@" 2>/dev/null || true
+            dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" --profile "$prof" pull --ignore-pull-failures "$@" 2>/dev/null || true
         else
-            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile "$prof" pull "$@"
+            dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" --profile "$prof" pull "$@"
         fi
     }
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-vllm-qwen 2>/dev/null)" == "true" ]] || [[ "$(docker inspect -f '{{.State.Running}}' veralux-brain 2>/dev/null)" == "true" ]]; then
@@ -403,7 +441,7 @@ cmd_update() {
     # 3. Rolling restart: infrastructure first, then services one at a time
     # Infrastructure (Redis/Postgres) — these hold state, restart only if image changed
     info "Updating infrastructure services..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps redis postgres
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --no-deps redis postgres
     
     # Wait for infrastructure to be healthy
     info "Waiting for infrastructure health checks..."
@@ -427,7 +465,7 @@ cmd_update() {
     
     # 4. Update control plane (runtime depends on it)
     info "Updating control plane..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps control
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --no-deps control
     
     # Wait for control plane to be healthy before updating runtime
     info "Waiting for control plane health check..."
@@ -450,7 +488,7 @@ cmd_update() {
     
     # 5. Update voice runtime
     info "Updating voice runtime..."
-    dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d --no-deps runtime
+    dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" up -d --no-deps runtime
     
     # 6. Update audio + optional LLM services (if running)
     local ac c compose_svc
@@ -462,10 +500,10 @@ cmd_update() {
             fi
             info "Updating $ac (compose: $compose_svc)..."
             if [[ "$compose_svc" == "vllm-qwen" || "$compose_svc" == "brain" ]]; then
-                dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" --profile llm up -d --no-deps "$compose_svc" 2>/dev/null || \
+                dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" --profile llm up -d --no-deps "$compose_svc" 2>/dev/null || \
                     warn "  Could not update $compose_svc (check profile llm and image pull)."
             else
-                dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile up -d --no-deps "$compose_svc" 2>/dev/null || \
+                dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile up -d --no-deps "$compose_svc" 2>/dev/null || \
                     warn "  Could not update $compose_svc (check gpu/cpu profile)."
             fi
         fi
@@ -474,11 +512,11 @@ cmd_update() {
     # 7. Update tunnels if active (both profiles are used in the wild)
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-cloudflared 2>/dev/null)" == "true" ]]; then
         info "Updating Cloudflare Tunnel..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d --no-deps cloudflared
     fi
     if [[ "$(docker inspect -f '{{.State.Running}}' veralux-ngrok 2>/dev/null)" == "true" ]]; then
         info "Updating ngrok..."
-        dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d --no-deps ngrok
+        dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d --no-deps ngrok
     fi
     
     if [[ "${UPDATE_SNAPSHOT_POST:-1}" != "0" ]]; then
@@ -541,7 +579,7 @@ cmd_tunnel() {
             # Remove any leftover containers to avoid name conflicts
             docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
                 veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
-            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d
+            dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d
             success "Cloudflare Tunnel started!"
             echo ""
             info "Your public URL is configured in the Cloudflare dashboard."
@@ -553,7 +591,7 @@ cmd_tunnel() {
                 exit 1
             fi
             info "Starting with ngrok tunnel..."
-            dc -f "$COMPOSE_FILE" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d
+            dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile ngrok up -d
             success "ngrok started!"
             echo ""
             info "View your public URL at: http://localhost:4040"
@@ -609,6 +647,10 @@ cmd_help() {
     echo "  ./deploy.sh tunnel cloudflare     # Start with Cloudflare Tunnel"
     echo "  ./deploy.sh logs control          # Follow control service logs"
     echo "  ./deploy.sh restart runtime       # Restart only the runtime service"
+    echo ""
+    echo "Host voice env (optional): if /etc/veralux/voice-runtime.env exists, this script merges"
+    echo "  docker-compose.production.yml so containers load it (e.g. ADMIN_AUTH_MODE). Override with"
+    echo "  VERALUX_COMPOSE_ENV_FILE=/path/to.env or VERALUX_VOICE_ENV_FILE=… ; skip with VERALUX_SKIP_VOICE_ENV_OVERLAY=1"
 }
 
 # -----------------------------------------------------------------------------
@@ -619,6 +661,7 @@ main() {
     check_docker
     check_compose
     check_env
+    resolve_compose_voice_env_overlay
     
     echo ""
     

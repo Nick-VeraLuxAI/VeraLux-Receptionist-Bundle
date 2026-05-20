@@ -5,6 +5,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="vlx-admin-build" content="__ADMIN_UI_BUILD_STAMP__" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <title>VeraLux — Neural Operations Console</title>
     <script src="/apply-branding.js" defer></script>
     <link
@@ -53,7 +57,7 @@
         <div class="command-rail__band">
         <div class="command-rail__top">
           <div class="command-rail__brand">
-            <div class="logo"><img class="vlx-brand-logo" src="https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png" alt="VeraLux"></div>
+            <div class="logo"><img class="vlx-brand-logo" src="/veralux-logo.png" alt="VeraLux"></div>
             <div>
               <h1>Neural Operations Console</h1>
               <div class="sub" id="vlx-brand-subline">VeraLux Receptionist · Live control plane</div>
@@ -73,15 +77,18 @@
         </div>
         <div class="command-rail__band">
         <nav class="command-rail__tabs" aria-label="Admin sections">
+          <span class="command-rail__group-label">Setup</span>
           <button type="button" class="tab active" data-tab="overview">Overview</button>
           <button type="button" class="tab" data-tab="models">Models &amp; Prompts</button>
           <button type="button" class="tab" data-tab="forwarding">Forwarding &amp; Products</button>
+          <span class="command-rail__group-label">Operations</span>
           <button type="button" class="tab" data-tab="analytics">Analytics</button>
-          <button type="button" class="tab" data-tab="calls">Calls</button>
+          <button type="button" class="tab" data-tab="calls">Call log</button>
           <button type="button" class="tab" data-tab="call-quality">Call Quality</button>
-          <button type="button" class="tab" data-tab="audit">Audit Logs</button>
-          <button type="button" class="tab" data-tab="billing">Billing</button>
           <button type="button" class="tab" data-tab="workflows">Workflows</button>
+          <span class="command-rail__group-label">Account</span>
+          <button type="button" class="tab" data-tab="billing">Billing</button>
+          <button type="button" class="tab" data-tab="audit">Audit &amp; Access</button>
           <button type="button" class="tab" data-tab="settings">Settings</button>
           <button type="button" class="cmd-sync" id="refresh-all" title="Reload all modules for the console (config, prompts, health, billing, audit) — not the same as publishing one business to the voice runtime">
             Sync platform
@@ -227,7 +234,7 @@
               </p>
               <div class="ops-dashboard-inline muted small" style="margin-top: 8px">
                 <span>Last health scan: <strong id="overview-health-refreshed-at">—</strong></span>
-                <span style="margin-left: 12px">Redis voice config: <strong id="overview-runtime-redis-hint">—</strong></span>
+                <span style="margin-left: 12px">Live configuration: <strong id="overview-runtime-redis-hint">—</strong></span>
                 <span style="margin-left: 12px">Last voice runtime sync: <strong id="overview-runtime-last-sync">—</strong></span>
               </div>
               <div class="signal-hero__flow-head" style="margin-top: 16px; align-items: center">
@@ -241,9 +248,9 @@
                   type="button"
                   class="secondary"
                   id="overview-sync-business"
-                  title="Advanced / recovery: republish full voice runtime config from Postgres to Redis. Not needed after a normal Save — saves on Business hours, Models &amp; Prompts, Forwarding &amp; Products, and Voice already publish automatically."
+                  title="Advanced / recovery: republish full live voice configuration from the database. Not needed after a normal Save — saves on Business hours, Models &amp; Prompts, Forwarding &amp; Products, and Voice already publish automatically."
                 >
-                  Advanced: Republish runtime config
+                  Advanced: Republish live configuration
                 </button>
                 <button type="button" class="secondary" id="overview-test-call" disabled title="Automated test call from the dashboard is not available yet. Place a PSTN test from your phone, then use Mark test call completed.">
                   Test call (coming soon)
@@ -394,14 +401,17 @@
         <section class="ops-zone ops-zone--operator ops-surface ops-surface--operator">
           <div class="micro-label">Human-in-the-loop</div>
           <h2 class="ops-inline-title">Operator interventions</h2>
-          <p class="muted ops-lower__lede">Reserved for runtime handoff. Surfaces intent for SOC-style playbooks.</p>
-          <div class="operator-deck operator-deck--loose">
-            <button type="button" class="op-trigger op-trigger--ghost" disabled title="Requires voice runtime handoff API">Take over</button>
-            <button type="button" class="op-trigger" disabled title="Planned">Pause AI</button>
-            <button type="button" class="op-trigger" disabled title="Planned">Route human</button>
-            <button type="button" class="op-trigger" disabled title="Planned">Retry action</button>
-            <button type="button" class="op-trigger" disabled title="Planned">Model refresh</button>
-            <button type="button" class="secondary op-trigger op-trigger--accent" disabled title="Use “Force health pull” in Voice runtime status above">Force health pull</button>
+          <p class="muted ops-lower__lede">Live takeover controls will appear here when the voice handoff API is available.</p>
+          <div class="vlx-alert vlx-alert--warning" role="status">
+            <strong>Coming soon.</strong> Operator takeover, pause AI, manual routing, and retry are not wired yet. Use
+            <strong>Force health pull</strong> or <strong>Re-scan health</strong> in Voice runtime status above for diagnostics today.
+          </div>
+          <div class="operator-deck operator-deck--loose operator-deck--coming-soon" hidden aria-hidden="true">
+            <button type="button" class="op-trigger op-trigger--ghost" disabled tabindex="-1">Take over</button>
+            <button type="button" class="op-trigger" disabled tabindex="-1">Pause AI</button>
+            <button type="button" class="op-trigger" disabled tabindex="-1">Route human</button>
+            <button type="button" class="op-trigger" disabled tabindex="-1">Retry action</button>
+            <button type="button" class="op-trigger" disabled tabindex="-1">Model refresh</button>
           </div>
         </section>
 
@@ -498,11 +508,13 @@
                   </div>
                   <div id="config-status" class="small" style="margin-top: 8px"></div>
                 </form>
-                <p class="small muted" style="margin-top: 14px; max-width: 640px">
-                  <strong>Voice-call LLM (runtime):</strong> use
-                  <code>GET/POST /api/admin/tenants/&lt;tenantId&gt;/llm-config</code> for tenant OpenAI mode, fingerprint, and tests.
-                  Published config never includes raw keys — see <code>docs/TENANT_LLM_API_KEYS.md</code>.
-                </p>
+                <details class="small muted" style="margin-top: 14px; max-width: 640px">
+                  <summary style="cursor: pointer; color: var(--primary)">Technical details</summary>
+                  <p style="margin: 8px 0 0">
+                    Tenant voice-call LLM settings are managed via the admin LLM-config API. Published configuration never includes raw API keys.
+                    See internal documentation <code>docs/TENANT_LLM_API_KEYS.md</code>.
+                  </p>
+                </details>
               </section>
             </div>
 
@@ -793,12 +805,12 @@
 
                   <div class="row models-wizard__actions" style="margin-top: 16px; flex-wrap: wrap; gap: 8px">
                     <button type="submit">Save voice settings</button>
-                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Saves this Step 3 voice form, then runs a full republish (same as Overview → Advanced republish). Recovery: use if a save reported a sync error.">
-                      Publish to voice runtime (Redis)
+                    <button type="button" class="secondary" id="admin-runtime-publish-from-tenant" title="Saves this Step 3 voice form, then publishes live configuration (same as Overview → Advanced republish). Recovery: use if a save reported a sync error.">
+                      Publish live configuration
                     </button>
                   </div>
                   <div id="admin-runtime-publish-status" class="small" style="margin-top: 6px; min-height: 18px; color: var(--muted)"></div>
-                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. <strong>Save voice settings</strong> pushes live PSTN voice to Redis when runtime admin is enabled. Use Step 4 → Preview to hear TTS here. Use <strong>Publish to voice runtime</strong> if you only changed prompts/STT elsewhere or if save reported a publish error.</div>
+                  <div id="tts-status" class="small" style="margin-top: 8px">Saved per business. <strong>Save voice settings</strong> applies live PSTN voice when voice-service publishing is enabled. Use Step 4 → Preview to hear TTS here. Use <strong>Publish live configuration</strong> if you only changed prompts/STT elsewhere or if save reported a publish error.</div>
                 </form>
               </section>
             </div>
@@ -884,7 +896,7 @@
           <p class="small muted">
             Many caller phrases can map to <strong>one</strong> spoken answer. When a final transcript contains a phrase (case-insensitive), the
             receptionist skips the LLM and speaks the reply — lower latency. Phrases must be at least 4 characters; first matching intent wins.
-            Requires published voice runtime config in Redis.
+            Requires published live voice configuration on the voice service.
           </p>
           <div id="admin-qr-status" class="small" style="margin-bottom: 10px; min-height: 18px"></div>
           <div id="admin-qr-list"></div>
@@ -896,64 +908,106 @@
         </section>
       </div>
 
-      <div class="tab-content" data-tab="forwarding">
-        <section class="panel">
-          <h2>Call forwarding profiles</h2>
-          <p class="small muted">Who to transfer callers to (number, name, role). The receptionist uses this to offer the right contact.</p>
-          <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 10px 0">
-            <input id="fp-name" type="text" placeholder="Name (e.g. Sales)" style="min-width: 120px" />
-            <input id="fp-number" type="text" placeholder="Number (e.g. +15551234567)" style="min-width: 140px" />
-            <input id="fp-role" type="text" placeholder="Role / what they do" style="min-width: 160px" />
-            <button type="button" id="fp-add">Add profile</button>
+      <div class="tab-content tab-content--stack" data-tab="forwarding">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Routing</p>
+              <h2 class="vlx-section-title">Call forwarding profiles</h2>
+              <p class="vlx-section-copy">Who the receptionist can transfer callers to—name, number, and role.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--primary" id="fp-save">Save forwarding profiles</button>
+            </div>
+          </header>
+          <div class="vlx-form-row">
+            <input id="fp-name" type="text" placeholder="Name (e.g. Sales)" />
+            <input id="fp-number" type="text" placeholder="Number (e.g. +15551234567)" />
+            <input id="fp-role" type="text" placeholder="Role / what they do" />
+            <button type="button" class="vlx-btn vlx-btn--secondary" id="fp-add">Add profile</button>
           </div>
-          <ul id="forwarding-profiles-list" style="list-style: none; padding: 0; margin: 8px 0"></ul>
-          <button type="button" class="secondary" id="fp-save">Save forwarding profiles</button>
+          <div id="forwarding-profiles-empty" class="vlx-empty" hidden>
+            <p class="vlx-empty__title">No transfer contacts yet</p>
+            <p class="vlx-empty__copy">Add at least one profile so the receptionist knows who to route callers to.</p>
+          </div>
+          <ul id="forwarding-profiles-list" class="vlx-routing-list"></ul>
           <div id="fp-status" class="small" style="margin-top: 6px; min-height: 16px"></div>
         </section>
-        <section class="panel">
-          <h2>Services & products</h2>
-          <p class="small muted">Services, products, and prices the receptionist can reference. Kept short for voice.</p>
-          <div class="row" style="gap: 8px; flex-wrap: wrap; margin: 10px 0">
-            <select id="price-type" style="min-width: 100px">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Catalog</p>
+              <h2 class="vlx-section-title">Services &amp; products</h2>
+              <p class="vlx-section-copy">Short list of offerings and prices the receptionist can mention on calls.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--primary" id="price-save">Save pricing</button>
+            </div>
+          </header>
+          <div class="vlx-form-row">
+            <select id="price-type">
               <option value="service">Service</option>
               <option value="product">Product</option>
             </select>
-            <input id="price-name" type="text" placeholder="Name" style="min-width: 120px" />
-            <input id="price-amount" type="text" placeholder="Price (e.g. $50)" style="min-width: 80px" />
-            <input id="price-desc" type="text" placeholder="Short description" style="min-width: 140px" />
-            <button type="button" id="price-add">Add item</button>
+            <input id="price-name" type="text" placeholder="Name" />
+            <input id="price-amount" type="text" placeholder="Price (e.g. $50)" />
+            <input id="price-desc" type="text" placeholder="Short description" />
+            <button type="button" class="vlx-btn vlx-btn--secondary" id="price-add">Add item</button>
           </div>
-          <ul id="pricing-items-list" style="list-style: none; padding: 0; margin: 8px 0"></ul>
-          <label for="pricing-notes" class="small">Notes (optional, e.g. &quot;Rates may vary&quot;)</label>
-          <textarea id="pricing-notes" rows="2" style="width: 100%; margin-top: 4px; resize: vertical"></textarea>
-          <button type="button" class="secondary" id="price-save" style="margin-top: 8px">Save pricing</button>
-          <div id="price-status" class="small" style="margin-top: 6px; min-height: 16px"></div>
+          <div id="pricing-items-empty" class="vlx-empty" hidden>
+            <p class="vlx-empty__title">No services or products yet</p>
+            <p class="vlx-empty__copy">Add items your receptionist should be able to quote or describe.</p>
+          </div>
+          <ul id="pricing-items-list" class="vlx-routing-list"></ul>
+          <label for="pricing-notes" class="small micro-label">Notes (optional)</label>
+          <textarea id="pricing-notes" rows="2" placeholder="e.g. Rates may vary by job size"></textarea>
+          <div id="price-status" class="small muted" style="margin-top: 8px; min-height: 16px" role="status"></div>
         </section>
       </div>
 
-      <div class="tab-content" data-tab="analytics">
-        <section class="panel">
-          <div class="flex-between">
-            <h2>Analytics</h2>
-            <button type="button" class="secondary" id="refresh-analytics">Refresh</button>
+      <div class="tab-content tab-content--stack" data-tab="analytics">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Insights</p>
+              <h2 class="vlx-section-title">Analytics</h2>
+              <p class="vlx-section-copy">Aggregate call volume and common caller questions for the selected business.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--secondary" id="refresh-analytics">Refresh</button>
+            </div>
+          </header>
+          <div id="analytics-summary" class="vlx-metric-grid"></div>
+          <h3 class="vlx-section-kicker" style="margin-top: 8px">Top questions</h3>
+          <div id="analytics-questions-empty" class="vlx-empty" hidden>
+            <p class="vlx-empty__title">No question data yet</p>
+            <p class="vlx-empty__copy">Analytics will populate after callers interact with the receptionist.</p>
           </div>
-          <div id="analytics-summary" class="card" style="margin-top: 8px"></div>
-          <div class="list-title">Top questions</div>
-          <ul id="top-questions" style="margin-top: 8px"></ul>
+          <ul id="top-questions" class="vlx-routing-list"></ul>
         </section>
       </div>
 
-      <div class="tab-content" data-tab="calls">
-        <section class="panel">
-          <div class="flex-between">
-            <h2>Chat History</h2>
-            <button type="button" class="secondary" id="refresh-calls">Refresh</button>
+      <div class="tab-content tab-content--stack" data-tab="calls">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Operations</p>
+              <h2 class="vlx-section-title">Call log</h2>
+              <p class="vlx-section-copy">Recent calls for the selected business—caller, outcome, and last spoken exchange.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--secondary" id="refresh-calls">Refresh</button>
+            </div>
+          </header>
+          <div id="calls-empty" class="vlx-empty" hidden>
+            <p class="vlx-empty__title">No calls on file</p>
+            <p class="vlx-empty__copy">Completed and in-progress calls will appear here after your lines receive traffic.</p>
           </div>
-          <div id="calls" class="call-grid" style="margin-top: 10px"></div>
+          <div id="calls" class="vlx-call-log"></div>
         </section>
       </div>
 
-      <div class="tab-content" data-tab="call-quality">
+      <div class="tab-content tab-content--stack" data-tab="call-quality">
         <section class="panel">
           <div class="flex-between">
             <h2>Call Quality Analytics &amp; Raw Audio Diagnostics</h2>
@@ -997,38 +1051,53 @@
               <input type="text" id="cq-diag-expires" placeholder="2026-05-10T12:00:00.000Z" style="width: 100%; max-width: 420px" />
             </div>
             <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap">
-              <button type="button" class="secondary" id="cq-diag-enable-next">POST enable (next / failed / all)</button>
-              <button type="button" class="secondary" id="cq-diag-disable">POST disable</button>
+              <button type="button" class="secondary" id="cq-diag-enable-next">Enable diagnostics</button>
+              <button type="button" class="secondary" id="cq-diag-disable">Disable diagnostics</button>
             </div>
             <div id="cq-diag-status" class="small muted" style="margin-top: 8px"></div>
           </div>
         </section>
       </div>
 
-      <div class="tab-content" data-tab="audit">
-        <section class="panel">
-          <div class="flex-between">
-            <h2>Audit Logs</h2>
-            <button type="button" class="secondary" id="refresh-audit">Refresh</button>
-          </div>
-          <div id="audit-logs" class="debug-block" style="margin-top: 8px; max-height: 320px"></div>
+      <div class="tab-content tab-content--stack" data-tab="audit">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Compliance</p>
+              <h2 class="vlx-section-title">Audit log</h2>
+              <p class="vlx-section-copy">Operator actions on this control plane. Operator-only — not shown to clients.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--secondary" id="refresh-audit">Refresh</button>
+            </div>
+          </header>
+          <pre id="audit-logs" class="vlx-audit-log" aria-live="polite">Loading…</pre>
         </section>
-        <section class="panel">
-          <div class="flex-between">
-            <h2>Admin Access</h2>
-            <button type="button" class="secondary" id="refresh-keys">Refresh</button>
-          </div>
-          <div class="row" style="gap: 8px; flex-wrap: wrap; margin-bottom: 8px">
-            <input id="admin-key-name" type="text" placeholder="Key name (e.g. OpsUser)" style="min-width: 180px" />
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Security</p>
+              <h2 class="vlx-section-title">API access keys</h2>
+              <p class="vlx-section-copy">Create and revoke admin API keys. Tokens are shown once at creation.</p>
+            </div>
+            <div class="vlx-section-actions">
+              <button type="button" class="vlx-btn vlx-btn--secondary" id="refresh-keys">Refresh</button>
+            </div>
+          </header>
+          <div class="vlx-form-row">
+            <input id="admin-key-name" type="text" placeholder="Key name (e.g. OpsUser)" />
             <select id="admin-key-role">
               <option value="admin">Admin</option>
               <option value="viewer">Viewer</option>
             </select>
-            <button type="button" id="create-admin-key">Create Key</button>
+            <button type="button" class="vlx-btn vlx-btn--primary" id="create-admin-key">Create key</button>
           </div>
-          <div id="admin-key-token" class="small" style="color: #C9A04E; min-height: 16px"></div>
-          <div class="list-title" style="margin-top: 6px">Existing keys</div>
-          <div id="admin-keys" class="debug-block" style="max-height: 260px; overflow: auto"></div>
+          <div id="admin-key-token" class="vlx-alert vlx-alert--warning" style="min-height:16px;margin-top:8px" role="status"></div>
+          <div id="admin-keys-empty" class="vlx-empty" hidden>
+            <p class="vlx-empty__title">No API keys yet</p>
+            <p class="vlx-empty__copy">Create a named key for each operator or integration.</p>
+          </div>
+          <div id="admin-keys" class="vlx-table-wrap"></div>
         </section>
       </div>
 
@@ -1257,16 +1326,29 @@
         </div>
       </div>
 
-      <div class="tab-content" data-tab="settings">
-        <section class="panel">
-          <h2>Cloudflare Tunnel</h2>
-          <p class="small" style="margin: 0 0 12px">Status only. The tunnel token is set out-of-band as <code>CLOUDFLARE_TUNNEL_TOKEN</code> in the deploy environment (.env / orchestrator secret) and consumed by the cloudflared sidecar at startup. The control plane no longer accepts in-app token writes.</p>
+      <div class="tab-content tab-content--stack" data-tab="settings">
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Infrastructure</p>
+              <h2 class="vlx-section-title">Cloudflare tunnel</h2>
+              <p class="vlx-section-copy">Read-only status. Tunnel credentials are managed in the deploy environment, not in this console.</p>
+            </div>
+          </header>
           <div id="cf-token-status" class="small" style="margin-top: 8px; min-height: 16px"></div>
-          <p class="small muted" style="margin-top: 8px">To rotate the token: update <code>CLOUDFLARE_TUNNEL_TOKEN</code> in the deploy environment, then restart the cloudflared service. Read access requires a super-admin (env / master) key.</p>
+          <details class="small muted" style="margin-top: 10px">
+            <summary style="cursor:pointer;color:var(--primary)">Technical details</summary>
+            <p style="margin:8px 0 0">Set <code>CLOUDFLARE_TUNNEL_TOKEN</code> in the deploy environment; the cloudflared sidecar consumes it at startup.</p>
+          </details>
         </section>
-        <section class="panel">
-          <h2>Tenant Plan &amp; Limits</h2>
-          <p class="small muted">Server-enforced limits for paid client deployments. Changes take effect immediately.</p>
+        <section class="vlx-panel">
+          <header class="vlx-section-header">
+            <div class="vlx-section-header__copy">
+              <p class="vlx-section-kicker">Entitlements</p>
+              <h2 class="vlx-section-title">Plan &amp; limits</h2>
+              <p class="vlx-section-copy">Server-enforced limits for client deployments. Changes apply immediately for the selected business.</p>
+            </div>
+          </header>
           <div class="row" style="gap:8px;flex-wrap:wrap;">
             <label style="min-width:220px;">Plan Tier
               <select id="limit-plan-tier">
@@ -1307,33 +1389,34 @@
             <label>KB size MB <input id="limit-max-kb-mb" type="number" min="0" /></label>
             <label>Overage rate cents/min <input id="limit-overage-rate" type="number" min="0" /></label>
           </div>
-          <h3 style="margin-top:12px;">Feature Flags</h3>
-          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;">
-            <label><input id="limit-f-after-hours" type="checkbox" /> afterHoursMode</label>
-            <label><input id="limit-f-sms" type="checkbox" /> smsFollowup</label>
-            <label><input id="limit-f-calendar" type="checkbox" /> calendarIntegration</label>
-            <label><input id="limit-f-crm" type="checkbox" /> crmIntegration</label>
-            <label><input id="limit-f-analytics" type="checkbox" /> advancedAnalytics</label>
-            <label><input id="limit-f-recording" type="checkbox" /> callRecording</label>
-            <label><input id="limit-f-retention" type="checkbox" /> transcriptRetention</label>
-            <label><input id="limit-f-multiloc" type="checkbox" /> multiLocation</label>
-            <label><input id="limit-f-workflows" type="checkbox" /> customWorkflows</label>
-            <label><input id="limit-f-priority" type="checkbox" /> prioritySupport</label>
+          <h3 class="vlx-section-kicker" style="margin-top:14px;">Feature entitlements</h3>
+          <div class="vlx-feature-grid">
+            <label><input id="limit-f-after-hours" type="checkbox" /> After-hours handling</label>
+            <label><input id="limit-f-sms" type="checkbox" /> SMS follow-up</label>
+            <label><input id="limit-f-calendar" type="checkbox" /> Calendar integration</label>
+            <label><input id="limit-f-crm" type="checkbox" /> CRM integration</label>
+            <label><input id="limit-f-analytics" type="checkbox" /> Advanced analytics</label>
+            <label><input id="limit-f-recording" type="checkbox" /> Call recording</label>
+            <label><input id="limit-f-retention" type="checkbox" /> Transcript retention</label>
+            <label><input id="limit-f-multiloc" type="checkbox" /> Multi-location</label>
+            <label><input id="limit-f-workflows" type="checkbox" /> Custom workflows</label>
+            <label><input id="limit-f-priority" type="checkbox" /> Priority support</label>
           </div>
           <div class="row" style="gap:8px;margin-top:10px;flex-wrap:wrap;">
-            <button type="button" id="limit-save">Save limits</button>
+            <button type="button" class="vlx-btn vlx-btn--primary" id="limit-save">Save limits</button>
             <button type="button" class="secondary" id="limit-refresh">Reload limits</button>
             <button type="button" class="secondary" id="limit-reset-plan">Reset to plan defaults</button>
             <button type="button" class="secondary" id="limit-set-billing">Set billing status only</button>
           </div>
           <div id="limit-status" class="small" style="margin-top:6px;min-height:16px;"></div>
-          <h3 style="margin-top:12px;">Current Usage</h3>
-          <pre id="limit-usage" style="max-height:220px;overflow:auto;">Loading…</pre>
+          <h3 class="vlx-section-kicker" style="margin-top:16px;">Current usage</h3>
+          <div id="limit-usage-display" class="vlx-usage-grid"></div>
+          <pre id="limit-usage" class="vlx-usage-raw" aria-hidden="true">Loading…</pre>
         </section>
       </div>
 
       <!-- ── Workflows Tab ── -->
-      <div class="tab-content" data-tab="workflows">
+      <div class="tab-content tab-content--stack" data-tab="workflows">
 
         <!-- Workflow Settings -->
         <section class="panel" style="padding:12px 16px;">
@@ -1354,7 +1437,7 @@
               <button type="button" class="secondary" id="wf-refresh-btn">Refresh</button>
             </div>
           </div>
-          <div id="wf-list-empty" class="small muted" style="margin:12px 0;">No workflows yet. Create one to get started.</div>
+          <div id="wf-list-empty" class="vlx-empty"><p class="vlx-empty__title">No workflows yet</p><p class="vlx-empty__copy">Create an automation to follow up after calls, missed calls, or keywords.</p></div>
           <table id="wf-list-table" style="display:none; width:100%; border-collapse:collapse; margin-top:12px;">
             <thead>
               <tr style="text-align:left; border-bottom:1px solid rgba(246,243,236,0.1);">
@@ -1515,13 +1598,14 @@
 
     <div id="admin-modal" class="modal">
       <div class="modal-card">
-        <h3>Admin Access Required</h3>
-        <div class="small">Enter an admin token (API key or JWT) to access settings.</div>
-        <input id="admin-pass-input" type="password" placeholder="Admin token (API key or JWT)" />
+        <h3>Sign in</h3>
+        <div class="small">Use your operator email and password (ADMIN_CONSOLE_EMAIL and INSTALLER_PASSWORD on the server).</div>
+        <input id="admin-login-email" type="email" autocomplete="username" placeholder="Email or operator ID" />
+        <input id="admin-login-password" type="password" autocomplete="current-password" placeholder="Password" />
         <div id="admin-pass-error" class="small" style="color: #e07070; min-height: 16px"></div>
         <div class="modal-actions">
           <button type="button" class="secondary" id="admin-pass-cancel">Cancel</button>
-          <button type="button" id="admin-pass-confirm">Confirm</button>
+          <button type="button" id="admin-pass-confirm">Sign in</button>
         </div>
       </div>
     </div>
@@ -1529,8 +1613,46 @@
     <script src="/qwen3-tts-options.js"></script>
     <script>
       const $ = (id) => document.getElementById(id);
+      const ADMIN_SESSION_KEY = "vlx_admin_session";
       let adminAuthToken = "";
       let currentTenantId = "default";
+
+      function adminTokenIsJwt(token) {
+        return typeof token === "string" && token.split(".").length === 3;
+      }
+
+      function applyAdminAuthHeaders(headers) {
+        if (!adminAuthToken) return;
+        if (adminTokenIsJwt(adminAuthToken)) {
+          headers.set("Authorization", "Bearer " + adminAuthToken);
+        } else {
+          headers.set("X-Admin-Key", adminAuthToken);
+        }
+      }
+
+      function applyAdminAuthPlain(headers) {
+        if (!adminAuthToken) return headers;
+        if (adminTokenIsJwt(adminAuthToken)) {
+          headers.Authorization = "Bearer " + adminAuthToken;
+        } else {
+          headers["X-Admin-Key"] = adminAuthToken;
+        }
+        return headers;
+      }
+
+      function persistAdminSession() {
+        try {
+          if (adminAuthToken) sessionStorage.setItem(ADMIN_SESSION_KEY, adminAuthToken);
+          else sessionStorage.removeItem(ADMIN_SESSION_KEY);
+        } catch (_) {}
+      }
+
+      function restoreAdminSession() {
+        try {
+          const saved = sessionStorage.getItem(ADMIN_SESSION_KEY);
+          if (saved) adminAuthToken = saved;
+        } catch (_) {}
+      }
       let tenantsList = [];
       let adminAuthorized = false;
       let pendingAction = null;
@@ -1622,13 +1744,8 @@
 
         $("models-test-conversation")?.addEventListener("click", () => {
           setModelsTestStep4Panel("conversation");
-          document.querySelectorAll(".tab").forEach((t) => {
-            t.classList.toggle("active", t.dataset.tab === "calls");
-          });
-          document.querySelectorAll(".tab-content").forEach((c) => {
-            c.classList.toggle("active", c.dataset.tab === "calls");
-          });
-          setStatus("Opened Chat history — review or place a test call.", "ok");
+          activateAdminTab("calls");
+          setStatus("Opened Call log — review or place a test call.", "ok");
           loadCalls();
         });
 
@@ -1684,14 +1801,14 @@
               postHeaders["X-Tenant-ID"] = currentTenantId;
               postHeaders["X-Active-Tenant"] = currentTenantId;
             }
-            if (adminAuthToken) postHeaders["X-Admin-Key"] = adminAuthToken;
+            applyAdminAuthPlain(postHeaders);
 
             const pollHeaders = { Accept: "application/json" };
             if (currentTenantId) {
               pollHeaders["X-Tenant-ID"] = currentTenantId;
               pollHeaders["X-Active-Tenant"] = currentTenantId;
             }
-            if (adminAuthToken) pollHeaders["X-Admin-Key"] = adminAuthToken;
+            applyAdminAuthPlain(pollHeaders);
 
             const startRes = await fetch("/api/tts/preview/async", {
               method: "POST",
@@ -1821,7 +1938,7 @@
               st.textContent = "Select a business first.";
               st.style.color = "var(--danger)";
             }
-            setStatus("Select a tenant before publishing to Redis", "err");
+            setStatus("Select a tenant before publishing live configuration", "err");
             return;
           }
           if (!adminAuthorized) {
@@ -1841,14 +1958,14 @@
             if ($("tts-status")) {
               $("tts-status").textContent =
                 rp && rp.ok
-                  ? "Voice/speaker from this form saved to DB and Redis. Syncing full tenant config…"
+                  ? "Voice saved. Syncing full live configuration…"
                   : `Voice form saved (${rp && !rp.ok ? rp.message || rp.error : "ok"}). Syncing full tenant config…`;
             }
 
             const headers = new Headers();
             headers.set("X-Tenant-ID", currentTenantId);
             headers.set("X-Active-Tenant", currentTenantId);
-            if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+            applyAdminAuthHeaders(headers);
             const res = await fetch(
               `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/publish-from-tenant`,
               { method: "POST", headers }
@@ -1868,17 +1985,17 @@
             }
             if (st) {
               st.textContent =
-                "Done: voice form was saved first, then full tenant config published to Redis. New calls should use the speaker/voice you selected. Map DIDs if inbound is new.";
+                "Done: voice form was saved first, then full tenant config published live. New calls should use the speaker/voice you selected. Map DIDs if inbound is new.";
               st.style.color = "var(--success)";
             }
-            setStatus("Voice runtime config published to Redis", "ok");
+            setStatus("Voice runtime config published live", "ok");
             void refreshOverviewRuntimeRedisHint();
           } catch (e) {
             if (st) {
               st.textContent = String(e.message || e);
               st.style.color = "var(--danger)";
             }
-            setStatus("Publish to Redis failed", "err");
+            setStatus("Publish live configuration failed", "err");
           }
         });
       }
@@ -1898,9 +2015,7 @@
             headers.set("X-Tenant-ID", currentTenantId);
             headers.set("X-Active-Tenant", currentTenantId);
           }
-          if (adminAuthToken) {
-            headers.set("X-Admin-Key", adminAuthToken);
-          }
+          applyAdminAuthHeaders(headers);
           opts.headers = headers;
           delete opts.skipTenantHeader;
 
@@ -1938,7 +2053,7 @@
         if (syncEl) syncEl.textContent = "…";
         try {
           const headers = new Headers();
-          if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+          applyAdminAuthHeaders(headers);
           headers.set("X-Tenant-ID", currentTenantId);
           headers.set("X-Active-Tenant", currentTenantId);
           const res = await fetch(
@@ -1983,7 +2098,7 @@
           return " Voice runtime auto-publish is off on this server — ask ops to enable or use Advanced republish.";
         }
         const err = data.publishError ? String(data.publishError).slice(0, 140) : "sync failed";
-        return ` Voice runtime: save only — ${err}. Try Advanced → Republish runtime config.`;
+        return ` Voice runtime: save only — ${err}. Try Advanced → Republish live configuration.`;
       }
 
       async function republishRuntimeConfigAdvancedFromOverview() {
@@ -2000,7 +2115,7 @@
           const headers = new Headers();
           headers.set("X-Tenant-ID", currentTenantId);
           headers.set("X-Active-Tenant", currentTenantId);
-          if (adminAuthToken) headers.set("X-Admin-Key", adminAuthToken);
+          applyAdminAuthHeaders(headers);
           const res = await fetch(
             `/api/admin/runtime/tenants/${encodeURIComponent(currentTenantId)}/publish-from-tenant`,
             { method: "POST", headers },
@@ -2018,7 +2133,7 @@
                   : res.statusText;
             throw new Error(msg || "Publish failed");
           }
-          setStatus("Runtime config republished to Redis.", "ok");
+          setStatus("Runtime config republished live.", "ok");
           void refreshOverviewRuntimeRedisHint();
         } catch (e) {
           setStatus("Republish failed: " + (e.message || String(e)), "err");
@@ -2240,7 +2355,7 @@
         if (adminAuthToken) {
           try {
             const headers = new Headers();
-            headers.set("X-Admin-Key", adminAuthToken);
+            applyAdminAuthHeaders(headers);
             headers.set("X-Tenant-ID", currentTenantId);
             headers.set("X-Active-Tenant", currentTenantId);
             const res = await fetch(
@@ -2272,7 +2387,7 @@
         if (adminAuthToken && currentTenantId) {
           try {
             const headers = new Headers();
-            headers.set("X-Admin-Key", adminAuthToken);
+            applyAdminAuthHeaders(headers);
             headers.set("X-Tenant-ID", currentTenantId);
             headers.set("X-Active-Tenant", currentTenantId);
             const res = await fetch(
@@ -2561,21 +2676,29 @@
 
       function renderAdminKeys() {
         const container = $("admin-keys");
+        const emptyEl = $("admin-keys-empty");
         if (!container) return;
         if (!adminKeysCache.length) {
-          container.textContent = "No admin keys yet.";
+          container.innerHTML = "";
+          if (emptyEl) emptyEl.hidden = false;
           return;
         }
-        container.innerHTML = adminKeysCache
+        if (emptyEl) emptyEl.hidden = true;
+        const rows = adminKeysCache
           .map(
-            (k) =>
-              `${escapeHtml(k.name)} [${escapeHtml(k.role)}] • created ${escapeHtml(k.createdAt || "-")} • last used ${
-                escapeHtml(k.lastUsedAt || "-")
-              } • id=${escapeHtml(k.id)}`
+            (k) => `<tr>
+              <td><strong>${escapeHtml(k.name)}</strong></td>
+              <td><span class="vlx-badge vlx-badge--neutral">${escapeHtml(k.role)}</span></td>
+              <td class="small">${escapeHtml(k.createdAt || "—")}</td>
+              <td class="small">${escapeHtml(k.lastUsedAt || "Never")}</td>
+              <td class="small" style="font-family:var(--font-mono)">${escapeHtml(formatCallRef(k.id))}</td>
+            </tr>`,
           )
-          .join("\n");
+          .join("");
+        container.innerHTML = `<table class="vlx-table"><thead><tr>
+          <th>Name</th><th>Role</th><th>Created</th><th>Last used</th><th>Ref</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
       }
-
       async function createAdminKey() {
         const name = ($("admin-key-name")?.value || "").trim();
         const role = $("admin-key-role")?.value || "admin";
@@ -2662,10 +2785,11 @@
       }
 
       function showAdminModal() {
-        $("admin-pass-input").value = "";
+        $("admin-login-email").value = "";
+        $("admin-login-password").value = "";
         $("admin-pass-error").textContent = "";
         $("admin-modal").classList.add("active");
-        $("admin-pass-input").focus();
+        $("admin-login-email").focus();
       }
 
       function hideAdminModal() {
@@ -2681,9 +2805,13 @@
 
       async function validateAdminToken(token) {
         try {
-          const res = await fetch("/api/admin/tenants", {
-            headers: { "X-Admin-Key": token }
-          });
+          const headers = new Headers();
+          if (adminTokenIsJwt(token)) {
+            headers.set("Authorization", "Bearer " + token);
+          } else {
+            headers.set("X-Admin-Key", token);
+          }
+          const res = await fetch("/api/admin/tenants", { headers });
           if (res.ok) return { ok: true };
           let payload = {};
           try {
@@ -2724,24 +2852,62 @@
         }
       }
 
+      function adminLoginErrorMessage(data) {
+        const err = typeof data?.error === "string" ? data.error : "";
+        if (err === "email_and_password_required") return "Enter your email and password.";
+        if (err === "console_login_not_configured") {
+          return (
+            data?.message ||
+            "Console login is not configured. Set INSTALLER_PASSWORD (and ADMIN_CONSOLE_EMAIL) on the server."
+          );
+        }
+        if (err === "Invalid credentials" || err === "") return "Invalid email or password.";
+        return err.replace(/_/g, " ");
+      }
+
       async function handleAdminConfirm() {
-        const pass = $("admin-pass-input").value.trim();
-        if (!pass) {
-          $("admin-pass-error").textContent = "Admin token is required.";
+        const email = $("admin-login-email").value.trim();
+        const password = $("admin-login-password").value;
+        if (!email) {
+          $("admin-pass-error").textContent = "Email or operator ID is required.";
           return;
         }
-        $("admin-pass-error").textContent = "Validating...";
+        if (!password) {
+          $("admin-pass-error").textContent = "Password is required.";
+          return;
+        }
+        $("admin-pass-error").textContent = "Signing in…";
         $("admin-pass-confirm").disabled = true;
-        const result = await validateAdminToken(pass);
+        let token = "";
+        try {
+          const res = await fetch("/api/admin/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data.success || !data.token) {
+            $("admin-pass-error").textContent = adminLoginErrorMessage(data);
+            $("admin-pass-confirm").disabled = false;
+            return;
+          }
+          token = data.token;
+        } catch {
+          $("admin-pass-error").textContent = "Network error while signing in.";
+          $("admin-pass-confirm").disabled = false;
+          return;
+        }
+        const result = await validateAdminToken(token);
         $("admin-pass-confirm").disabled = false;
         if (!result.ok) {
-          $("admin-pass-error").textContent = result.message || "Invalid admin token. Please try again.";
+          $("admin-pass-error").textContent = result.message || "Sign-in succeeded but session validation failed.";
           return;
         }
-        adminAuthToken = pass;
+        adminAuthToken = token;
         adminAuthorized = true;
+        persistAdminSession();
         hideAdminModal();
-        setStatus("Admin confirmed", "ok");
+        setStatus("Signed in", "ok");
         if (typeof pendingAction === "function") {
           const action = pendingAction;
           pendingAction = null;
@@ -3174,32 +3340,36 @@
       function renderAnalytics(data) {
         $("summary-calls").textContent = data.totalCalls;
         $("summary-messages").textContent = data.totalCallerMessages;
-        $("analytics-summary").innerHTML = `
-          <div class="flex-between">
-            <div><div class="small">Total calls</div><div class="value">${escapeHtml(data.totalCalls)}</div></div>
-            <div><div class="small">Caller messages</div><div class="value">${escapeHtml(data.totalCallerMessages)}</div></div>
-          </div>
-        `;
+        const summary = $("analytics-summary");
+        if (summary) {
+          summary.innerHTML = `
+            <article class="vlx-metric-tile">
+              <p class="vlx-metric-tile__label">Total calls</p>
+              <p class="vlx-metric-tile__value">${escapeHtml(data.totalCalls)}</p>
+            </article>
+            <article class="vlx-metric-tile">
+              <p class="vlx-metric-tile__label">Caller messages</p>
+              <p class="vlx-metric-tile__value">${escapeHtml(data.totalCallerMessages)}</p>
+            </article>
+          `;
+        }
         const list = $("top-questions");
+        const emptyEl = $("analytics-questions-empty");
         list.innerHTML = "";
         if (!data.topQuestions || data.topQuestions.length === 0) {
-          const li = document.createElement("li");
-          li.className = "small";
-          li.textContent = "No data yet.";
-          list.appendChild(li);
+          if (emptyEl) emptyEl.hidden = false;
           if (lastHealthPayload) syncNeuralOperations(lastHealthPayload);
           return;
         }
+        if (emptyEl) emptyEl.hidden = true;
         data.topQuestions.forEach((q) => {
           const li = document.createElement("li");
-          li.className = "card";
-          li.innerHTML = `<div class="flex-between"><span>${escapeHtml(q.text)}</span><span class="small">x${escapeHtml(q.count)}</span></div>`;
+          li.className = "vlx-routing-card";
+          li.innerHTML = `<div class="vlx-routing-card__main"><strong>${escapeHtml(q.text)}</strong><span class="vlx-routing-card__sub">Asked ${escapeHtml(q.count)} time${q.count === 1 ? "" : "s"}</span></div>`;
           list.appendChild(li);
         });
         if (lastHealthPayload) syncNeuralOperations(lastHealthPayload);
-      }
-
-      async function loadAnalytics() {
+      }      async function loadAnalytics() {
         try {
           const data = await fetchJSON("/api/admin/analytics");
           renderAnalytics(data);
@@ -3210,33 +3380,60 @@
         }
       }
 
+      function callStageBadgeKind(stage) {
+        const s = String(stage || "").toLowerCase();
+        if (s === "completed" || s === "answered" || s === "ok") return "success";
+        if (s === "missed" || s === "failed" || s === "error") return "danger";
+        return "warning";
+      }
+
+      function formatCallRef(id) {
+        if (!id) return "";
+        const s = String(id);
+        return s.length > 12 ? "…" + s.slice(-8) : s;
+      }
+
+      function formatLeadSummary(lead) {
+        if (!lead || !Object.keys(lead).length) return "No lead captured";
+        const name = lead.name || lead.fullName;
+        const phone = lead.phone || lead.phoneNumber;
+        if (name && phone) return `${name} · ${phone}`;
+        if (name) return String(name);
+        if (phone) return String(phone);
+        return "Lead on file";
+      }
+
       function renderCalls(data) {
         const container = $("calls");
+        const emptyEl = $("calls-empty");
+        if (!container) return;
         container.innerHTML = "";
         const callsList = data.calls || [];
         if (callsList.length === 0) {
-          container.textContent = "No calls yet.";
+          if (emptyEl) emptyEl.hidden = false;
           return;
         }
+        if (emptyEl) emptyEl.hidden = true;
         callsList
           .slice()
           .reverse()
           .forEach((c) => {
-            const div = document.createElement("div");
-            div.className = "card";
+            const div = document.createElement("article");
+            div.className = "vlx-call-log__item";
             const lastMessage = c.history?.[c.history.length - 1];
+            const caller = c.callerId || "Unknown caller";
+            const stage = c.stage || "unknown";
+            const badgeKind = callStageBadgeKind(stage);
+            const lastLine = lastMessage
+              ? `${lastMessage.from}: ${lastMessage.message}`
+              : "No transcript line on file";
             div.innerHTML = `
-              <div class="flex-between">
-                <div><strong>${escapeHtml(c.id)}</strong></div>
-                <span class="pill ok">${escapeHtml(c.stage)}</span>
+              <div class="vlx-call-log__head">
+                <span class="vlx-call-log__caller">${escapeHtml(caller)}</span>
+                <span class="vlx-badge vlx-badge--${badgeKind}">${escapeHtml(stage)}</span>
               </div>
-              <div class="small" style="margin-top: 4px">Caller: ${escapeHtml(c.callerId || "unknown")}</div>
-              <div class="small">Lead: ${
-                escapeHtml(Object.keys(c.lead || {}).length ? JSON.stringify(c.lead) : "none")
-              }</div>
-              <div class="small">Last: ${
-                lastMessage ? escapeHtml(`${lastMessage.from}: ${lastMessage.message}`) : "n/a"
-              }</div>
+              <div class="vlx-call-log__meta">${escapeHtml(formatLeadSummary(c.lead))}<br />${escapeHtml(lastLine)}</div>
+              <div class="vlx-call-log__ref">Reference: ${escapeHtml(formatCallRef(c.id))}</div>
             `;
             container.appendChild(div);
           });
@@ -3323,7 +3520,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ reason, expiresAt, mode }),
           });
-          $("cq-diag-status").textContent = "Enabled. Publish to voice runtime if needed.";
+          $("cq-diag-status").textContent = "Enabled. Publish live configuration if needed.";
           setStatus("Raw audio diagnostics enabled", "ok");
           await loadCallQualityPanel();
         } catch (err) {
@@ -4143,8 +4340,8 @@
           let line = "Voice settings saved.";
           if (rp) {
             line = rp.ok
-              ? "Voice settings saved — live PSTN calls will use this voice (published to Redis)."
-              : `Saved here. Live calls not updated: ${rp.message || rp.error}. Add reception lines / webhook secret if needed, or use “Publish to voice runtime”.`;
+              ? "Voice settings saved — live PSTN calls will use this voice (published live)."
+              : `Saved here. Live calls not updated: ${rp.message || rp.error}. Add reception lines / webhook secret if needed, or use “Publish live configuration”.`;
           }
           $("tts-status").textContent = line;
           setStatus(rp && !rp.ok ? "TTS saved; runtime publish failed" : "TTS config saved", rp && !rp.ok ? "err" : "ok");
@@ -4283,27 +4480,27 @@
         const table = $("wf-list-table");
         const body = $("wf-list-body");
         if (!workflowsCache.length) {
-          empty.style.display = "";
+          if (empty) empty.hidden = false;
           table.style.display = "none";
           return;
         }
-        empty.style.display = "none";
+        if (empty) empty.hidden = true;
         table.style.display = "";
         body.innerHTML = workflowsCache.map(wf => `
-          <tr style="border-bottom:1px solid rgba(246,243,236,0.06);">
-            <td style="padding:8px;">${escapeHtml(wf.name)}</td>
-            <td style="padding:8px;" class="small">${escapeHtml(TRIGGER_LABELS[wf.triggerType] || wf.triggerType)}</td>
-            <td style="padding:8px;" class="small">${(wf.steps || []).length} step${(wf.steps || []).length !== 1 ? "s" : ""}</td>
-            <td style="padding:8px;">
-              <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <tr>
+            <td><strong>${escapeHtml(wf.name)}</strong></td>
+            <td class="small">${escapeHtml(TRIGGER_LABELS[wf.triggerType] || wf.triggerType)}</td>
+            <td class="small">${(wf.steps || []).length} step${(wf.steps || []).length !== 1 ? "s" : ""}</td>
+            <td>
+              <label style="cursor:pointer;display:flex;align-items:center;gap:6px;">
                 <input type="checkbox" ${wf.enabled ? "checked" : ""} onchange="toggleWorkflow('${escapeHtml(wf.id)}', this.checked)" style="accent-color:#C9A04E;" />
                 <span class="small">${wf.enabled ? "On" : "Off"}</span>
               </label>
             </td>
-            <td style="padding:8px;">
-              <div class="row" style="gap:4px;">
-                <button type="button" onclick="editWorkflow('${escapeHtml(wf.id)}')" style="font-size:12px; padding:3px 10px; border-radius:6px; cursor:pointer;">Edit</button>
-                <button type="button" onclick="deleteWorkflowUI('${escapeHtml(wf.id)}')" style="font-size:12px; padding:3px 10px; border-radius:6px; cursor:pointer; background:rgba(196,80,80,0.15); color:#e07070; border:1px solid rgba(196,80,80,0.3);">Delete</button>
+            <td>
+              <div class="row" style="gap:6px;">
+                <button type="button" class="vlx-btn vlx-btn--secondary" style="padding:6px 10px;font-size:12px" onclick="editWorkflow('${escapeHtml(wf.id)}')">Edit</button>
+                <button type="button" class="vlx-btn vlx-btn--danger" style="padding:6px 10px;font-size:12px" onclick="deleteWorkflowUI('${escapeHtml(wf.id)}')">Delete</button>
               </div>
             </td>
           </tr>
@@ -4739,7 +4936,7 @@
           adminQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
           if (st) {
             st.textContent = data.runtimeConfigMissing
-              ? "No voice runtime config in Redis yet — use Step 3 Voice → Publish to voice runtime (or POST .../publish-from-tenant)."
+              ? "No live voice configuration yet — use Step 3 Voice → Publish live configuration, or Overview → Advanced republish."
               : `Loaded ${adminQuickRepliesCache.length} intent(s).`;
           }
           renderAdminQuickReplies();
@@ -4808,7 +5005,7 @@
               body: JSON.stringify({ quickReplies }),
             }
           );
-          if (st) st.textContent = "Saved to voice runtime (Redis).";
+          if (st) st.textContent = "Saved to live voice service.";
           setStatus("Quick replies saved", "ok");
           await loadAdminQuickReplies();
         } catch (err) {
@@ -5294,23 +5491,23 @@
 
       function renderForwardingProfiles() {
         const list = $("forwarding-profiles-list");
+        const emptyEl = $("forwarding-profiles-empty");
         if (!list) return;
         list.innerHTML = "";
         if (forwardingProfilesCache.length === 0) {
-          list.appendChild(Object.assign(document.createElement("li"), { className: "small", textContent: "No profiles yet. Add one above." }));
+          if (emptyEl) emptyEl.hidden = false;
           return;
         }
-        forwardingProfilesCache.forEach((p, i) => {
+        if (emptyEl) emptyEl.hidden = true;
+        forwardingProfilesCache.forEach((prof, i) => {
           const li = document.createElement("li");
-          li.className = "card";
-          li.style.marginBottom = "6px";
+          li.className = "vlx-routing-card";
           li.innerHTML = `
-            <div class="flex-between">
-              <div>
-                <strong>${escapeHtml(p.name)}</strong> ${escapeHtml(p.number)} <span class="small">${escapeHtml(p.role)}</span>
-              </div>
-              <button type="button" class="secondary" data-fp-index="${i}">Remove</button>
+            <div class="vlx-routing-card__main">
+              <strong>${escapeHtml(prof.name)}</strong>
+              <span class="vlx-routing-card__sub">${escapeHtml(prof.number)} · ${escapeHtml(prof.role || "No role")}</span>
             </div>
+            <button type="button" class="vlx-btn vlx-btn--secondary" data-fp-index="${i}">Remove</button>
           `;
           li.querySelector("button").addEventListener("click", () => {
             forwardingProfilesCache.splice(i, 1);
@@ -5319,29 +5516,30 @@
           list.appendChild(li);
         });
       }
-
       function renderPricing() {
         const list = $("pricing-items-list");
         const notesEl = $("pricing-notes");
+        const emptyEl = $("pricing-items-empty");
         if (!list) return;
         if (notesEl) notesEl.value = pricingCache.notes || "";
         list.innerHTML = "";
         if (!pricingCache.items || pricingCache.items.length === 0) {
-          list.appendChild(Object.assign(document.createElement("li"), { className: "small", textContent: "No items yet. Add one above." }));
+          if (emptyEl) emptyEl.hidden = false;
           return;
         }
+        if (emptyEl) emptyEl.hidden = true;
         pricingCache.items.forEach((item, i) => {
           const li = document.createElement("li");
-          li.className = "card";
-          li.style.marginBottom = "6px";
-          const badge = (item.type === "product")
-            ? '<span style="background:rgba(201,160,78,0.18);color:#C9A04E;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-right:6px;">Product</span>'
-            : '<span style="background:rgba(246,243,236,0.10);color:var(--muted);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-right:6px;">Service</span>';
+          li.className = "vlx-routing-card";
+          const typeLabel = item.type === "product" ? "Product" : "Service";
+          const badgeClass = item.type === "product" ? "vlx-badge--warning" : "vlx-badge--neutral";
           li.innerHTML = `
-            <div class="flex-between">
-              <div>${badge}<strong>${escapeHtml(item.name)}</strong> ${escapeHtml(item.price)} ${item.description ? `<span class="small">${escapeHtml(item.description)}</span>` : ""}</div>
-              <button type="button" class="secondary" data-price-index="${i}">Remove</button>
+            <div class="vlx-routing-card__main">
+              <span class="vlx-badge ${badgeClass}">${typeLabel}</span>
+              <strong>${escapeHtml(item.name)}</strong>
+              <span class="vlx-routing-card__sub">${escapeHtml(item.price)}${item.description ? " · " + escapeHtml(item.description) : ""}</span>
             </div>
+            <button type="button" class="vlx-btn vlx-btn--secondary" data-price-index="${i}">Remove</button>
           `;
           li.querySelector("button").addEventListener("click", () => {
             pricingCache.items.splice(i, 1);
@@ -5350,7 +5548,6 @@
           list.appendChild(li);
         });
       }
-
       async function saveForwardingProfiles() {
         const status = $("fp-status");
         try {
@@ -5467,16 +5664,36 @@
         await loadTenantUsage();
       }
 
+            function renderTenantUsageDisplay(data) {
+        const grid = $("limit-usage-display");
+        if (!grid) return;
+        const u = data?.usage || {};
+        const items = [
+          ["Active calls", u.activeCalls ?? "—"],
+          ["Minutes this month", u.monthlyMinutes ?? "—"],
+          ["Calls today", u.dailyCalls ?? "—"],
+          ["Calls this month", u.monthlyCalls ?? "—"],
+        ];
+        grid.innerHTML = items
+          .map(
+            ([label, val]) =>
+              `<div class="vlx-usage-card"><div class="vlx-usage-card__label">${escapeHtml(label)}</div><div class="vlx-usage-card__value">${escapeHtml(val)}</div></div>`,
+          )
+          .join("");
+      }
+
       async function loadTenantUsage() {
         if (!currentTenantId) return;
         try {
           const data = await fetchJSON(`/api/admin/tenants/${encodeURIComponent(currentTenantId)}/usage`);
           $("limit-usage").textContent = JSON.stringify(data, null, 2);
+          renderTenantUsageDisplay(data);
         } catch (err) {
           $("limit-usage").textContent = "Usage load failed: " + err.message;
+          const grid = $("limit-usage-display");
+          if (grid) grid.innerHTML = `<div class="vlx-alert vlx-alert--danger">${escapeHtml(err.message)}</div>`;
         }
       }
-
       async function saveTenantLimits() {
         if (!currentTenantId) return;
         const usageRaw = $("limit-usage").textContent || "";
@@ -5530,29 +5747,80 @@
         }
       }
 
+      const ADMIN_TAB_IDS = [
+        "overview",
+        "models",
+        "forwarding",
+        "analytics",
+        "calls",
+        "call-quality",
+        "audit",
+        "billing",
+        "workflows",
+        "settings",
+      ];
+
+      function isAdminDebugMode() {
+        try {
+          const q = new URLSearchParams(window.location.search);
+          if (q.get("debug") === "1" || q.get("debug") === "true") return true;
+        } catch (_) {
+          /* ignore */
+        }
+        return (location.hash || "").toLowerCase() === "#debug";
+      }
+
+      function applyAdminDebugChrome() {
+        document.body.classList.toggle("admin-debug-mode", isAdminDebugMode());
+      }
+
+      function activateAdminTab(target, opts = {}) {
+        const updateHash = opts.updateHash !== false;
+        if (!target || !ADMIN_TAB_IDS.includes(target)) target = "overview";
+        document.querySelectorAll(".tab").forEach((t) => {
+          t.classList.toggle("active", t.dataset.tab === target);
+        });
+        document.querySelectorAll(".tab-content").forEach((content) => {
+          content.classList.toggle("active", content.dataset.tab === target);
+        });
+        if (target === "models") bindModelsWizardOnce();
+        if (target === "billing") {
+          bindBillingWizardOnce();
+          bindBillingLiveSyncOnce();
+        }
+        if (target === "call-quality") void loadCallQualityPanel();
+        if (target === "overview") void updateOverviewChecklist();
+        if (updateHash) {
+          const next = "#" + target;
+          if (location.hash !== next) {
+            try {
+              history.replaceState(null, "", location.pathname + location.search + next);
+            } catch (_) {
+              location.hash = target;
+            }
+          }
+        }
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         window.__neuralConsole = window.__neuralConsole || { activity: 0, spine: 0 };
+        applyAdminDebugChrome();
+        const hashTab = (location.hash || "").replace(/^#/, "");
+        if (hashTab && ADMIN_TAB_IDS.includes(hashTab)) {
+          activateAdminTab(hashTab, { updateHash: false });
+        }
+        window.addEventListener("hashchange", () => {
+          const ht = (location.hash || "").replace(/^#/, "");
+          if (ht && ADMIN_TAB_IDS.includes(ht)) activateAdminTab(ht, { updateHash: false });
+        });
+
         const syncAll = $("refresh-all");
         if (syncAll) syncAll.addEventListener("click", () => refreshAll());
 
         document.querySelectorAll(".tab").forEach((tab) => {
           tab.addEventListener("click", () => {
             const target = tab.dataset.tab;
-            if (target) {
-              document.querySelectorAll(".tab").forEach((t) => {
-                t.classList.toggle("active", t.dataset.tab === target);
-              });
-              document.querySelectorAll(".tab-content").forEach((content) => {
-                content.classList.toggle("active", content.dataset.tab === target);
-              });
-              if (target === "models") bindModelsWizardOnce();
-              if (target === "billing") {
-                bindBillingWizardOnce();
-                bindBillingLiveSyncOnce();
-              }
-              if (target === "call-quality") void loadCallQualityPanel();
-              if (target === "overview") void updateOverviewChecklist();
-            }
+            if (target) activateAdminTab(target);
           });
         });
 
@@ -5919,12 +6187,14 @@
           setStatus("Admin action canceled", "err");
         });
 
-        $("admin-pass-input").addEventListener("keydown", (e) => {
+        function adminLoginEnterKey(e) {
           if (e.key === "Enter") {
             e.preventDefault();
             handleAdminConfirm();
           }
-        });
+        }
+        $("admin-login-email")?.addEventListener("keydown", adminLoginEnterKey);
+        $("admin-login-password")?.addEventListener("keydown", adminLoginEnterKey);
 
         $("openaiApiKey").addEventListener("focus", () => {
           if (!adminAuthorized) {
@@ -6030,8 +6300,19 @@
           });
         };
 
+        restoreAdminSession();
         if (adminAuthToken) {
-          startApp();
+          validateAdminToken(adminAuthToken).then((result) => {
+            if (!result.ok) {
+              adminAuthToken = "";
+              adminAuthorized = false;
+              persistAdminSession();
+              requestAdminPasscode(startApp);
+              return;
+            }
+            adminAuthorized = true;
+            startApp();
+          });
         } else {
           requestAdminPasscode(startApp);
         }

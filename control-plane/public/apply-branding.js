@@ -18,6 +18,8 @@
       });
     }
 
+    var brandName = b.logoAlt || 'VeraLux';
+
     if (page === 'admin' && b.admin) {
       if (b.admin.documentTitle) document.title = b.admin.documentTitle;
       var sub = document.getElementById('vlx-brand-subline');
@@ -27,6 +29,11 @@
       if (b.portal.documentTitle) document.title = b.portal.documentTitle;
       var header = document.getElementById('vlx-portal-header-line');
       if (header && b.portal.headerLine) header.textContent = b.portal.headerLine;
+      var tagline = document.getElementById('vlx-portal-tagline');
+      if (tagline) {
+        var tagText = b.portal.tagline || b.portal.headerLine;
+        if (tagText) tagline.textContent = tagText;
+      }
       var foot = document.getElementById('vlx-portal-footer-inner');
       if (foot) {
         if (b.portal.footerHtml) {
@@ -40,6 +47,16 @@
     }
     if (page === 'owner' && b.owner) {
       if (b.owner.documentTitle) document.title = b.owner.documentTitle;
+      var ownerBannerTitle = document.getElementById('vlx-owner-internal-banner-title');
+      if (ownerBannerTitle) {
+        ownerBannerTitle.textContent =
+          b.owner.internalBannerTitle ||
+          'Internal setup tool — ' + brandName + ' implementers only';
+      }
+      var ownerBannerCopy = document.getElementById('vlx-owner-internal-banner-copy');
+      if (ownerBannerCopy && b.owner.internalBannerCopy) {
+        ownerBannerCopy.textContent = b.owner.internalBannerCopy;
+      }
     }
   }
 

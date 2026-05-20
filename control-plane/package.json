@@ -14,12 +14,14 @@
     "report:runtime": "npm run build && node scripts/print_runtime_contract.js",
     "check:contract": "node -r ts-node/register scripts/check_contract_compat.ts",
     "seed:stage1": "node scripts/seed_stage1_test.js",
+    "seed:veralux-internal": "node scripts/seed-veralux-internal-tenant.cjs",
     "test": "npm run build && node --test tests/auth.test.js tests/ownerAuth.test.js tests/validation.test.js tests/runtimeContract.test.js tests/runtimePublisher.test.js tests/receptionist.test.js tests/planLimits.test.js tests/redaction.test.js tests/tenantLimitsDb.test.js tests/sprint0Security.test.js tests/sprint2aSafeApi.test.js tests/callSanitizer.test.js tests/callAnalyticsFromDb.test.js tests/sprint1ClientReadiness.test.js",
     "test:production-readiness": "../scripts/test-infra.sh wait && npm run build && DATABASE_URL=${DATABASE_URL:-postgres://veralux_test:veralux_test@127.0.0.1:55432/veralux_test} REDIS_URL=${REDIS_URL:-redis://127.0.0.1:56379} node --test tests/productionReadiness.integration.test.js",
     "test:runtime": "npm run build && node --test tests/runtimeContract.test.js tests/runtimePublisher.test.js",
     "test:stage1": "bash scripts/stage1_smoke_test.sh",
     "test:stage2": "bash scripts/stage2_smoke_test.sh",
-    "test:pilot-smoke": "npm run build && node scripts/pilot-readiness-smoke.cjs"
+    "test:pilot-smoke": "npm run build && node scripts/pilot-readiness-smoke.cjs",
+    "test:ui-smoke-html": "node scripts/ui-smoke-html.cjs"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1045.0",

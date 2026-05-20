@@ -4,8 +4,7 @@
  */
 
 const DEFAULT_BRAND = "VeraLux";
-const DEFAULT_LOGO =
-  "https://veralux.ai/wp-content/uploads/2025/11/eralux-100-x-98-px-1-300x293.png";
+const DEFAULT_LOGO = "/veralux-logo.png";
 
 function trimOrUndef(v: string | undefined): string | undefined {
   if (v === undefined) return undefined;

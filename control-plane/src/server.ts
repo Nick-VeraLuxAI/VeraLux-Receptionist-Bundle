@@ -1,4 +1,5 @@
 import "./env";
+import { startVeraluxOsReporting } from "./veraluxOsReporter";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { timingSafeEqual, randomUUID } from "crypto";
 import dotenv from "dotenv";
@@ -128,6 +129,7 @@ import {
   verifyOwnerPasscode,
   setOwnerPasscode,
   issueOwnerJwt,
+  issueInstallerConsoleJwt,
   verifyOwnerPortalToken,
   changeOwnerPasscodeIfValid,
   changeOwnerPortalPasswordIfValid,
@@ -564,10 +566,14 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
         role: "tenant-viewer",
       };
 
-      // Superadmin via master/admin key
+      // Superadmin via master/admin key or installer console JWT
       if (principal.source !== "oidc") {
         ctx.isSuperAdmin = true;
         ctx.role = "superadmin";
+        if (principal.source === "installer") {
+          ctx.authType = "jwt";
+          ctx.email = principal.email;
+        }
         req.ctx = ctx;
 
         res.on("finish", () => {
@@ -577,6 +583,12 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
             path: req.path,
             tenantId: extractTenantId(req) || undefined,
             status: String(res.statusCode),
+            details:
+              principal.source === "installer" && principal.email
+                ? { operatorEmail: principal.email, role: "superadmin" }
+                : principal.source === "env"
+                  ? { operator: "master-key", role: "superadmin" }
+                  : undefined,
           });
         });
 
@@ -1152,6 +1164,7 @@ const INSTALLER_USERNAME = process.env.INSTALLER_USERNAME || "VeraLux";
 /** Matches docker-compose: INSTALLER_PASSWORD defaults empty; then use ADMIN_API_KEY (never a hardcoded password). */
 const INSTALLER_PASSWORD =
   (process.env.INSTALLER_PASSWORD || "").trim() || (process.env.ADMIN_API_KEY || "").trim() || "";
+const ADMIN_CONSOLE_EMAIL = (process.env.ADMIN_CONSOLE_EMAIL || "").trim().toLowerCase();
 
 const INSTALLER_AUTH_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 20 });
 const OWNER_LOGIN_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 25 });
@@ -1178,6 +1191,56 @@ app.post("/admin-auth", INSTALLER_AUTH_RATE_LIMIT, (req, res) => {
   }
 
   return res.status(401).json({ success: false, error: "Invalid credentials" });
+});
+
+function installerConsoleLoginIdOk(email: string): boolean {
+  const raw = email.trim();
+  if (!raw) return false;
+  if (timingSafeTextEqual(raw, INSTALLER_USERNAME)) return true;
+  if (ADMIN_CONSOLE_EMAIL && timingSafeTextEqual(raw.toLowerCase(), ADMIN_CONSOLE_EMAIL)) {
+    return true;
+  }
+  return false;
+}
+
+/** Neural Operations Console — email/password (no API key in the browser). */
+app.post("/api/admin/login", INSTALLER_AUTH_RATE_LIMIT, async (req, res) => {
+  try {
+    const email = typeof req.body?.email === "string" ? req.body.email : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+    if (!email.trim() || !password) {
+      return res.status(400).json({ success: false, error: "email_and_password_required" });
+    }
+
+    if (!INSTALLER_PASSWORD) {
+      return res.status(503).json({
+        success: false,
+        error: "console_login_not_configured",
+        message: "Set INSTALLER_PASSWORD (and optionally ADMIN_CONSOLE_EMAIL) in the control plane environment.",
+      });
+    }
+
+    const userOk = installerConsoleLoginIdOk(email);
+    const passOk = timingSafeTextEqual(password, INSTALLER_PASSWORD);
+
+    if (!userOk || !passOk) {
+      return res.status(401).json({ success: false, error: "Invalid credentials" });
+    }
+
+    const operatorEmail = email.trim();
+    const token = await issueInstallerConsoleJwt({ email: operatorEmail });
+    void recordAudit({
+      action: "console_superadmin_login",
+      path: "/api/admin/login",
+      status: "200",
+      details: { email: operatorEmail, role: "superadmin" },
+    });
+    return res.json({ success: true, token });
+  } catch (err) {
+    console.error("POST /api/admin/login error:", err);
+    return res.status(500).json({ success: false, error: "login_failed" });
+  }
 });
 
 /* ────────────────────────────────────────────────
@@ -4811,6 +4874,11 @@ async function start() {
           port !== preferredPort ? ` (preferred ${preferredPort} unavailable)` : ""
         }`
       );
+      try {
+        startVeraluxOsReporting();
+      } catch (e) {
+        console.warn("VeraLux OS reporting startup skipped:", e);
+      }
     });
   } catch (err) {
     console.error("Failed to start server:", err);

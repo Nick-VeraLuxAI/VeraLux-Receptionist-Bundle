@@ -52,7 +52,24 @@ remediation() {
 }
 
 # -----------------------------------------------------------------------------
-# Merged env read (.env then .env.internal, last wins)
+# Optional host voice env (same resolution as deploy.sh resolve_compose_voice_env_overlay)
+# -----------------------------------------------------------------------------
+preflight_resolve_voice_env_file() {
+  PREFLIGHT_VOICE_ENV=""
+  if [[ "${VERALUX_SKIP_VOICE_ENV_OVERLAY:-}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -n "${VERALUX_COMPOSE_ENV_FILE:-}" ]] && [[ -f "${VERALUX_COMPOSE_ENV_FILE}" ]]; then
+    PREFLIGHT_VOICE_ENV="$VERALUX_COMPOSE_ENV_FILE"
+  elif [[ -n "${VERALUX_VOICE_ENV_FILE:-}" ]] && [[ -f "${VERALUX_VOICE_ENV_FILE}" ]]; then
+    PREFLIGHT_VOICE_ENV="$VERALUX_VOICE_ENV_FILE"
+  elif [[ -f /etc/veralux/voice-runtime.env ]]; then
+    PREFLIGHT_VOICE_ENV="/etc/veralux/voice-runtime.env"
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# Merged env read (.env then .env.internal, then host voice env — last wins)
 # -----------------------------------------------------------------------------
 read_kv() {
   local key="$1" val="" line f ef
@@ -72,6 +89,12 @@ read_kv() {
         val="${line#${key}=}"
       fi
     done
+    if [[ -n "${PREFLIGHT_VOICE_ENV:-}" ]] && [[ -f "$PREFLIGHT_VOICE_ENV" ]]; then
+      line=$(grep "^${key}=" "$PREFLIGHT_VOICE_ENV" 2>/dev/null | tail -n1) || true
+      if [[ -n "$line" ]]; then
+        val="${line#${key}=}"
+      fi
+    fi
   fi
   echo "$val" | tr -d '\r' | sed -e 's/^["'\'']//' -e 's/["'\'']$//' | xargs
 }
@@ -110,6 +133,10 @@ if [[ "$PREFLIGHT_CI" != "1" ]]; then
   fi
   ok "Found .env"
   [[ -f .env.internal ]] && ok "Found .env.internal (merged for checks)"
+  preflight_resolve_voice_env_file
+  if [[ -n "${PREFLIGHT_VOICE_ENV:-}" ]]; then
+    ok "Preflight merged keys from host voice env: $PREFLIGHT_VOICE_ENV (overrides .env / .env.internal for duplicate keys)"
+  fi
 else
   if [[ -z "$CI_ENV_FILE" ]] || { [[ ! -f "$CI_ENV_FILE" ]] && [[ ! -f "$ROOT/$CI_ENV_FILE" ]]; }; then
     fail "CI mode: pass a path to an env file (e.g. .env.example)"

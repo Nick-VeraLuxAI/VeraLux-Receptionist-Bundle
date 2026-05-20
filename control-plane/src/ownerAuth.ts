@@ -184,6 +184,28 @@ export async function issueOwnerJwt(params: {
   return jwt;
 }
 
+/** Full superadmin console session (Neural Operations /admin) — not tenant-scoped. */
+export async function issueInstallerConsoleJwt(params: {
+  email: string;
+}): Promise<string> {
+  const { SignJWT } = await getJose();
+  const email = params.email.trim() || "console@veralux.local";
+
+  const jwt = await new SignJWT({
+    sub: "installer:console",
+    role: "admin",
+    name: "Console operator",
+    email,
+    veralux_console: true,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("24h")
+    .sign(getSigningSecret());
+
+  return jwt;
+}
+
 const OWNER_PASSCODE_MAX_LEN = 200;
 
 /**
