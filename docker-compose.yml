@@ -79,7 +79,7 @@ services:
       - VERALUX_DEPLOYMENT_ID=${VERALUX_DEPLOYMENT_ID:-receptionist-veratitan-prod}
       - VERALUX_PRODUCT_TYPE=${VERALUX_PRODUCT_TYPE:-receptionist}
       - VERALUX_DEPLOYMENT_ENV=${VERALUX_DEPLOYMENT_ENV:-production}
-      - VERALUX_DEPLOYMENT_PUBLIC_URL=${VERALUX_DEPLOYMENT_PUBLIC_URL:-https://voice.veralux.ai}
+      - VERALUX_DEPLOYMENT_PUBLIC_URL=${VERALUX_DEPLOYMENT_PUBLIC_URL:-https://receptionist.veraluxclients.com}
       - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}

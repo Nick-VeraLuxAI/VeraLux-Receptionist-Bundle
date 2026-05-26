@@ -234,7 +234,7 @@ wait_runtime_voice() {
 # Uses merged effective env file path (same as docker compose interpolation source).
 wants_local_llm_stack() {
   local e="${1:?env file}"
-  local v bu brain_url
+  local v bu brain_url platform_provider
   v="$(grep -E '^VERALUX_ENABLE_LOCAL_LLM=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
   if [[ "$v" == "1" || "$v" == "true" || "$v" == "yes" ]]; then
     return 0
@@ -243,8 +243,27 @@ wants_local_llm_stack() {
   if [[ "$v" == "llm" ]] || [[ ",${v}," == *",llm,"* ]]; then
     return 0
   fi
+  platform_provider="$(grep -E '^PLATFORM_LLM_PROVIDER=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  case "$platform_provider" in
+    "" ) ;;
+    brain|local|brain_local)
+      return 1
+      ;;
+    brain_http)
+      ;;
+    openai)
+      return 1
+      ;;
+  esac
   brain_url="$(grep -E '^BRAIN_URL=' "$e" | tail -1 | cut -d= -f2- | tr -d '\r' || true)"
   bu="$(grep -E '^BRAIN_USE_LOCAL=' "$e" | tail -1 | cut -d= -f2- | tr '[:upper:]' '[:lower:]' | tr -d '\r ' || true)"
+  if [[ "$platform_provider" == "brain_http" ]]; then
+    [[ -n "$brain_url" ]] || return 1
+    if [[ "$brain_url" == *"://brain"* ]] || [[ "$brain_url" == *"//brain."* ]]; then
+      return 0
+    fi
+    return 1
+  fi
   [[ -n "$brain_url" ]] || return 1
   if [[ "$bu" == "true" || "$bu" == "1" || "$bu" == "yes" ]]; then
     return 1

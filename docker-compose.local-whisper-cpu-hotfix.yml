@@ -1,0 +1,4 @@
+services:
+  whisper-cpu:
+    environment:
+      - WHISPER_COMPUTE_TYPE=int8
