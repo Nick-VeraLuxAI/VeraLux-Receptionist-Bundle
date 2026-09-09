@@ -17,6 +17,7 @@ export interface AdminPrincipal {
   source: "db" | "env" | "oidc" | "installer";
   email?: string;
   idpSub?: string; // IMPORTANT: JWT subject, not DB user id
+  ownerConsole?: boolean;
 }
 
 // jose types via import("jose") so we never load jose at module init
@@ -113,8 +114,13 @@ async function authenticateAdminJwt(
       ? "viewer"
       : "admin";
 
+  const sub = typeof payload.sub === "string" ? payload.sub : undefined;
+  const ownerConsole =
+    (payload as { owner_console?: unknown }).owner_console === true ||
+    (typeof sub === "string" && sub.startsWith("owner:"));
+
   return {
-    idpSub: typeof payload.sub === "string" ? payload.sub : undefined,
+    idpSub: sub,
     name:
       (typeof (payload as any).name === "string" && (payload as any).name) ||
       (typeof (payload as any).email === "string" && (payload as any).email) ||
@@ -122,6 +128,7 @@ async function authenticateAdminJwt(
     email: typeof (payload as any).email === "string" ? (payload as any).email : undefined,
     role,
     source: isConsoleInstaller ? "installer" : "oidc",
+    ownerConsole,
   };
 }
 

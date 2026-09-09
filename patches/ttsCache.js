@@ -1,0 +1,308 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.buildTtsCacheDescriptor = buildTtsCacheDescriptor;
+exports.ttsCacheKeyHash = ttsCacheKeyHash;
+exports.encodeTtsRedisCachePayload = encodeTtsRedisCachePayload;
+exports.decodeTtsRedisCachePayload = decodeTtsRedisCachePayload;
+exports.getCachedTts = getCachedTts;
+exports.setCachedTts = setCachedTts;
+exports.getTtsCacheRedisClient = getTtsCacheRedisClient;
+const node_crypto_1 = require("node:crypto");
+const env_1 = require("../env");
+const log_1 = require("../log");
+const metrics_1 = require("../metrics");
+const client_1 = require("../redis/client");
+const CACHE_SCHEMA = 1;
+const REDIS_VALUE_MAGIC = Buffer.from('VT1');
+function stableStringify(obj) {
+    const keys = Object.keys(obj).sort();
+    const ordered = {};
+    for (const k of keys) {
+        ordered[k] = obj[k];
+    }
+    return JSON.stringify(ordered);
+}
+/**
+ * Canonical synthesis parameters — must match effective inputs to Kokoro / XTTS / Chatterbox.
+ */
+function buildTtsCacheDescriptor(request, config) {
+    const text = (request.text ?? '').trim();
+    if (config.mode === 'chatterbox_http') {
+        return {
+            s: CACHE_SCHEMA,
+            m: 'chatterbox_http',
+            t: text,
+            u: request.chatterboxUrl ?? config.chatterboxUrl,
+            sp: request.speakerWavUrl ?? null,
+            l: request.language ?? config.language ?? null,
+            v: config.chatterboxVariant ?? null,
+            stream: env_1.env.CHATTERBOX_STREAMING && env_1.env.CHATTERBOX_VARIANT === 'turbo',
+        };
+    }
+    if (config.mode === 'coqui_xtts') {
+        return {
+            s: CACHE_SCHEMA,
+            m: 'coqui_xtts',
+            t: text,
+            u: config.coquiXttsUrl,
+            vo: request.voice ?? config.voice ?? null,
+            sp: request.speakerWavUrl ?? config.speakerWavUrl ?? null,
+            l: request.language ?? config.language ?? 'en',
+            f: request.format ?? config.format ?? null,
+            r: request.sampleRate ?? config.sampleRate ?? null,
+            ct: request.coquiTemperature ?? config.coquiTemperature ?? null,
+            cl: request.coquiLengthPenalty ?? config.coquiLengthPenalty ?? null,
+            cr: request.coquiRepetitionPenalty ?? config.coquiRepetitionPenalty ?? null,
+            ck: request.coquiTopK ?? config.coquiTopK ?? null,
+            cp: request.coquiTopP ?? config.coquiTopP ?? null,
+            cs: request.coquiSpeed ??
+                config.coquiSpeed ??
+                (config.mode === 'coqui_xtts' ? config.rate : undefined) ??
+                null,
+            cx: request.coquiSplitSentences ?? config.coquiSplitSentences ?? null,
+            ss: env_1.env.COQUI_SINGLE_SPEAKER,
+        };
+    }
+    if (config.mode === 'qwen3_tts_http') {
+        const gen = {
+            ds: request.qwen3DoSample ?? config.qwen3DoSample ?? null,
+            temp: request.qwen3Temperature ?? config.qwen3Temperature ?? null,
+            tp: request.qwen3TopP ?? config.qwen3TopP ?? null,
+            tk: request.qwen3TopK ?? config.qwen3TopK ?? null,
+            rp: request.qwen3RepetitionPenalty ?? config.qwen3RepetitionPenalty ?? null,
+            mnt: request.qwen3MaxNewTokens ?? config.qwen3MaxNewTokens ?? null,
+            nsm: request.qwen3NonStreamingMode ?? config.qwen3NonStreamingMode ?? null,
+            sds: request.qwen3SubtalkerDoSample ?? config.qwen3SubtalkerDoSample ?? null,
+            stk: request.qwen3SubtalkerTopK ?? config.qwen3SubtalkerTopK ?? null,
+            stp: request.qwen3SubtalkerTopP ?? config.qwen3SubtalkerTopP ?? null,
+            stt: request.qwen3SubtalkerTemperature ?? config.qwen3SubtalkerTemperature ?? null,
+        };
+        return {
+            s: CACHE_SCHEMA,
+            m: 'qwen3_tts_http',
+            t: text,
+            u: request.qwen3TtsUrl ?? config.qwen3TtsUrl,
+            spk: request.voice ?? config.speaker ?? null,
+            l: request.language ?? config.language ?? null,
+            i: request.instruct ?? config.instruct ?? null,
+            ...gen,
+        };
+    }
+    if (config.mode === 'miso_tts_http') {
+        return {
+            s: CACHE_SCHEMA,
+            m: 'miso_tts_http',
+            t: text,
+            u: request.misoTtsUrl ?? config.misoTtsUrl,
+            spk: request.voice ?? config.speaker ?? null,
+            sw: request.speakerWavUrl ?? config.speakerWavUrl ?? null,
+            st: request.speakerText ?? config.speakerText ?? null,
+            aml: request.misoMaxAudioLengthMs ?? config.misoMaxAudioLengthMs ?? null,
+            temp: request.misoTemperature ?? config.misoTemperature ?? null,
+            tk: request.misoTopK ?? config.misoTopK ?? null,
+        };
+    }
+    if (config.mode === 'magpie_tts_http') {
+        return {
+            s: CACHE_SCHEMA,
+            m: 'magpie_tts_http',
+            t: text,
+            u: request.magpieTtsUrl ?? config.magpieTtsUrl,
+            spk: request.voice ?? config.speaker ?? null,
+            l: request.language ?? config.language ?? null,
+            r: request.rate ?? config.rate ?? null,
+            temp: request.magpieTemperature ?? config.magpieTemperature ?? null,
+            cfg: request.magpieCfgScale ?? config.magpieCfgScale ?? null,
+            tk: request.magpieTopK ?? config.magpieTopK ?? null,
+            uc: request.magpieUseCfg ?? config.magpieUseCfg ?? null,
+            tn: request.magpieApplyTn ?? config.magpieApplyTn ?? null,
+        };
+    }
+    if (config.mode === 'melo_tts_http') {
+        return {
+            s: CACHE_SCHEMA,
+            m: 'melo_tts_http',
+            t: text,
+            u: request.meloTtsUrl ?? config.meloTtsUrl,
+            spk: request.voice ?? config.speaker ?? null,
+            l: request.language ?? config.language ?? null,
+            r: request.rate ?? config.rate ?? null,
+            sdp: request.meloSdpRatio ?? config.meloSdpRatio ?? null,
+            ns: request.meloNoiseScale ?? config.meloNoiseScale ?? null,
+            nsw: request.meloNoiseScaleW ?? config.meloNoiseScaleW ?? null,
+        };
+    }
+    const kokoro = config.mode === 'kokoro_http' ? config : undefined;
+    return {
+        s: CACHE_SCHEMA,
+        m: 'kokoro_http',
+        t: text,
+        u: request.kokoroUrl ?? kokoro?.kokoroUrl ?? env_1.env.KOKORO_URL,
+        v: request.voice ?? kokoro?.voice ?? null,
+        f: request.format ?? kokoro?.format ?? 'wav',
+        sr: request.sampleRate ?? kokoro?.sampleRate ?? env_1.env.TTS_SAMPLE_RATE,
+        spd: request.rate ?? kokoro?.rate ?? null,
+    };
+}
+function ttsCacheKeyHash(descriptor) {
+    return (0, node_crypto_1.createHash)('sha256').update(stableStringify(descriptor)).digest('hex');
+}
+/** Binary Redis value: magic + u16 content-type length + UTF-8 content-type + raw audio. */
+function encodeTtsRedisCachePayload(contentType, audio) {
+    const ct = Buffer.from(contentType, 'utf8');
+    if (ct.length > 65535) {
+        throw new Error('tts cache: content-type too long');
+    }
+    const len = Buffer.allocUnsafe(2);
+    len.writeUInt16BE(ct.length, 0);
+    return Buffer.concat([REDIS_VALUE_MAGIC, len, ct, audio]);
+}
+function decodeTtsRedisCachePayload(raw) {
+    if (raw.length < REDIS_VALUE_MAGIC.length + 2) {
+        return null;
+    }
+    if (!raw.subarray(0, REDIS_VALUE_MAGIC.length).equals(REDIS_VALUE_MAGIC)) {
+        return null;
+    }
+    const ctLen = raw.readUInt16BE(REDIS_VALUE_MAGIC.length);
+    const ctStart = REDIS_VALUE_MAGIC.length + 2;
+    const audioStart = ctStart + ctLen;
+    if (audioStart > raw.length) {
+        return null;
+    }
+    const contentType = raw.subarray(ctStart, audioStart).toString('utf8');
+    const audio = Buffer.from(raw.subarray(audioStart));
+    return { contentType, audio };
+}
+class LruTtsCache {
+    constructor(maxEntries, maxBytes) {
+        this.maxEntries = maxEntries;
+        this.maxBytes = maxBytes;
+        this.map = new Map();
+        this.bytes = 0;
+    }
+    get(key) {
+        const hit = this.map.get(key);
+        if (!hit) {
+            return undefined;
+        }
+        this.map.delete(key);
+        this.map.set(key, hit);
+        return {
+            contentType: hit.contentType,
+            audio: Buffer.from(hit.audio),
+        };
+    }
+    set(key, value, entryMaxBytes) {
+        const size = value.audio.length;
+        if (size > entryMaxBytes) {
+            return;
+        }
+        const existing = this.map.get(key);
+        if (existing) {
+            this.map.delete(key);
+            this.bytes -= existing.audio.length;
+        }
+        const stored = {
+            contentType: value.contentType,
+            audio: Buffer.from(value.audio),
+        };
+        this.map.set(key, stored);
+        this.bytes += stored.audio.length;
+        this.evict(entryMaxBytes);
+    }
+    evict(entryMaxBytes) {
+        while (this.map.size > this.maxEntries || this.bytes > this.maxBytes) {
+            const first = this.map.keys().next().value;
+            if (first === undefined) {
+                break;
+            }
+            const v = this.map.get(first);
+            this.map.delete(first);
+            if (v) {
+                this.bytes -= v.audio.length;
+            }
+        }
+    }
+}
+let lruSingleton = null;
+function getLru() {
+    if (!lruSingleton) {
+        lruSingleton = new LruTtsCache(env_1.env.TTS_CACHE_LRU_MAX_ENTRIES, env_1.env.TTS_CACHE_LRU_MAX_BYTES);
+    }
+    return lruSingleton;
+}
+function redisKey(hash) {
+    return `${env_1.env.TTS_CACHE_PREFIX}:${hash}`;
+}
+async function readRedis(redis, hash) {
+    const key = redisKey(hash);
+    const raw = await redis.getBuffer(key);
+    if (!raw || raw.length === 0) {
+        return null;
+    }
+    return decodeTtsRedisCachePayload(raw);
+}
+async function writeRedis(redis, hash, result) {
+    const payload = encodeTtsRedisCachePayload(result.contentType, result.audio);
+    const key = redisKey(hash);
+    await redis.set(key, payload, 'EX', env_1.env.TTS_CACHE_REDIS_TTL_SECONDS);
+}
+async function getCachedTts(hash, redis) {
+    if (!env_1.env.TTS_CACHE_ENABLED) {
+        return null;
+    }
+    const lruHit = env_1.env.TTS_CACHE_LRU_ENABLED ? getLru().get(hash) : undefined;
+    if (lruHit) {
+        (0, metrics_1.incTtsCacheLookup)('lru_hit');
+        log_1.log.debug({ event: 'tts_cache_hit', layer: 'lru' }, 'tts cache hit');
+        return lruHit;
+    }
+    if (env_1.env.TTS_CACHE_REDIS_ENABLED && redis) {
+        try {
+            const fromRedis = await readRedis(redis, hash);
+            if (fromRedis) {
+                (0, metrics_1.incTtsCacheLookup)('redis_hit');
+                log_1.log.debug({ event: 'tts_cache_hit', layer: 'redis' }, 'tts cache hit');
+                if (env_1.env.TTS_CACHE_LRU_ENABLED) {
+                    getLru().set(hash, fromRedis, env_1.env.TTS_CACHE_MAX_ENTRY_BYTES);
+                }
+                return {
+                    contentType: fromRedis.contentType,
+                    audio: Buffer.from(fromRedis.audio),
+                };
+            }
+        }
+        catch (err) {
+            log_1.log.warn({ err, event: 'tts_cache_redis_get_error' }, 'tts cache redis get failed');
+        }
+    }
+    (0, metrics_1.incTtsCacheLookup)('miss');
+    return null;
+}
+async function setCachedTts(hash, result, redis) {
+    if (!env_1.env.TTS_CACHE_ENABLED) {
+        return;
+    }
+    if (result.audio.length > env_1.env.TTS_CACHE_MAX_ENTRY_BYTES) {
+        return;
+    }
+    if (env_1.env.TTS_CACHE_LRU_ENABLED) {
+        getLru().set(hash, result, env_1.env.TTS_CACHE_MAX_ENTRY_BYTES);
+    }
+    if (env_1.env.TTS_CACHE_REDIS_ENABLED && redis) {
+        try {
+            await writeRedis(redis, hash, result);
+        }
+        catch (err) {
+            log_1.log.warn({ err, event: 'tts_cache_redis_set_error' }, 'tts cache redis set failed');
+        }
+    }
+}
+function getTtsCacheRedisClient() {
+    if (!env_1.env.TTS_CACHE_ENABLED || !env_1.env.TTS_CACHE_REDIS_ENABLED) {
+        return null;
+    }
+    return (0, client_1.getRedisClient)();
+}
+//# sourceMappingURL=cache.js.map

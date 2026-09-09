@@ -4,6 +4,8 @@ import { diagnosticsEnabled } from '../diagnostics/audioProbe';
 import { TelnyxRequestOptions } from './types';
 import { incProviderCircuitOpen, incProviderTimeout } from '../metrics';
 import { withCircuitBreaker } from '../providers/circuitBreaker';
+import { telnyxApiKeyForCall } from './tenantCredentials';
+import { buildTelnyxStreamingStartBody, TELNYX_WS_STREAM_CODEC } from './streamCodec';
 
 export interface TelnyxPreparedRequest {
   url: string;
@@ -102,13 +104,14 @@ async function callControlRequest(
   body: Record<string, unknown> | undefined,
   attempt: number,
   logContext: Record<string, unknown>,
+  apiKey: string,
 ): Promise<unknown> {
   const url = `${TELNYX_BASE_URL}/calls/${callControlId}/actions/${action}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TELNYX_TIMEOUT_MS);
   const startedAt = Date.now();
 
-  const keyFingerprint = maskTelnyxKey(env.TELNYX_API_KEY);
+  const keyFingerprint = maskTelnyxKey(apiKey);
 
   log.info(
     {
@@ -124,7 +127,7 @@ async function callControlRequest(
 
   try {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${env.TELNYX_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       Accept: 'application/json',
       'User-Agent': 'veralux-voice-runtime/0.1.0',
     };
@@ -188,7 +191,14 @@ async function callControlRequest(
           'telnyx call-control retry',
         );
         await sleep(waitMs);
-        return callControlRequest(callControlId, action, body, attempt + 1, logContext);
+        return callControlRequest(
+          callControlId,
+          action,
+          body,
+          attempt + 1,
+          logContext,
+          apiKey,
+        );
       }
 
       log.error(
@@ -263,7 +273,14 @@ async function callControlRequest(
         'telnyx call-control error retry',
       );
       await sleep(waitMs);
-      return callControlRequest(callControlId, action, body, attempt + 1, logContext);
+      return callControlRequest(
+        callControlId,
+        action,
+        body,
+        attempt + 1,
+        logContext,
+        apiKey,
+      );
     }
 
     log.error(
@@ -287,6 +304,7 @@ export async function telnyxCallControl(
   action: string,
   body?: Record<string, unknown>,
   logContext: Record<string, unknown> = {},
+  apiKey = env.TELNYX_API_KEY,
 ): Promise<unknown> {
   let normalizedBody = body;
   if (action === 'answer' && body) {
@@ -296,15 +314,26 @@ export async function telnyxCallControl(
       const { media_format: _mediaFormat, ...rest } = body;
       normalizedBody = {
         ...rest,
-        stream_codec: env.TELNYX_STREAM_CODEC ?? 'AMR-WB',
+        ...buildTelnyxStreamingStartBody({
+          streamUrl: typeof rest.stream_url === 'string' ? rest.stream_url : '',
+          streamTrack:
+            typeof rest.stream_track === 'string' ? rest.stream_track : env.TELNYX_STREAM_TRACK,
+        }),
       };
     }
   }
-  return callControlRequest(callControlId, action, normalizedBody, 0, logContext);
+  return callControlRequest(
+    callControlId,
+    action,
+    normalizedBody,
+    0,
+    logContext,
+    apiKey,
+  );
 }
 
 export class TelnyxClient {
-  private readonly apiKey = env.TELNYX_API_KEY;
+  private readonly apiKey: string;
   private readonly baseUrl = TELNYX_BASE_URL;
   private readonly timeoutMs = TELNYX_TIMEOUT_MS;
   private readonly maxRetries = TELNYX_MAX_RETRIES;
@@ -312,6 +341,7 @@ export class TelnyxClient {
 
   constructor(context: Record<string, unknown> = {}) {
     this.logContext = context;
+    this.apiKey = telnyxApiKeyForCall(context.call_control_id);
   }
 
   public buildRequest(path: string, options: TelnyxRequestOptions = {}): TelnyxPreparedRequest {
@@ -344,7 +374,13 @@ export class TelnyxClient {
   }
 
   public async answerCall(callControlId: string): Promise<void> {
-    await telnyxCallControl(callControlId, 'answer', undefined, this.logContext);
+    await telnyxCallControl(
+      callControlId,
+      'answer',
+      undefined,
+      this.logContext,
+      this.apiKey,
+    );
     log.info(
       { event: 'telnyx_answer_call', call_control_id: callControlId, ...this.logContext },
       'telnyx call answered',
@@ -352,7 +388,13 @@ export class TelnyxClient {
   }
 
   public async playAudio(callControlId: string, audioUrl: string): Promise<void> {
-    await telnyxCallControl(callControlId, 'playback_start', { audio_url: audioUrl }, this.logContext);
+    await telnyxCallControl(
+      callControlId,
+      'playback_start',
+      { audio_url: audioUrl },
+      this.logContext,
+      this.apiKey,
+    );
     log.info(
       {
         event: 'telnyx_play_audio',
@@ -365,7 +407,13 @@ export class TelnyxClient {
   }
 
   public async stopPlayback(callControlId: string): Promise<void> {
-    await telnyxCallControl(callControlId, 'playback_stop', undefined, this.logContext);
+    await telnyxCallControl(
+      callControlId,
+      'playback_stop',
+      undefined,
+      this.logContext,
+      this.apiKey,
+    );
     log.info(
       {
         event: 'telnyx_playback_stop',
@@ -394,19 +442,30 @@ export class TelnyxClient {
       }
     };
 
-    const fallbackCodec = env.TRANSPORT_MODE === 'webrtc_hd' ? 'OPUS' : 'PCMU';
     const streamTrack = normalizeStreamTrack(options.streamTrack ?? env.TELNYX_STREAM_TRACK);
-    const requestBody = {
-      stream_url: streamUrl,
-      stream_track: streamTrack,
-      stream_codec: options.streamCodec ?? env.TELNYX_STREAM_CODEC ?? fallbackCodec,
-    };
+    const requestedCodec = options.streamCodec ?? env.TELNYX_STREAM_CODEC ?? TELNYX_WS_STREAM_CODEC;
+    if (requestedCodec !== TELNYX_WS_STREAM_CODEC) {
+      log.warn(
+        {
+          event: 'telnyx_stream_codec_coerced_to_l16',
+          call_control_id: callControlId,
+          requested_codec: requestedCodec,
+          selected_codec: TELNYX_WS_STREAM_CODEC,
+        },
+        'WebSocket stream codec coerced to L16 (AMR-WB fallback disabled)',
+      );
+    }
+    const requestBody = buildTelnyxStreamingStartBody({ streamUrl, streamTrack });
     log.info(
       {
         event: 'telnyx_stream_start',
         call_control_id: callControlId,
         stream_codec: requestBody.stream_codec,
+        stream_bidirectional_mode: requestBody.stream_bidirectional_mode,
+        stream_bidirectional_codec: requestBody.stream_bidirectional_codec,
+        stream_bidirectional_sampling_rate: requestBody.stream_bidirectional_sampling_rate,
         stream_track: requestBody.stream_track,
+        sip_accept_codecs: env.TELNYX_ACCEPT_CODECS,
       },
       'Telnyx stream start (requested codec)',
     );
@@ -417,6 +476,9 @@ export class TelnyxClient {
           direction: 'tx.telnyx_stream_request',
           call_control_id: callControlId,
           stream_codec: requestBody.stream_codec,
+          stream_bidirectional_mode: requestBody.stream_bidirectional_mode,
+          stream_bidirectional_codec: requestBody.stream_bidirectional_codec,
+          stream_bidirectional_sampling_rate: requestBody.stream_bidirectional_sampling_rate,
           stream_track: requestBody.stream_track,
         },
         'audio codec info',
@@ -451,6 +513,7 @@ export class TelnyxClient {
       'streaming_start',
       requestBody,
       this.logContext,
+      this.apiKey,
     );
 
     log.info(
@@ -465,10 +528,59 @@ export class TelnyxClient {
   }
 
   public async hangupCall(callControlId: string): Promise<void> {
-    await telnyxCallControl(callControlId, 'hangup', undefined, this.logContext);
+    await telnyxCallControl(
+      callControlId,
+      'hangup',
+      undefined,
+      this.logContext,
+      this.apiKey,
+    );
     log.info(
       { event: 'telnyx_hangup_call', call_control_id: callControlId, ...this.logContext },
       'telnyx call hangup',
+    );
+  }
+
+  public async startRecording(
+    callControlId: string,
+    clientState?: string,
+  ): Promise<void> {
+    await telnyxCallControl(
+      callControlId,
+      'record_start',
+      {
+        channels: 'single',
+        format: 'mp3',
+        ...(clientState ? { client_state: clientState } : {}),
+      },
+      this.logContext,
+      this.apiKey,
+    );
+    log.info(
+      {
+        event: 'telnyx_recording_started',
+        call_control_id: callControlId,
+        ...this.logContext,
+      },
+      'Telnyx call recording started',
+    );
+  }
+
+  public async speakText(
+    callControlId: string,
+    text: string,
+  ): Promise<void> {
+    await telnyxCallControl(
+      callControlId,
+      'speak',
+      {
+        payload: text.slice(0, 3000),
+        payload_type: 'text',
+        voice: 'Telnyx.KokoroTTS.af',
+        language: 'en-US',
+      },
+      this.logContext,
+      this.apiKey,
     );
   }
 
@@ -484,14 +596,26 @@ export class TelnyxClient {
       from?: string;
       timeoutSecs?: number;
       audioUrl?: string;
+      targetLegClientState?: string;
+      commandId?: string;
     } = {},
   ): Promise<void> {
     const body: Record<string, unknown> = { to };
     if (options.from != null) body.from = options.from;
     if (options.timeoutSecs != null) body.timeout_secs = options.timeoutSecs;
     if (options.audioUrl != null) body.audio_url = options.audioUrl;
+    if (options.targetLegClientState != null) {
+      body.target_leg_client_state = options.targetLegClientState;
+    }
+    if (options.commandId != null) body.command_id = options.commandId;
 
-    await telnyxCallControl(callControlId, 'transfer', body, this.logContext);
+    await telnyxCallControl(
+      callControlId,
+      'transfer',
+      body,
+      this.logContext,
+      this.apiKey,
+    );
     log.info(
       {
         event: 'telnyx_transfer_call',

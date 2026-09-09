@@ -21,6 +21,7 @@ export type RuntimePublisher = {
     tenantId: string,
     config: RuntimeTenantConfig
   ) => Promise<void>;
+  unpublishTenantConfig: (tenantId: string) => Promise<void>;
   getTenantConfig: (tenantId: string) => Promise<RuntimeTenantConfig | null>;
   getTenantForDid: (didE164: string) => Promise<string | null>;
   healthcheckRedis: () => Promise<{ ok: boolean; latencyMs?: number; error?: string }>;
@@ -81,6 +82,9 @@ export function createRuntimePublisher(redis: RedisKv): RuntimePublisher {
     },
     publishTenantConfig: async (tenantId, config) => {
       await redis.set(cfgKey(tenantId), JSON.stringify(config));
+    },
+    unpublishTenantConfig: async (tenantId) => {
+      await redis.del(cfgKey(tenantId));
     },
     getTenantConfig: async (tenantId) => {
       const raw = await redis.get(cfgKey(tenantId));
@@ -148,6 +152,11 @@ export async function getTenantConfig(
 ): Promise<RuntimeTenantConfig | null> {
   const publisher = await getPublisher();
   return await publisher.getTenantConfig(tenantId);
+}
+
+export async function unpublishTenantConfig(tenantId: string): Promise<void> {
+  const publisher = await getPublisher();
+  await publisher.unpublishTenantConfig(tenantId);
 }
 
 export async function getTenantForDid(

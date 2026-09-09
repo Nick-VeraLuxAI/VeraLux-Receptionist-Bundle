@@ -4,7 +4,8 @@
  */
 
 const DEFAULT_BRAND = "VeraLux";
-const DEFAULT_LOGO = "/veralux-logo.png";
+const DEFAULT_LOGO = "/brand/veralux-emblem.png";
+const DEFAULT_WORDMARK = "/brand/veralux-wordmark-name.png";
 
 function trimOrUndef(v: string | undefined): string | undefined {
   if (v === undefined) return undefined;
@@ -25,7 +26,9 @@ function escHtml(s: string): string {
 }
 
 export type CustomerBrandingPayload = {
+  brandName: string;
   logoUrl: string | null;
+  wordmarkUrl: string | null;
   logoAlt: string;
   admin: { documentTitle: string; consoleSubline: string };
   portal: {
@@ -50,6 +53,13 @@ export function getCustomerBrandingPayload(): CustomerBrandingPayload {
   }
 
   const logoAlt = trimOrUndef(process.env.BRAND_LOGO_ALT) ?? brandName;
+  const rawWordmark = process.env.BRAND_WORDMARK_URL;
+  const wordmarkUrl =
+    rawWordmark === undefined
+      ? brandName === DEFAULT_BRAND
+        ? DEFAULT_WORDMARK
+        : null
+      : rawWordmark.trim() || null;
 
   const adminHeadline =
     trimOrUndef(process.env.BRAND_ADMIN_HEADLINE) ?? "Neural Operations Console";
@@ -97,7 +107,9 @@ export function getCustomerBrandingPayload(): CustomerBrandingPayload {
   const ownerDocTitle = `${ownerTitle} — ${brandName}`;
 
   return {
+    brandName,
     logoUrl,
+    wordmarkUrl,
     logoAlt,
     admin: {
       documentTitle: adminDocTitle,

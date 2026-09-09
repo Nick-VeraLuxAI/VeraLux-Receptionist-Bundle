@@ -166,25 +166,19 @@ check_env() {
     fi
 }
 
-# Helper: detect audio profile based on TTS_MODE and hardware
-# Qwen3 TTS is only in the gpu/cpu profiles; plain `docker compose up -d` (without profiles) does not start them.
-# Missing TTS_MODE in .env: treat as coqui_xtts so we always pass --profile gpu|cpu (matches compose defaults for runtime).
+# Helper: detect audio profile (Whisper + Kokoro). Other TTS engines are
+# parked on compose profile `legacy-tts` and are not started by default.
 detect_audio_profile() {
     local tts_mode
     tts_mode=$(read_merged_env_value TTS_MODE)
-    if [[ -z "$tts_mode" ]]; then
-        tts_mode="coqui_xtts"
+    if [[ -z "$tts_mode" || "$tts_mode" != "kokoro_http" ]]; then
+        tts_mode="kokoro_http"
     fi
-    if [[ "$tts_mode" == "coqui_xtts" || "$tts_mode" == "kokoro_http" || "$tts_mode" == "qwen3_tts_http" || "$tts_mode" == "chatterbox_http" ]]; then
-        if docker info 2>/dev/null | grep -qi nvidia || command -v nvidia-smi &>/dev/null; then
-            echo "--profile gpu"
-            return
-        else
-            echo "--profile cpu"
-            return
-        fi
+    if docker info 2>/dev/null | grep -qi nvidia || command -v nvidia-smi &>/dev/null; then
+        echo "--profile gpu"
+        return
     fi
-    echo ""
+    echo "--profile cpu"
 }
 
 # Warn when operators use non-reproducible tags (managed fleets should pin VERSION).
@@ -226,6 +220,9 @@ compose_audio_svc_for_container() {
         veralux-qwen3-tts)
             if echo "$envdump" | grep -q '^QWEN3_TTS_DEVICE=cpu$'; then echo "qwen3-tts-cpu"; else echo "qwen3-tts-gpu"; fi
             ;;
+        veralux-miso-tts)
+            if echo "$envdump" | grep -q '^MISO_TTS_DEVICE=cpu$'; then echo "miso-tts-cpu"; else echo "miso-tts-gpu"; fi
+            ;;
         veralux-vllm-qwen)
             echo "vllm-qwen"
             ;;
@@ -250,7 +247,7 @@ record_image_snapshot() {
         echo "# VERSION=$(read_merged_env_value VERSION) REGISTRY=$(read_merged_env_value REGISTRY)"
         echo ""
         for c in veralux-control veralux-runtime veralux-postgres veralux-redis \
-                 veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts \
+                 veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts veralux-miso-tts \
                  veralux-cloudflared veralux-ngrok veralux-vllm-qwen veralux-brain; do
             if docker inspect "$c" &>/dev/null; then
                 echo "--- $c ---"
@@ -266,7 +263,7 @@ cmd_versions() {
     echo ""
     local c
     for c in veralux-control veralux-runtime veralux-postgres veralux-redis \
-             veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts \
+             veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts veralux-miso-tts \
              veralux-cloudflared veralux-ngrok veralux-vllm-qwen veralux-brain; do
         if docker inspect "$c" &>/dev/null; then
             docker inspect "$c" --format "{{printf '%-22s' \"${c}\"}} {{.Config.Image}}  id={{.Image}}" 2>/dev/null
@@ -297,7 +294,7 @@ cmd_up() {
     
     # Remove any leftover containers to avoid name conflicts
     docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
-        veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
+        veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-miso-tts veralux-ngrok 2>/dev/null || true
     
     # Best-effort pull (don't fail if offline)
     info "Pulling latest images (if available)..."
@@ -492,7 +489,7 @@ cmd_update() {
     
     # 6. Update audio + optional LLM services (if running)
     local ac c compose_svc
-    for ac in veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts veralux-vllm-qwen veralux-brain; do
+    for ac in veralux-whisper veralux-kokoro veralux-xtts veralux-chatterbox veralux-qwen3-tts veralux-miso-tts veralux-vllm-qwen veralux-brain; do
         if [[ "$(docker inspect -f '{{.State.Running}}' "$ac" 2>/dev/null)" == "true" ]]; then
             compose_svc=$(compose_audio_svc_for_container "$ac")
             if [[ -z "$compose_svc" ]]; then
@@ -578,7 +575,7 @@ cmd_tunnel() {
             info "Starting with Cloudflare Tunnel..."
             # Remove any leftover containers to avoid name conflicts
             docker rm -f veralux-control veralux-runtime veralux-redis veralux-postgres \
-                veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-ngrok 2>/dev/null || true
+                veralux-cloudflared veralux-whisper veralux-kokoro veralux-xtts veralux-qwen3-tts veralux-miso-tts veralux-ngrok 2>/dev/null || true
             dc "${COMPOSE_FILES[@]}" -p "$PROJECT_NAME" $audio_profile --profile docker-cloudflared-legacy up -d
             success "Cloudflare Tunnel started!"
             echo ""

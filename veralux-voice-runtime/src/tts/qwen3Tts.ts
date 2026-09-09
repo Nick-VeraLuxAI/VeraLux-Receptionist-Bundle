@@ -1,5 +1,6 @@
 import { log } from '../log';
 import { fetchWithTimeoutRetry } from '../httpClient';
+import { applyWavSpeakingRate, splitSpeakingRateInstruct } from '../audio/wavSpeakingRate';
 import type { TTSResult } from './types';
 
 /** Optional generation kwargs for Qwen3 CustomVoice (HTTP JSON uses snake_case). */
@@ -92,6 +93,7 @@ export async function synthesizeSpeechQwen3(request: {
   const endpoint = root.endsWith('/tts') ? root : `${root}/tts`;
 
   const genJson = request.gen ? qwen3GenToJsonBody(request.gen) : {};
+  const tuned = splitSpeakingRateInstruct(request.instruct);
 
   log.info(
     {
@@ -99,6 +101,7 @@ export async function synthesizeSpeechQwen3(request: {
       provider: 'qwen3_tts_http',
       speaker: request.speaker ?? null,
       language: request.language ?? null,
+      rate: tuned.rate ?? null,
       gen: Object.keys(genJson).length ? genJson : null,
     },
     'qwen3 tts request',
@@ -108,7 +111,7 @@ export async function synthesizeSpeechQwen3(request: {
     text: request.text,
     speaker: request.speaker,
     language: request.language,
-    instruct: request.instruct,
+    instruct: tuned.instruct,
     ...genJson,
   };
 
@@ -131,7 +134,7 @@ export async function synthesizeSpeechQwen3(request: {
   }
 
   return {
-    audio: raw,
+    audio: applyWavSpeakingRate(raw, tuned.rate),
     contentType: contentType || 'audio/wav',
   };
 }

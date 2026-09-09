@@ -3,6 +3,7 @@ import {
   getSecretRow,
   upsertSecretRow,
   deleteSecretRow,
+  pool,
 } from "./db";
 import { SecretsManagerClient, GetSecretValueCommand, CreateSecretCommand, PutSecretValueCommand, DeleteSecretCommand } from "@aws-sdk/client-secrets-manager";
 
@@ -179,3 +180,27 @@ function selectProvider(): SecretProvider {
 }
 
 export const secretStore: SecretProvider = selectProvider();
+
+export async function setPlatformSecret(key: string, value: string | null): Promise<void> {
+  if (!value || !value.trim()) {
+    await pool.query("DELETE FROM platform_settings WHERE key = $1", [key]);
+    return;
+  }
+  const cipher = encrypt(value.trim());
+  await pool.query(
+    `INSERT INTO platform_settings (key, cipher, updated_at)
+     VALUES ($1,$2, now())
+     ON CONFLICT (key) DO UPDATE SET cipher = EXCLUDED.cipher, updated_at = now()`,
+    [key, cipher],
+  );
+}
+
+export async function getPlatformSecret(key: string): Promise<string | undefined> {
+  try {
+    const res = await pool.query("SELECT cipher FROM platform_settings WHERE key = $1", [key]);
+    if (!res.rows[0]?.cipher) return undefined;
+    return decrypt(res.rows[0].cipher);
+  } catch {
+    return undefined;
+  }
+}

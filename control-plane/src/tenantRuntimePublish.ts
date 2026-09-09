@@ -16,6 +16,8 @@ import {
 } from "./db";
 import { tenantCallQualityRowToRuntime } from "./callQualityMaps";
 import { logger } from "./middleware";
+import { getShopPlaybookRow } from "./nightDesk/db";
+import { secretStore } from "./secretStore";
 
 function parseRuntimeAdminEnabled(): boolean {
   const v = process.env.ENABLE_RUNTIME_ADMIN;
@@ -32,6 +34,26 @@ const ENABLE_RUNTIME_ADMIN = parseRuntimeAdminEnabled();
 export async function syncTenantRuntimeConfigForLimits(tenantId: string): Promise<void> {
   if (!ENABLE_RUNTIME_ADMIN) return;
   const tenant = tenants.getOrCreate(tenantId);
+  try {
+    const row = await getShopPlaybookRow(tenantId);
+    if (row?.playbook) tenant.shopPlaybook = row.playbook;
+  } catch (e) {
+    logger.warn("shop_playbook_load_failed", {
+      tenantId,
+      err: e instanceof Error ? e.message : String(e),
+    });
+  }
+  try {
+    tenant.telnyxPublicKey = await secretStore.getSecret(
+      tenantId,
+      "tenant_telnyx_public_key",
+    );
+  } catch (e) {
+    logger.warn("tenant_telnyx_public_key_load_failed", {
+      tenantId,
+      err: e instanceof Error ? e.message : String(e),
+    });
+  }
   let existing: Awaited<ReturnType<typeof getTenantConfig>> = null;
   try {
     existing = await getTenantConfig(tenantId);

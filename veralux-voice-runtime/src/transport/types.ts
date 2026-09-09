@@ -20,6 +20,10 @@ export interface TransferOptions {
   from?: string;
   timeoutSecs?: number;
   audioUrl?: string;
+  /** Base64 state copied to the transfer target leg webhooks. */
+  targetLegClientState?: string;
+  /** Stable command id prevents duplicate transfers during retries. */
+  commandId?: string;
 }
 
 export interface TransportSession {

@@ -77,6 +77,9 @@ function createPreviewJobMemory(tenantId: string, cfg: TTSConfig, text: string):
         storage: "memory",
         mode: cfg.ttsMode,
         qwen3TtsUrl: cfg.qwen3TtsUrl,
+        magpieTtsUrl: cfg.magpieTtsUrl,
+        meloTtsUrl: cfg.meloTtsUrl,
+        misoTtsUrl: cfg.misoTtsUrl,
         message: msg,
         error: serializeUnknownError(err),
       });
@@ -120,6 +123,7 @@ async function runRedisPreviewJob(
       storage: "redis",
       mode: cfg.ttsMode,
       qwen3TtsUrl: cfg.qwen3TtsUrl,
+      misoTtsUrl: cfg.misoTtsUrl,
       message: msg,
       error: serializeUnknownError(err),
     });

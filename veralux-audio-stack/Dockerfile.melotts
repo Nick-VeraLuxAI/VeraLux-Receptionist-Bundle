@@ -1,0 +1,38 @@
+# MeloTTS HTTP server (port 7013). GPU recommended; CPU works.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsndfile1 \
+    ffmpeg \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip wheel \
+    && pip install --no-cache-dir "numpy>=1.24,<2"
+
+COPY melo_tts_server.py ./
+
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.32.0" \
+    "gunicorn>=23.0.0" \
+    "slowapi>=0.1.9" \
+    "pydantic>=2.0" \
+    "soundfile>=0.12.0" \
+    && pip install --no-cache-dir "git+https://github.com/myshell-ai/MeloTTS.git" \
+    && python -m unidic download \
+    && python -c "import nltk; nltk.download('averaged_perceptron_tagger_eng')"
+
+ENV MELO_TTS_DEVICE=cuda
+ENV MELO_TTS_DEFAULT_LANG=EN
+ENV MELO_TTS_DEFAULT_SPEAKER=EN-US
+EXPOSE 7013
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=300s --retries=8 \
+  CMD curl -sf http://127.0.0.1:7013/health || exit 1
+
+CMD ["uvicorn", "melo_tts_server:app", "--host", "0.0.0.0", "--port", "7013"]

@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "clean": "rm -rf dist",
-    "test": "npm run build && node --test tests/businessHours.test.cjs"
+    "test": "npm run build && node --test tests/businessHours.test.cjs tests/pipelineEstimate.test.cjs tests/shopPlaybook.test.cjs tests/workflowTemplates.test.cjs tests/callBoard.test.cjs"
   },
   "dependencies": {
     "zod": "^3.23.8"

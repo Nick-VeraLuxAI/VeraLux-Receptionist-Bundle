@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const planTierSchema = z.enum(["starter", "professional", "premium", "enterprise"]);
+export const PLAN_TIER_IDS = ["starter", "professional", "pilot", "premium", "enterprise"] as const;
+export const planTierSchema = z.enum(PLAN_TIER_IDS);
 export const billingStatusSchema = z.enum(["trial", "active", "past_due", "suspended", "canceled"]);
 export const overageModeSchema = z.enum(["allow_and_bill", "throttle", "hard_stop"]);
 
@@ -103,6 +104,36 @@ export const PLAN_DEFAULTS: Record<z.infer<typeof planTierSchema>, TenantLimits>
     customWorkflows: true,
     prioritySupport: false,
   },
+  pilot: {
+    planName: "Pilot",
+    planTier: "pilot",
+    billingStatus: "active",
+    overageMode: "allow_and_bill",
+    monthlyMinuteOverageRateCents: 35,
+    effectiveFrom: null,
+    effectiveUntil: null,
+    maxConcurrentCalls: 3,
+    includedMonthlyMinutes: 1200,
+    maxMonthlyMinutesHardCap: 3000,
+    maxDailyCalls: 250,
+    maxMonthlyCalls: 5000,
+    maxKnowledgeBaseSizeMb: 128,
+    maxIntegrations: 5,
+    maxLocations: 3,
+    maxPhoneNumbers: 10,
+    maxAdminUsers: 10,
+    maxEscalationContacts: 20,
+    afterHoursMode: true,
+    smsFollowup: true,
+    calendarIntegration: true,
+    crmIntegration: true,
+    advancedAnalytics: true,
+    callRecording: false,
+    transcriptRetention: true,
+    multiLocation: true,
+    customWorkflows: true,
+    prioritySupport: false,
+  },
   premium: {
     ...{
       planName: "Premium",
@@ -173,4 +204,15 @@ export const RECOMMENDED_DEFAULT_PLAN_TIER: z.infer<typeof planTierSchema> = "pr
 
 export function getPlanDefaults(planTier: z.infer<typeof planTierSchema>): TenantLimits {
   return { ...PLAN_DEFAULTS[planTier] };
+}
+
+export function listPlanDefaultsPayload(): {
+  tiers: typeof PLAN_TIER_IDS;
+  defaults: Record<string, TenantLimits>;
+} {
+  const defaults = {} as Record<string, TenantLimits>;
+  for (const tier of PLAN_TIER_IDS) {
+    defaults[tier] = getPlanDefaults(tier);
+  }
+  return { tiers: PLAN_TIER_IDS, defaults };
 }

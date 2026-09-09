@@ -49,6 +49,56 @@ test("legacy mismatch comparisons reject safely", async () => {
   assert.equal(wrongDifferentLen, false);
 });
 
+test("owner email change requires current password and rejects taken emails", async () => {
+  const { hashPortalPassword } = require("../dist/portalPassword.js");
+  const originalCred = db.getOwnerPortalCredentialRow;
+  const originalUpsertCred = db.upsertOwnerPortalCredentials;
+  const originalByEmail = db.getTenantIdByPortalEmail;
+  const originalUser = db.upsertUserBySub;
+  let stored = {
+    emailNorm: "owner@shop.test",
+    passwordHash: hashPortalPassword("current-pass"),
+  };
+  db.getOwnerPortalCredentialRow = async () => stored;
+  db.getTenantIdByPortalEmail = async (email) =>
+    email === "taken@shop.test" ? "other-tenant" : null;
+  db.upsertOwnerPortalCredentials = async (params) => {
+    stored = { emailNorm: params.emailNorm, passwordHash: params.passwordHash };
+  };
+  db.upsertUserBySub = async () => ({ id: "u1", email: stored.emailNorm, idp_sub: "owner:t1" });
+  try {
+    const badPw = await ownerAuth.changeOwnerPortalEmailIfValid(
+      "t1",
+      "wrong",
+      "new@shop.test"
+    );
+    assert.equal(badPw.ok, false);
+    assert.equal(badPw.error, "invalid_current");
+
+    const taken = await ownerAuth.changeOwnerPortalEmailIfValid(
+      "t1",
+      "current-pass",
+      "taken@shop.test"
+    );
+    assert.equal(taken.ok, false);
+    assert.equal(taken.error, "email_already_registered");
+
+    const ok = await ownerAuth.changeOwnerPortalEmailIfValid(
+      "t1",
+      "current-pass",
+      "new@shop.test"
+    );
+    assert.equal(ok.ok, true);
+    assert.equal(ok.email, "new@shop.test");
+    assert.equal(stored.emailNorm, "new@shop.test");
+  } finally {
+    db.getOwnerPortalCredentialRow = originalCred;
+    db.upsertOwnerPortalCredentials = originalUpsertCred;
+    db.getTenantIdByPortalEmail = originalByEmail;
+    db.upsertUserBySub = originalUser;
+  }
+});
+
 test.after(() => {
   db.getOwnerPasscodeHash = originalGetOwnerPasscodeHash;
   db.upsertOwnerPasscode = originalUpsertOwnerPasscode;

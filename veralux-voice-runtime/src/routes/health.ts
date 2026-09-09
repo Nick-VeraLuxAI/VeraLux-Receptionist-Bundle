@@ -97,28 +97,14 @@ function brainHealthUrl(): string | undefined {
 }
 
 function ttsHealthUrl(): string | undefined {
-  if (env.TTS_MODE === 'kokoro_http' && env.KOKORO_URL) {
-    try {
-      const u = new URL(env.KOKORO_URL);
-      u.pathname = '/health';
-      return u.toString();
-    } catch {
-      return env.KOKORO_URL.replace('/v1/kokoro', '/health');
-    }
+  if (!env.KOKORO_URL) return undefined;
+  try {
+    const u = new URL(env.KOKORO_URL);
+    u.pathname = '/health';
+    return u.toString();
+  } catch {
+    return env.KOKORO_URL.replace('/v1/kokoro', '/health');
   }
-  if (env.TTS_MODE === 'coqui_xtts' && env.COQUI_XTTS_URL) {
-    const u = env.COQUI_XTTS_URL.replace(/\/tts\/?$/, '');
-    return `${u}/health`;
-  }
-  if (env.TTS_MODE === 'chatterbox_http' && env.CHATTERBOX_URL) {
-    const u = env.CHATTERBOX_URL.replace(/\/tts\/?$/, '');
-    return `${u}/health`;
-  }
-  if (env.TTS_MODE === 'qwen3_tts_http' && env.QWEN3_TTS_URL) {
-    const u = env.QWEN3_TTS_URL.replace(/\/tts\/?$/, '');
-    return `${u}/health`;
-  }
-  return undefined;
 }
 
 function effectiveSttHealthUrl(): string | undefined {
@@ -133,13 +119,21 @@ function effectiveTtsHealthUrl(): string | undefined {
   return ttsHealthUrl();
 }
 
-function ttsConfigPresent(): boolean {
-  return Boolean(ttsHealthUrl());
+function cloudTtsConfigured(): boolean {
+  return false;
 }
 
-/** configured mode: STT/TTS env contract satisfied (URLs non-empty where required by env schema). */
+function ttsConfigPresent(): boolean {
+  return Boolean(ttsHealthUrl()) || cloudTtsConfigured();
+}
+
+function cloudSttConfigured(): boolean {
+  return Boolean(env.OPENAI_API_KEY?.trim() || env.DEEPGRAM_API_KEY?.trim());
+}
+
+/** configured mode: STT/TTS env contract satisfied (URLs or cloud keys; no vendor /health probe). */
 function voiceConfigConfigured(): { ok: boolean; error?: string } {
-  if (!env.WHISPER_URL?.trim()) return { ok: false, error: 'missing_whisper_url' };
+  if (!env.WHISPER_URL?.trim() && !cloudSttConfigured()) return { ok: false, error: 'missing_stt_config' };
   if (!ttsConfigPresent()) return { ok: false, error: 'missing_or_unsupported_tts_url' };
   return { ok: true };
 }

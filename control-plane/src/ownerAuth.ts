@@ -13,6 +13,7 @@ import { createHash, timingSafeEqual } from "crypto";
 import {
   getOwnerPasscodeHash,
   getOwnerPortalCredentialRow,
+  getTenantIdByPortalEmail,
   upsertOwnerPasscode,
   upsertOwnerPortalCredentials,
   upsertUserBySub,
@@ -21,6 +22,8 @@ import {
 import {
   hashPortalPassword,
   verifyPortalPassword,
+  normalizePortalEmail,
+  isValidPortalEmailShape,
   PORTAL_PASSWORD_MIN_LEN,
   PORTAL_PASSWORD_MAX_LEN,
 } from "./portalPassword";
@@ -175,6 +178,7 @@ export async function issueOwnerJwt(params: {
     name: params.tenantName,
     email: emailForUser,
     tenant_id: params.tenantId,
+    owner_console: true,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -283,6 +287,53 @@ export async function changeOwnerPortalPasswordIfValid(
     passwordHash: hashPortalPassword(next),
   });
   return { ok: true };
+}
+
+export type ChangeOwnerPortalEmailError =
+  | "invalid_current"
+  | "invalid_email"
+  | "no_email_login"
+  | "email_already_registered";
+
+export async function changeOwnerPortalEmailIfValid(
+  tenantId: string,
+  currentPassword: string,
+  newEmailRaw: string
+): Promise<
+  { ok: true; email: string } | { ok: false; error: ChangeOwnerPortalEmailError }
+> {
+  const row = await getOwnerPortalCredentialRow(tenantId);
+  if (!row) return { ok: false, error: "no_email_login" };
+  const next = normalizePortalEmail(newEmailRaw);
+  if (!next || !isValidPortalEmailShape(next)) {
+    return { ok: false, error: "invalid_email" };
+  }
+  if (!verifyPortalPassword((currentPassword || "").trim(), row.passwordHash)) {
+    return { ok: false, error: "invalid_current" };
+  }
+  if (next === row.emailNorm) return { ok: true, email: next };
+
+  const taken = await getTenantIdByPortalEmail(next);
+  if (taken && taken !== tenantId) {
+    return { ok: false, error: "email_already_registered" };
+  }
+
+  try {
+    await upsertOwnerPortalCredentials({
+      tenantId,
+      emailNorm: next,
+      passwordHash: row.passwordHash,
+    });
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "23505") {
+      return { ok: false, error: "email_already_registered" };
+    }
+    throw e;
+  }
+
+  await upsertUserBySub({ idpSub: `owner:${tenantId}`, email: next });
+  return { ok: true, email: next };
 }
 
 export async function changeOwnerPasscodeIfValid(

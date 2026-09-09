@@ -172,6 +172,35 @@ export async function getPhoneNumber(id: string): Promise<TelnyxPhoneNumber> {
 /**
  * Search for available phone numbers to purchase.
  */
+function regionName(
+  regions: TelnyxAvailableNumber["region_information"] | undefined,
+  types: string[],
+): string | null {
+  const hit = (regions || []).find((region) => types.includes(region.region_type));
+  return hit?.region_name || null;
+}
+
+/** Shape Telnyx inventory for the Numbers workflow (`available[]`). */
+export function presentAvailableNumber(number: TelnyxAvailableNumber) {
+  const features = (number.features || [])
+    .map((feature) => (typeof feature === "string" ? feature : feature?.name))
+    .filter((feature): feature is string => Boolean(feature));
+
+  return {
+    phone_number: number.phone_number,
+    region: {
+      city: regionName(number.region_information, ["rate_center", "location", "locality"]),
+      state: regionName(number.region_information, ["state", "administrative_area"]),
+      country: regionName(number.region_information, ["country_code", "country"]),
+    },
+    features,
+    monthly_cost: number.cost_information?.monthly_cost ?? null,
+    upfront_cost: number.cost_information?.upfront_cost ?? null,
+    currency: number.cost_information?.currency ?? "USD",
+    best_effort: number.best_effort,
+  };
+}
+
 export async function searchAvailableNumbers(opts: {
   country_code: string;
   administrative_area?: string;

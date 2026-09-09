@@ -1,7 +1,16 @@
 import type { TTSConfig } from "../config";
 import type { TenantContext } from "../tenants";
 import type { TenantLimits } from "../planLimits";
-import { businessHoursSchema } from "@veralux/shared";
+import {
+  businessHoursSchema,
+  ensureOnCallTransferProfile,
+  forwardingProfilesToTransferProfiles,
+  mergeTransferProfiles,
+  normalizeIntakeProfile,
+  normalizeShopPlaybook,
+  pricingToAssistantContext,
+  stormModeActive,
+} from "@veralux/shared";
 import {
   normalizeE164,
   parseRuntimeTenantConfig,
@@ -98,126 +107,47 @@ function buildLlmContext(tenant: TenantContext): NonNullable<RuntimeTenantConfig
 }
 
 function buildRuntimeTts(cfg: TTSConfig): RuntimeTenantConfig["tts"] {
-  const mode = cfg.ttsMode || "coqui_xtts";
   const voice = cfg.voiceId;
   const language = cfg.language;
   const fmt = "wav";
   const sampleRate = 24000;
-
-  if (mode === "kokoro_http") {
-    const kokoroUrl = (cfg.kokoroUrl || cfg.xttsUrl || "").trim();
-    if (!kokoroUrl) {
-      throw new BuildRuntimeConfigError(
-        "missing_tts_url",
-        "Kokoro TTS URL is not set. Configure it in Voice settings, or set KOKORO_URL / XTTS_URL on the control plane."
-      );
-    }
-    return {
-      mode: "kokoro_http",
-      kokoroUrl,
-      voice,
-      format: fmt,
-      sampleRate,
-      rate: Math.min(1.5, Math.max(0.5, cfg.rate)),
-    };
-  }
-
-  if (mode === "chatterbox_http") {
-    const chatterboxUrl = (cfg.chatterboxUrl || cfg.xttsUrl || "").trim();
-    if (!chatterboxUrl) {
-      throw new BuildRuntimeConfigError(
-        "missing_tts_url",
-        "Chatterbox TTS URL is not set. Configure it in Voice settings, or set CHATTERBOX_URL / XTTS_URL on the control plane."
-      );
-    }
-    const cloned =
-      cfg.clonedVoice?.speakerWavUrl?.trim()
-        ? {
-            speakerWavUrl: cfg.clonedVoice.speakerWavUrl.trim(),
-            ...(cfg.clonedVoice.label?.trim() ? { label: cfg.clonedVoice.label.trim() } : {}),
-          }
-        : undefined;
-    const spk = cfg.clonedVoice?.speakerWavUrl?.trim();
-    return {
-      mode: "chatterbox_http",
-      chatterboxUrl,
-      chatterboxVariant: cfg.chatterboxVariant,
-      voice,
-      language,
-      format: fmt,
-      sampleRate,
-      clonedVoice: cloned,
-      defaultVoiceMode: cfg.defaultVoiceMode,
-      ...(spk ? { speakerWavUrl: spk } : {}),
-    };
-  }
-
-  if (mode === "qwen3_tts_http") {
-    const qwen3TtsUrl = (cfg.qwen3TtsUrl || cfg.xttsUrl || "").trim();
-    if (!qwen3TtsUrl) {
-      throw new BuildRuntimeConfigError(
-        "missing_tts_url",
-        "Qwen3 TTS URL is not set. Configure it in Voice settings, or set QWEN3_TTS_URL / XTTS_URL on the control plane."
-      );
-    }
-    const instruct = cfg.qwen3Instruct?.trim() || undefined;
-    return {
-      mode: "qwen3_tts_http",
-      qwen3TtsUrl,
-      speaker: voice,
-      language,
-      instruct,
-      format: fmt,
-      sampleRate,
-      qwen3DoSample: cfg.qwen3DoSample,
-      qwen3Temperature: cfg.qwen3Temperature,
-      qwen3TopP: cfg.qwen3TopP,
-      qwen3TopK: cfg.qwen3TopK,
-      qwen3RepetitionPenalty: cfg.qwen3RepetitionPenalty,
-      qwen3MaxNewTokens: cfg.qwen3MaxNewTokens,
-      qwen3NonStreamingMode: cfg.qwen3NonStreamingMode,
-      qwen3SubtalkerDoSample: cfg.qwen3SubtalkerDoSample,
-      qwen3SubtalkerTopK: cfg.qwen3SubtalkerTopK,
-      qwen3SubtalkerTopP: cfg.qwen3SubtalkerTopP,
-      qwen3SubtalkerTemperature: cfg.qwen3SubtalkerTemperature,
-      ...(cfg.qwen3Streaming === true ? { qwen3Streaming: true as const } : {}),
-    };
-  }
-
-  // coqui_xtts
-  const coquiXttsUrl = (cfg.coquiXttsUrl || cfg.xttsUrl || "").trim();
-  if (!coquiXttsUrl) {
+  const kokoroUrl = (
+    (cfg.kokoroUrl && /kokoro/i.test(cfg.kokoroUrl) ? cfg.kokoroUrl : "") ||
+    process.env.KOKORO_URL ||
+    (cfg.xttsUrl && /kokoro/i.test(cfg.xttsUrl) ? cfg.xttsUrl : "") ||
+    ""
+  ).trim();
+  if (!kokoroUrl) {
     throw new BuildRuntimeConfigError(
       "missing_tts_url",
-      "Coqui XTTS URL is not set. Configure it in Voice settings, or set XTTS_URL on the control plane."
+      "Kokoro TTS URL is not set. Configure it in Voice settings, or set KOKORO_URL on the control plane."
     );
   }
-  const cloned =
-    cfg.clonedVoice?.speakerWavUrl?.trim()
-      ? {
-          speakerWavUrl: cfg.clonedVoice.speakerWavUrl.trim(),
-          ...(cfg.clonedVoice.label?.trim() ? { label: cfg.clonedVoice.label.trim() } : {}),
-        }
-      : undefined;
-  const coquiSpk = cfg.clonedVoice?.speakerWavUrl?.trim();
+  const looksKokoro = /^(a[fm]_|b[fm]_)[a-z]+$/i.test(voice || "");
+  const mapped = /en-gb/i.test(language || "")
+    ? /^(am_|bm_)/i.test(voice || "")
+      ? "bm_george"
+      : /^(bf_|bm_)/i.test(voice || "")
+        ? voice
+        : "bf_emma"
+    : /^(bf_|bm_)/i.test(voice || "")
+      ? /^(bm_)/i.test(voice || "")
+        ? "am_adam"
+        : "af_heart"
+      : voice;
+  const kokoroVoice = looksKokoro
+    ? mapped || voice
+    : process.env.KOKORO_VOICE_ID || "af_bella";
+  const presetMul =
+    cfg.preset === "calm" ? 0.88 : cfg.preset === "energetic" ? 1.08 : cfg.preset === "warm" ? 0.96 : 1;
+  const slider = Number.isFinite(cfg.rate) ? Math.min(1.2, Math.max(0.8, cfg.rate)) : 1;
   return {
-    mode: "coqui_xtts",
-    coquiXttsUrl,
-    voice,
-    language,
+    mode: "kokoro_http",
+    kokoroUrl,
+    voice: kokoroVoice || "af_bella",
     format: fmt,
     sampleRate,
-    clonedVoice: cloned,
-    defaultVoiceMode: cfg.defaultVoiceMode,
-    ...(coquiSpk ? { speakerWavUrl: coquiSpk } : {}),
-    coquiTemperature: cfg.coquiTemperature,
-    coquiLengthPenalty: cfg.coquiLengthPenalty,
-    coquiRepetitionPenalty: cfg.coquiRepetitionPenalty,
-    coquiTopK: cfg.coquiTopK,
-    coquiTopP: cfg.coquiTopP,
-    coquiSpeed: cfg.coquiSpeed,
-    coquiSplitSentences: cfg.coquiSplitSentences,
-    rate: cfg.rate,
+    rate: Math.min(1.5, Math.max(0.5, Math.round(slider * presetMul * 100) / 100)),
   };
 }
 
@@ -249,8 +179,10 @@ export function buildTenantRuntimeConfig(
   }
 
   const sttCfg = tenant.config.getSttConfig();
+  const sttMode = sttCfg.mode || "whisper_http";
   const whisperUrl = (sttCfg.whisperUrl || "").trim();
-  if (!whisperUrl) {
+  const cloudStt = sttMode === "openai_whisper" || sttMode === "deepgram";
+  if (!cloudStt && !whisperUrl) {
     throw new BuildRuntimeConfigError(
       "missing_whisper_url",
       "Whisper STT URL is not set. Configure STT in the dashboard or set WHISPER_URL on the control plane."
@@ -260,6 +192,21 @@ export function buildTenantRuntimeConfig(
   const chunkMs = parsePositiveIntEnv("STT_CHUNK_MS", 500);
   const ttsCfg = tenant.config.getTtsConfig();
   const tts = buildRuntimeTts(ttsCfg);
+  const publishedPlaybook = normalizeShopPlaybook(
+    (tenant as { shopPlaybook?: unknown }).shopPlaybook as never,
+  );
+  const configuredTenantCap = tenantLimits
+    ? Math.max(1, tenantLimits.maxConcurrentCalls)
+    : existing?.caps?.maxConcurrentCallsTenant ??
+      defaultCaps().maxConcurrentCallsTenant;
+  const tenantCallCap =
+    stormModeActive(publishedPlaybook) &&
+    publishedPlaybook.stormMode.parallelAnswerCap
+      ? Math.min(
+          configuredTenantCap,
+          publishedPlaybook.stormMode.parallelAnswerCap,
+        )
+      : configuredTenantCap;
 
   const base: RuntimeTenantConfig = {
     contractVersion: "v1",
@@ -267,27 +214,80 @@ export function buildTenantRuntimeConfig(
     dids,
     caps: tenantLimits
       ? {
-          maxConcurrentCallsTenant: Math.max(1, tenantLimits.maxConcurrentCalls),
+          maxConcurrentCallsTenant: tenantCallCap,
           maxCallsPerMinuteTenant: Math.max(1, Math.min(tenantLimits.maxDailyCalls || 1, existing?.caps?.maxCallsPerMinuteTenant ?? defaultCaps().maxCallsPerMinuteTenant)),
           maxConcurrentCallsGlobal: existing?.caps?.maxConcurrentCallsGlobal ?? defaultCaps().maxConcurrentCallsGlobal,
         }
-      : existing?.caps ?? defaultCaps(),
+      : {
+          ...(existing?.caps ?? defaultCaps()),
+          maxConcurrentCallsTenant: tenantCallCap,
+        },
     stt: {
-      mode: "whisper_http",
-      whisperUrl,
+      mode: sttMode,
+      ...(whisperUrl ? { whisperUrl } : {}),
       chunkMs,
       language: "en",
+      ...(sttCfg.model ? { model: sttCfg.model } : {}),
     },
     tts,
     audio: defaultAudio(existing?.audio),
     llmContext: buildLlmContext(tenant),
     ...(existing?.webhookSecret ? { webhookSecret: existing.webhookSecret } : {}),
     ...(existing?.webhookSecretRef ? { webhookSecretRef: existing.webhookSecretRef } : {}),
-    ...(existing?.quickReplies !== undefined ? { quickReplies: existing.quickReplies } : {}),
-    ...(existing?.assistantContext && Object.keys(existing.assistantContext).length
-      ? { assistantContext: existing.assistantContext }
+    ...(tenant.telnyxPublicKey || existing?.telnyxPublicKey
+      ? { telnyxPublicKey: tenant.telnyxPublicKey || existing?.telnyxPublicKey }
       : {}),
-    ...(existing?.transferProfiles?.length ? { transferProfiles: existing.transferProfiles } : {}),
+    ...(existing?.quickReplies !== undefined ? { quickReplies: existing.quickReplies } : {}),
+    ...((): { assistantContext?: Record<string, string> } => {
+      const fromPricing = pricingToAssistantContext(tenant.pricing);
+      const existingCtx = existing?.assistantContext && typeof existing.assistantContext === "object" ? existing.assistantContext : {};
+      const playbookNames = normalizeShopPlaybook((tenant as { shopPlaybook?: unknown }).shopPlaybook as never).membershipNames;
+      const membership: Record<string, string> = {};
+      if (playbookNames.length) membership["Membership plans"] = playbookNames.join(", ");
+      const shopLaw = {
+        "Shop law": [
+          publishedPlaybook.serviceArea.zips.length
+            ? `Service zips: ${publishedPlaybook.serviceArea.zips.join(", ")}`
+            : "",
+          publishedPlaybook.serviceArea.cities.length
+            ? `Service cities: ${publishedPlaybook.serviceArea.cities.join(", ")}`
+            : "",
+          publishedPlaybook.refuseServices.length
+            ? `Do not book: ${publishedPlaybook.refuseServices.join(", ")}`
+            : "",
+          publishedPlaybook.afterHoursFeeCents > 0
+            ? `Configured after-hours fee: $${(
+                publishedPlaybook.afterHoursFeeCents / 100
+              ).toFixed(2)}`
+            : "",
+          publishedPlaybook.quoteHoldCents > 0
+            ? `Owner approval required at $${(
+                publishedPlaybook.quoteHoldCents / 100
+              ).toFixed(2)} or more`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      };
+      const merged = {
+        ...existingCtx,
+        ...fromPricing,
+        ...membership,
+        ...(shopLaw["Shop law"] ? shopLaw : {}),
+      };
+      return Object.keys(merged).length ? { assistantContext: merged } : {};
+    })(),
+    ...((): { transferProfiles?: RuntimeTenantConfig["transferProfiles"] } => {
+      const playbookForXfer = normalizeShopPlaybook((tenant as { shopPlaybook?: unknown }).shopPlaybook as never);
+      const mapped = forwardingProfilesToTransferProfiles(tenant.forwardingProfiles || [], {
+        onCallTimeoutSecs: playbookForXfer.onCallTimeoutSecs,
+      });
+      const merged = ensureOnCallTransferProfile(
+        mergeTransferProfiles(mapped, existing?.transferProfiles),
+        playbookForXfer,
+      );
+      return merged.length ? { transferProfiles: merged } : {};
+    })(),
     ...(existing?.callForwarding ? { callForwarding: existing.callForwarding } : {}),
     ...(tenantLimits
       ? {
@@ -341,6 +341,12 @@ export function buildTenantRuntimeConfig(
   if (llmRouting) {
     (base as { llmRouting?: typeof llmRouting }).llmRouting = llmRouting;
   }
+
+  (base as { shopPlaybook?: unknown }).shopPlaybook = publishedPlaybook;
+  (base as { intakeProfile?: unknown }).intakeProfile = normalizeIntakeProfile(
+    (existing as { intakeProfile?: unknown } | undefined)?.intakeProfile as never,
+    tenant.id,
+  );
 
   if (!base.webhookSecret && !base.webhookSecretRef) {
     const w = (process.env.TELNYX_WEBHOOK_SECRET || "").trim();

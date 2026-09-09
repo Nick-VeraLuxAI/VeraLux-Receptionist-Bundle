@@ -28,14 +28,16 @@ import asyncio
 import io
 import logging
 import os
+import re
+import time
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 import numpy as np
 import soundfile as sf
 import torch
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -56,9 +58,27 @@ DTYPE_STR = os.getenv("QWEN3_TTS_DTYPE", "bfloat16").strip().lower()
 ATTN = os.getenv("QWEN3_TTS_ATTN", "sdpa").strip().lower()
 MAX_TEXT = int(os.getenv("QWEN3_TTS_MAX_TEXT_CHARS", "2000"))
 MAX_CONCURRENT = max(1, int(os.getenv("QWEN3_TTS_MAX_CONCURRENT", "1")))
+STREAM_MAX_SEGMENTS = max(1, int(os.getenv("QWEN3_TTS_STREAM_MAX_SEGMENTS", "8")))
+WARMUP = os.getenv("QWEN3_TTS_WARMUP", "true").strip().lower() not in ("0", "false", "off")
 
-DEFAULT_SPEAKER = os.getenv("QWEN3_TTS_DEFAULT_SPEAKER", "Ryan")
+DEFAULT_SPEAKER = os.getenv("QWEN3_TTS_DEFAULT_SPEAKER", "Serena")
 DEFAULT_LANGUAGE = os.getenv("QWEN3_TTS_DEFAULT_LANGUAGE", "English")
+
+# Chatterbox-compatible framed stream: "VLX1" + repeated u32be(len) + wav bytes
+STREAM_MAGIC = b"VLX1"
+
+# Official CustomVoice 1.7B preset speakers (Qwen model card).
+CUSTOMVOICE_SPEAKERS = [
+    {"id": "Serena", "label": "Serena — warm gentle female", "native": "Chinese", "gender": "female"},
+    {"id": "Vivian", "label": "Vivian — bright slightly edgy young female", "native": "Chinese", "gender": "female"},
+    {"id": "Sohee", "label": "Sohee — warm emotional female", "native": "Korean", "gender": "female"},
+    {"id": "Ono_Anna", "label": "Ono Anna — playful light female", "native": "Japanese", "gender": "female"},
+    {"id": "Ryan", "label": "Ryan — dynamic English male", "native": "English", "gender": "male"},
+    {"id": "Aiden", "label": "Aiden — sunny American male", "native": "English", "gender": "male"},
+    {"id": "Uncle_Fu", "label": "Uncle Fu — seasoned low male", "native": "Chinese", "gender": "male"},
+    {"id": "Dylan", "label": "Dylan — clear Beijing male", "native": "Chinese", "gender": "male"},
+    {"id": "Eric", "label": "Eric — lively Chengdu male", "native": "Chinese", "gender": "male"},
+]
 
 tts_semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 MODEL: Any = None
@@ -78,11 +98,23 @@ def _device_map():
     return "cuda:0"
 
 
+def _enable_cuda_fast_paths() -> None:
+    try:
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        if hasattr(torch, "set_float32_matmul_precision"):
+            torch.set_float32_matmul_precision("high")
+    except Exception:
+        logger.warning("could not enable CUDA tf32/cudnn fast paths")
+
+
 def _load_model() -> Any:
     global MODEL
     if MODEL is not None:
         return MODEL
     from qwen_tts import Qwen3TTSModel
+    _enable_cuda_fast_paths()
 
     attn = ATTN
     if attn == "flash_attention_2":
@@ -136,10 +168,41 @@ def _synthesize(
     return buf.getvalue(), int(sr)
 
 
+def _segments_for_stream(text: str, max_segments: int) -> list[str]:
+    """Split on sentence end so the first WAV can leave before the rest synths."""
+    t = text.strip()
+    if not t:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", t)
+    segs = [p.strip() for p in parts if p.strip()]
+    if not segs:
+        return [t]
+    if len(segs) > max_segments:
+        head = segs[: max_segments - 1]
+        tail = " ".join(segs[max_segments - 1 :])
+        segs = head + [tail]
+    return segs
+
+
+def _warmup_model() -> None:
+    if not WARMUP:
+        return
+    t0 = time.monotonic()
+    try:
+        _synthesize("Hi.", DEFAULT_SPEAKER, DEFAULT_LANGUAGE, "", {"do_sample": False})
+        ms = (time.monotonic() - t0) * 1000
+        logger.info("qwen3-tts warmup done in %.0f ms speaker=%s", ms, DEFAULT_SPEAKER)
+    except Exception:
+        logger.exception("qwen3-tts warmup failed (continuing)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("qwen3-tts worker: loading model")
     await run_in_threadpool(_load_model)
+    if WARMUP:
+        logger.info("qwen3-tts worker: warmup")
+        await run_in_threadpool(_warmup_model)
     logger.info("qwen3-tts worker: ready")
     yield
 
@@ -193,6 +256,18 @@ def _extract_gen_kwargs(body: TtsBody) -> dict[str, Any]:
     return out
 
 
+def _speaker_payload() -> dict[str, Any]:
+    ids: list[str] = [s["id"] for s in CUSTOMVOICE_SPEAKERS]
+    if MODEL is not None:
+        try:
+            live = list(MODEL.get_supported_speakers() or [])
+            if live:
+                ids = [str(x) for x in live]
+        except Exception:
+            logger.warning("get_supported_speakers failed; using catalog")
+    return {"speakers": CUSTOMVOICE_SPEAKERS, "ids": ids, "default": DEFAULT_SPEAKER}
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     ok = MODEL is not None
@@ -201,7 +276,16 @@ def health() -> dict[str, Any]:
         "model": MODEL_ID,
         "model_loaded": ok,
         "device": DEVICE,
+        "default_speaker": DEFAULT_SPEAKER,
+        "speakers": [s["id"] for s in CUSTOMVOICE_SPEAKERS],
+        "stream": True,
+        "warmup": WARMUP,
     }
+
+
+@app.get("/speakers")
+def speakers() -> dict[str, Any]:
+    return _speaker_payload()
 
 
 @app.post("/tts")
@@ -230,3 +314,79 @@ async def tts(request: Request, body: TtsBody) -> Response:
             {"error": "synthesis_failed", "detail": str(e)[:400]},
             status_code=500,
         )
+
+
+@app.post("/tts/stream")
+@limiter.limit(f"{RATE_LIMIT}/minute")
+async def tts_stream(request: Request, body: TtsBody) -> Response:
+    """
+    Stream framed WAV segments: magic `VLX1` then repeated [4-byte big-endian length][wav bytes].
+    Each sentence is synthesized and yielded so the client can play the first clause
+    without waiting for the rest. Not codec-frame Turbo — Qwen 0.1.1 has no PCM generator.
+    """
+    text = (body.text or "").strip()
+    if not text:
+        return JSONResponse({"error": "text is required"}, status_code=400)
+    if len(text) > MAX_TEXT:
+        return JSONResponse({"error": "text too long"}, status_code=413)
+
+    speaker = (body.speaker or DEFAULT_SPEAKER).strip()
+    language = (body.language or DEFAULT_LANGUAGE).strip()
+    instruct = (body.instruct or "").strip()
+    gen_kwargs = _extract_gen_kwargs(body)
+    segments = _segments_for_stream(text, STREAM_MAX_SEGMENTS)
+    if not segments:
+        return JSONResponse({"error": "text is required"}, status_code=400)
+
+    async def byte_stream() -> AsyncIterator[bytes]:
+        t_total0 = time.monotonic()
+        first_chunk_logged = False
+        ttfc_ms: float | None = None
+        queue_wait_ms = 0.0
+        total_synth = 0.0
+        yield STREAM_MAGIC
+        t_q0 = time.monotonic()
+        async with tts_semaphore:
+            queue_wait_ms = (time.monotonic() - t_q0) * 1000
+            logger.info(
+                "stream_lane_acquired queue_wait_ms=%.0f segments=%s text_len=%s",
+                queue_wait_ms,
+                len(segments),
+                len(text),
+            )
+            for i, seg in enumerate(segments):
+                if not seg.strip():
+                    continue
+                t_s0 = time.monotonic()
+                wav, _sr = await run_in_threadpool(
+                    _synthesize, seg.strip(), speaker, language, instruct, gen_kwargs
+                )
+                total_synth += (time.monotonic() - t_s0) * 1000
+                if not first_chunk_logged:
+                    ttfc_ms = (time.monotonic() - t_total0) * 1000
+                    first_chunk_logged = True
+                    logger.info(
+                        "stream_first_chunk ttfc_ms=%.0f queue_wait_ms=%.0f segments=%s seg0_len=%s",
+                        ttfc_ms,
+                        queue_wait_ms,
+                        len(segments),
+                        len(seg),
+                    )
+                yield len(wav).to_bytes(4, "big") + wav
+        logger.info(
+            "stream_done ttfc_ms=%s synth_ms=%.0f total_ms=%.0f segments=%s",
+            round(ttfc_ms, 2) if ttfc_ms is not None else None,
+            total_synth,
+            (time.monotonic() - t_total0) * 1000,
+            len(segments),
+        )
+
+    return StreamingResponse(
+        byte_stream(),
+        media_type="application/octet-stream",
+        headers={
+            "X-TTS-Stream-Segments": str(len(segments)),
+            "X-Accel-Buffering": "no",
+            "Cache-Control": "no-cache",
+        },
+    )

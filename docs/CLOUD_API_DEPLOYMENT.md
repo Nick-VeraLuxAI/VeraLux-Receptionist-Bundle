@@ -1,6 +1,8 @@
 # Cloud API deployment profile (`cloud-api`)
 
-**Intent:** Run **control plane + voice runtime** (and Postgres/Redis) on **VPS, Render, Railway, ECS, etc.** with **no GPU containers**. STT, TTS, and (usually) LLM are provided by **external HTTP APIs** compatible with what the runtime already implements.
+**Intent:** Run **control plane + voice runtime** (and Postgres/Redis) on **VPS, Render, Railway, ECS, etc.** with **no GPU containers**. STT, TTS, and (usually) LLM are provided by **external HTTP APIs** or first-class frontier adapters (`openai_whisper`, `deepgram`, `openai_tts`, `elevenlabs`, tenant BYOK LLMs).
+
+Admin **Pipeline** (`/admin/pipeline`) composes those components, estimates $/min from a live rate card, and can provision an isolated stack. See [`CLOUD_HOSTED_PIPELINE.md`](CLOUD_HOSTED_PIPELINE.md).
 
 ---
 
@@ -9,15 +11,15 @@
 | Capability | Mechanism | Notes |
 |------------|-----------|--------|
 | **LLM** | `LLM_PROVIDER=openai` + `OPENAI_API_KEY` / model; or **HTTP brain** `BRAIN_URL` pointing to **any OpenAI-compatible** server (hosted GPT proxy, OpenRouter, etc.) | Runtime `brain-gpt4o` contract: `/reply`, `/reply/stream`, `/health` |
-| **TTS** | `TTS_MODE=kokoro_http` or `coqui_xtts` (or `qwen3_tts_http` if you host Qwen3 HTTP elsewhere) | Requires HTTP server with the **same route shapes** the runtime calls (see `veralux-voice-runtime` TTS clients) |
-| **STT** | **`WHISPER_URL`** must point to an HTTP endpoint implementing the **WhisperHttp** contract (PCM/WAV pipeline) | **Not** “drop in OpenAI `/v1/audio/transcriptions`” without an adapter service in front |
+| **TTS** | `TTS_MODE=openai_tts` / `elevenlabs`, or self-hosted HTTP (`kokoro_http`, `coqui_xtts`, …) | Cloud modes need `OPENAI_API_KEY` / `ELEVENLABS_API_KEY`. HTTP modes need the same route shapes the runtime calls. |
+| **STT** | `openai_whisper` / `deepgram` (tenant pipeline) **or** `WHISPER_URL` WhisperHttp | Native OpenAI / Deepgram adapters send chunked PCM as WAV. Set `DEEPGRAM_API_KEY` / `OPENAI_API_KEY` on the runtime. |
 
 ---
 
 ## What does **not** fit without new work
 
-- **Native OpenAI STT/TTS** as first-class env switches (`STT_PROVIDER=openai`) — **not present**; only **`WhisperHttpProvider`** + mode-based TTS.
-- **Strict voice health** on providers that **lack** `GET /health` at the URL derived from `WHISPER_URL` / TTS base — you must set **`HEALTH_VOICE_DEPENDENCIES=false`** (weakens readiness) **or** add small **adapter sidecars** that expose `/health`.
+- Streaming Deepgram / Telnyx-native STT (chunked cloud STT is implemented). Kubernetes remains unsupported.
+- **Strict voice health** on providers that **lack** `GET /health` — use **`HEALTH_VOICE_DEPENDENCIES=configured`** so readiness checks keys/URLs without probing vendor `/health`. Strict mode still needs a probe URL or `STT_HEALTH_URL` / `TTS_HEALTH_URL`.
 - **`TTS_MODE=chatterbox_http`** without a **remote** Chatterbox-compatible server — there is **no** CPU Chatterbox service in root `docker-compose.yml`.
 
 ---

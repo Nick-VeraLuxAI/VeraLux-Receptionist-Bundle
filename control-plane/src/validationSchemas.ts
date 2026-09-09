@@ -62,7 +62,17 @@ export const promptConfigSchema = z.object({
 
 export const voicePresetSchema = z.enum(["neutral", "warm", "energetic", "calm"]);
 
-export const ttsModeSchema = z.enum(["kokoro_http", "coqui_xtts", "chatterbox_http", "qwen3_tts_http"]);
+export const ttsModeSchema = z.enum([
+  "kokoro_http",
+  "coqui_xtts",
+  "chatterbox_http",
+  "qwen3_tts_http",
+  "miso_tts_http",
+  "magpie_tts_http",
+  "melo_tts_http",
+  "openai_tts",
+  "elevenlabs",
+]);
 
 export const voiceModeSchema = z.enum(["preset", "cloned"]);
 
@@ -82,6 +92,9 @@ export const ttsConfigSchema = z.object({
   chatterboxUrl: urlSchema.optional(),
   chatterboxVariant: z.enum(["turbo", "standard", "multilingual"]).optional(),
   qwen3TtsUrl: urlSchema.optional(),
+  misoTtsUrl: urlSchema.optional(),
+  magpieTtsUrl: urlSchema.optional(),
+  meloTtsUrl: urlSchema.optional(),
   qwen3Instruct: z.string().max(500).optional(),
   qwen3DoSample: z.boolean().optional(),
   qwen3Temperature: z.number().min(0).max(2).optional(),
@@ -95,6 +108,17 @@ export const ttsConfigSchema = z.object({
   qwen3SubtalkerTopP: z.number().min(0).max(1).optional(),
   qwen3SubtalkerTemperature: z.number().min(0).max(2).optional(),
   qwen3Streaming: z.boolean().optional(),
+  misoMaxAudioLengthMs: z.number().int().min(500).max(90_000).optional(),
+  misoTemperature: z.number().min(0).max(2).optional(),
+  misoTopK: z.number().int().min(1).max(1000).optional(),
+  magpieTemperature: z.number().min(0.05).max(1.5).optional(),
+  magpieCfgScale: z.number().min(0.5).max(5).optional(),
+  magpieTopK: z.number().int().min(1).max(200).optional(),
+  magpieUseCfg: z.boolean().optional(),
+  magpieApplyTn: z.boolean().optional(),
+  meloSdpRatio: z.number().min(0).max(1).optional(),
+  meloNoiseScale: z.number().min(0).max(2).optional(),
+  meloNoiseScaleW: z.number().min(0).max(2).optional(),
   coquiTemperature: z.number().min(0).max(2).optional(),
   coquiLengthPenalty: z.number().min(-10).max(10).optional(),
   coquiRepetitionPenalty: z.number().min(0.5).max(2).optional(),
@@ -105,6 +129,7 @@ export const ttsConfigSchema = z.object({
   xttsUrl: urlSchema.optional(),
   defaultVoiceMode: voiceModeSchema.optional(),
   clonedVoice: clonedVoiceSchema.optional(),
+  cloudTtsModel: z.string().max(128).optional(),
 }).passthrough();
 
 // ────────────────────────────────────────────────

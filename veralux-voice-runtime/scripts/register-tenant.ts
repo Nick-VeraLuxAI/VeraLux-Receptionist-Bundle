@@ -74,6 +74,18 @@ function buildConfig(tenantId: string, did: string): RuntimeTenantConfig {
               format: 'wav',
               sampleRate: env.TTS_SAMPLE_RATE,
             }
+          : env.TTS_MODE === 'miso_tts_http'
+            ? {
+                mode: 'miso_tts_http',
+                misoTtsUrl: env.MISO_TTS_URL!,
+                speaker: env.MISO_TTS_SPEAKER ?? '0',
+                voice: env.MISO_TTS_SPEAKER ?? '0',
+                format: 'wav',
+                sampleRate: env.TTS_SAMPLE_RATE,
+                misoMaxAudioLengthMs: env.MISO_TTS_MAX_AUDIO_LENGTH_MS,
+                misoTemperature: env.MISO_TTS_TEMPERATURE,
+                misoTopK: env.MISO_TTS_TOP_K,
+              }
           : {
             mode: 'kokoro_http',
             kokoroUrl: env.KOKORO_URL!,

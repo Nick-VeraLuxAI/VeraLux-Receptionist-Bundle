@@ -17,12 +17,13 @@
  *   CHATTERBOX_URL=http://127.0.0.1:7005
  *   COQUI_XTTS_URL=http://127.0.0.1:7002/tts
  *   QWEN3_TTS_URL=http://127.0.0.1:7010
+ *   MISO_TTS_URL=http://127.0.0.1:7011
  *
  * GPU verification (fail if any *configured* TTS backend is not on GPU):
  *   TTS_BENCH_REQUIRE_GPU=true npx tsx scripts/benchmark-tts-backends.ts /path/to.wav
  * Or: npm run benchmark:tts-gpu -- /path/to.wav
  * Uses GET /health (kokoro: device=cuda, chatterbox/qwen3: device, xtts: gpu=true). Whisper line is FYI only.
- * Stack: docker compose --profile gpu up -d kokoro-gpu xtts-gpu whisper-gpu chatterbox-gpu qwen3-tts-gpu
+ * Stack: docker compose --profile gpu up -d kokoro-gpu xtts-gpu whisper-gpu chatterbox-gpu qwen3-tts-gpu miso-tts-gpu
  * Point URLs at localhost published ports. Split GPU IDs if one card is tight (see .env.example).
  * Skip preflight: TTS_BENCH_SKIP_GPU_PREFLIGHT=true
  */
@@ -42,7 +43,9 @@ function hostifyDockerUrl(url: string | undefined): string | undefined {
     .replace('://xtts:', '://127.0.0.1:')
     .replace('://chatterbox:', '://127.0.0.1:')
     .replace('://veralux-qwen3-tts:', '://127.0.0.1:')
-    .replace('://qwen3-tts:', '://127.0.0.1:');
+    .replace('://qwen3-tts:', '://127.0.0.1:')
+    .replace('://veralux-miso-tts:', '://127.0.0.1:')
+    .replace('://miso-tts:', '://127.0.0.1:');
 }
 
 /** e.g. http://127.0.0.1:7001/tts -> http://127.0.0.1:7001 */
@@ -84,6 +87,7 @@ async function runGpuPreflight(opts: {
   chatterboxUrl: string;
   coquiUrl: string;
   qwen3Url: string;
+  misoUrl: string;
 }): Promise<{ whisperLine: string; ttsRows: PreflightRow[] }> {
   const timeoutMs = Math.min(15_000, Number(process.env.TTS_BENCH_HEALTH_TIMEOUT_MS) || 8_000);
 
@@ -136,6 +140,17 @@ async function runGpuPreflight(opts: {
       service: 'qwen3_tts',
       gpuOk: qOk,
       detail: qj ? `device=${String(qDev)}` : 'no health',
+    });
+  }
+
+  if (opts.misoUrl) {
+    const mj = await fetchHealthJson(originFromAnyServiceUrl(opts.misoUrl), timeoutMs);
+    const mDev = mj?.device;
+    const mOk = typeof mDev === 'string' && mDev.toLowerCase().includes('cuda');
+    rows.push({
+      service: 'miso_tts',
+      gpuOk: mOk,
+      detail: mj ? `device=${String(mDev)}` : 'no health',
     });
   }
 
@@ -275,6 +290,29 @@ async function postQwen3(
   return { ms, bytes: buf.byteLength };
 }
 
+async function postMiso(
+  baseUrl: string,
+  text: string,
+  speaker: string,
+): Promise<{ ms: number; bytes: number }> {
+  const root = baseUrl.replace(/\/$/, '');
+  const endpoint = root.endsWith('/tts') ? root : `${root}/tts`;
+  const parsedSpeaker = Number.parseInt(speaker, 10);
+  const t0 = Date.now();
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: text.slice(0, 2000),
+      speaker: Number.isFinite(parsedSpeaker) && parsedSpeaker >= 0 ? parsedSpeaker : 0,
+    }),
+  });
+  const buf = await res.arrayBuffer();
+  const ms = Date.now() - t0;
+  if (!res.ok) throw new Error(`miso HTTP ${res.status}`);
+  return { ms, bytes: buf.byteLength };
+}
+
 async function main(): Promise<void> {
   const wavArg = process.argv[2];
   if (!wavArg) {
@@ -299,12 +337,14 @@ async function main(): Promise<void> {
   const coquiUrl =
     hostifyDockerUrl(process.env.COQUI_XTTS_URL || process.env.XTTS_URL) || '';
   const qwen3Url = hostifyDockerUrl(process.env.QWEN3_TTS_URL) || '';
+  const misoUrl = hostifyDockerUrl(process.env.MISO_TTS_URL) || '';
 
   let kokoroVoice = process.env.KOKORO_VOICE_ID || 'bf_emma';
   if (kokoroVoice.toLowerCase() === 'default') kokoroVoice = 'bf_emma';
   const coquiVoice = process.env.COQUI_VOICE_ID || 'en_sample';
   const qwenSpeaker = process.env.QWEN3_TTS_SPEAKER || 'Ryan';
   const qwenLang = process.env.QWEN3_TTS_LANGUAGE || 'English';
+  const misoSpeaker = process.env.MISO_TTS_SPEAKER || '0';
   const chatterboxSpeakerUrl = process.env.CHATTERBOX_BENCH_SPEAKER_URL?.trim();
 
   console.log(`\nWAV: ${wavPath} (${wav.length} bytes)`);
@@ -323,6 +363,7 @@ async function main(): Promise<void> {
       chatterboxUrl,
       coquiUrl,
       qwen3Url,
+      misoUrl,
     });
     printGpuPreflight(whisperLine, ttsRows);
 
@@ -334,7 +375,7 @@ async function main(): Promise<void> {
           console.error(`  - ${r.service}: ${r.detail}`);
         }
         console.error(
-          '\nTip: docker compose --profile gpu up -d kokoro-gpu xtts-gpu whisper-gpu chatterbox-gpu qwen3-tts-gpu',
+          '\nTip: docker compose --profile gpu up -d kokoro-gpu xtts-gpu whisper-gpu chatterbox-gpu qwen3-tts-gpu miso-tts-gpu',
         );
         console.error('Match localhost URLs (see script header). CPU Kokoro shows health device=default; GPU uses cuda.\n');
         process.exit(3);
@@ -385,6 +426,12 @@ async function main(): Promise<void> {
     await tryBackend('qwen3_tts', () => postQwen3(qwen3Url, reply, qwenSpeaker, qwenLang));
   } else {
     console.log(`${'qwen3_tts'.padEnd(14)} SKIP (set QWEN3_TTS_URL)`);
+  }
+
+  if (misoUrl) {
+    await tryBackend('miso_tts', () => postMiso(misoUrl, reply, misoSpeaker));
+  } else {
+    console.log(`${'miso_tts'.padEnd(14)} SKIP (set MISO_TTS_URL)`);
   }
 
   const sttLlm = w.ms + b.ms;

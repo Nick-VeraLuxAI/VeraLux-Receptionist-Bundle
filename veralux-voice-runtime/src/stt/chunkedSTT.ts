@@ -95,6 +95,8 @@ export interface ChunkedSTTOptions {
   // Fired when speech is confidently detected DURING playback/grace.
   // CallSession should stop playback immediately when this triggers.
   onBargeInDetected?: (info: SpeechStartInfo & { duringPlayback: true }) => void;
+  /** VERA_DEMO_SHOP_SPEAKERPHONE_20260905 demo-shop only speakerphone protect */
+  demoShopSpeakerphoneProtect?: boolean;
 
   // Optional lifecycle hooks (used by CallSession to suppress dead-air while STT in-flight)
   onSttRequestStart?: (kind: 'partial' | 'final') => void;
@@ -491,6 +493,9 @@ export class ChunkedSTT {
 
   // ===== BARGE-IN (NEW) =====
   private readonly onBargeInDetected?: (info: SpeechStartInfo & { duringPlayback: true }) => void;
+  /** VERA_DEMO_SHOP_SPEAKERPHONE_20260905 + VERA_DEMO_SHOP_LISTENFINAL_20260905 */
+  private demoShopSpeakerphoneProtect = false;
+  private _demoShopListenFinalKeepLogged = false;
   private bargeInArmed = false;
   private bargeInSpeechStreak = 0;
   private bargeInLastStats: { rms: number; peak: number } = { rms: 0, peak: 0 };
@@ -638,6 +643,8 @@ export class ChunkedSTT {
 
     // ===== BARGE-IN (NEW) =====
     this.onBargeInDetected = opts.onBargeInDetected;
+    // VERA_DEMO_SHOP_SPEAKERPHONE_20260905
+    this.demoShopSpeakerphoneProtect = !!opts.demoShopSpeakerphoneProtect;
 
     this.onSttRequestStart = opts.onSttRequestStart;
     this.onSttRequestEnd = opts.onSttRequestEnd;
@@ -1583,8 +1590,25 @@ export class ChunkedSTT {
     }
 
     // Barge-in: if final request is in-flight and speech resumes, abort and reset.
+    // VERA_DEMO_SHOP_LISTENFINAL_20260905 — while LISTENING (not playback), complete the
+    // in-flight Whisper final instead of abort→discard. Playback barge still aborts above.
     if (this.inFlight && this.inFlightKind === 'final' && isSpeech) {
-      if (this.finalizingStop) {
+      if (this.demoShopSpeakerphoneProtect) {
+        if (!this._demoShopListenFinalKeepLogged) {
+          this._demoShopListenFinalKeepLogged = true;
+          log.info(
+            {
+              event: 'stt_abort_final_ignored_listening',
+              reason: 'complete_or_queue',
+              in_flight_kind: this.inFlightKind,
+              playback_gated: false,
+              is_listening: !!this.isListening?.(),
+              ...(this.logContext ?? {}),
+            },
+            'demo-shop: keep in-flight Whisper final during listening speech',
+          );
+        }
+      } else if (this.finalizingStop) {
         const now = this.nowMs();
         const elapsed = now - this.finalizingStopAtMs;
 
@@ -2281,6 +2305,7 @@ export class ChunkedSTT {
 
     this.inFlight = true;
     this.inFlightKind = meta.reason;
+    this._demoShopListenFinalKeepLogged = false;
     const token = (this.inFlightToken += 1);
     this.inFlightAbort = new AbortController();
 

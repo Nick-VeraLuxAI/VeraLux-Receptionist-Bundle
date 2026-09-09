@@ -1,6 +1,19 @@
+import fs from 'fs/promises';
+import { randomUUID } from 'crypto';
+
 import { env } from '../env';
 import { log } from '../log';
 import { TelnyxClient } from '../telnyx/telnyxClient';
+import { buildMediaStreamUrl } from '../telnyx/mediaStreamUrl';
+import { claimStreamingStart, releaseStreamingStart } from '../telnyx/streamStartGuard';
+import { sendMediaWsJson, waitForMediaWs } from '../media/mediaWsBridge';
+import {
+  buildRtpClearEvent,
+  buildRtpMarkEvent,
+  buildRtpMediaEvent,
+  localWavPathFromPublicUrl,
+  wavToL16Pcm16k,
+} from '../media/bidirectionalRtp';
 import type { AudioIngest, AudioPlayback, PlaybackInput, TransferOptions, TransportSession } from './types';
 
 class PstnAudioIngest implements AudioIngest {
@@ -68,10 +81,70 @@ class PstnAudioPlayback implements AudioPlayback {
       log.warn({ event: 'playback_buffer_unsupported', ...this.logContext }, 'pstn playback expects url');
       return;
     }
+
+    const connected = await waitForMediaWs(this.callControlId, 2500);
+    if (connected) {
+      try {
+        const localPath = localWavPathFromPublicUrl(input.url);
+        if (!localPath) {
+          throw new Error('l16_tts_url_unreadable');
+        }
+        const wav = await fs.readFile(localPath);
+        const pcm = wavToL16Pcm16k(wav);
+        const markName = `tts-${randomUUID()}`;
+        const sentMedia = sendMediaWsJson(this.callControlId, buildRtpMediaEvent(pcm));
+        const sentMark = sentMedia && sendMediaWsJson(this.callControlId, buildRtpMarkEvent(markName));
+        if (sentMedia && sentMark) {
+          log.info(
+            {
+              event: 'tts_rtp_l16_sent',
+              stream_codec: 'L16',
+              sample_rate_hz: 16000,
+              pcm_bytes: pcm.length,
+              duration_ms: Math.round((pcm.length / 2 / 16000) * 1000),
+              mark_name: markName,
+              audio_url: input.url,
+              ...this.logContext,
+            },
+            'TTS sent as L16 16 kHz RTP on Telnyx media WebSocket',
+          );
+          return;
+        }
+        log.warn(
+          {
+            event: 'tts_rtp_ws_send_failed_using_playback_start',
+            audio_url: input.url,
+            ...this.logContext,
+          },
+          'L16 RTP send failed; using Telnyx playback_start',
+        );
+      } catch (error) {
+        log.warn(
+          {
+            event: 'tts_rtp_encode_failed_using_playback_start',
+            err: error,
+            audio_url: input.url,
+            ...this.logContext,
+          },
+          'L16 RTP encode failed; using Telnyx playback_start',
+        );
+      }
+    } else {
+      log.warn(
+        {
+          event: 'tts_rtp_ws_unavailable_using_playback_start',
+          audio_url: input.url,
+          ...this.logContext,
+        },
+        'media WebSocket not ready; using Telnyx playback_start',
+      );
+    }
+
     await this.telnyx.playAudio(this.callControlId, input.url);
   }
 
   async stop(): Promise<void> {
+    sendMediaWsJson(this.callControlId, buildRtpClearEvent());
     if (this.shouldSkipTelnyxAction('playback_stop')) {
       return;
     }
@@ -146,6 +219,17 @@ export class PstnTelnyxTransportSession implements TransportSession {
     }
     await this.telnyx.answerCall(this.id);
     this._answered = true;
+    if (claimStreamingStart(this.id)) {
+      try {
+        await this.telnyx.startStreaming(this.id, buildMediaStreamUrl(this.id));
+      } catch (error) {
+        releaseStreamingStart(this.id);
+        log.warn(
+          { err: error, event: 'telnyx_streaming_start_after_answer_failed', ...this.logContext },
+          'streaming start after answer failed',
+        );
+      }
+    }
   }
 
   async stop(reason?: string): Promise<void> {
@@ -175,6 +259,8 @@ export class PstnTelnyxTransportSession implements TransportSession {
       from: options?.from,
       timeoutSecs: options?.timeoutSecs,
       audioUrl: options?.audioUrl,
+      targetLegClientState: options?.targetLegClientState,
+      commandId: options?.commandId,
     });
   }
 

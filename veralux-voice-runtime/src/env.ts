@@ -170,7 +170,14 @@ const EnvSchema = z.object({
   TELNYX_API_KEY: z.string().min(1),
   TELNYX_PUBLIC_KEY: z.string().min(1),
   TELNYX_STREAM_TRACK: z.enum(['inbound_track', 'outbound_track', 'both_tracks']).default('inbound_track'),
-  TELNYX_STREAM_CODEC: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** WebSocket fork codec only. SIP/PSTN negotiation uses TELNYX_ACCEPT_CODECS. */
+  TELNYX_STREAM_CODEC: z.preprocess(emptyToUndefined, z.string().default('L16')),
+  TELNYX_STREAM_BIDIRECTIONAL_MODE: z.enum(['rtp', 'mp3']).default('rtp'),
+  TELNYX_STREAM_BIDIRECTIONAL_CODEC: z.preprocess(emptyToUndefined, z.string().default('L16')),
+  TELNYX_STREAM_BIDIRECTIONAL_SAMPLING_RATE: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(16000),
+  ),
   TELNYX_SKIP_SIGNATURE: z.preprocess(stringToBoolean, z.boolean().default(false)),
   TELNYX_SIGNATURE_MAX_SKEW_SECONDS: z.preprocess(
     emptyToUndefined,
@@ -216,7 +223,8 @@ const EnvSchema = z.object({
   AUDIO_STORAGE_DIR: z.string().min(1),
 
   /* ───────────────────────── STT (Whisper) ───────────────────────── */
-  WHISPER_URL: z.string().min(1),
+  WHISPER_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()).default('http://127.0.0.1:9000/transcribe'),
+  DEEPGRAM_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Language hint for Whisper (e.g. "en"). Improves accuracy when set. */
   STT_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Optional text to bias Whisper decoding (e.g. "What time do you close. When do you close."). Sent as query param if your server supports it. */
@@ -376,7 +384,7 @@ const EnvSchema = z.object({
   /** TTS backend when no tenant tts config is set. */
   TTS_MODE: z.preprocess(
     emptyToUndefined,
-    z.enum(['kokoro_http', 'coqui_xtts', 'chatterbox_http', 'qwen3_tts_http']).default('kokoro_http'),
+    z.enum(['kokoro_http', 'coqui_xtts', 'chatterbox_http', 'qwen3_tts_http', 'miso_tts_http', 'magpie_tts_http', 'melo_tts_http', 'openai_tts', 'elevenlabs']).default('kokoro_http'),
   ),
   KOKORO_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Coqui XTTS API base URL (e.g. http://host:7002/tts). Required when TTS_MODE=coqui_xtts. */
@@ -385,10 +393,25 @@ const EnvSchema = z.object({
   CHATTERBOX_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Qwen3-TTS HTTP (veralux-audio-stack/qwen3_tts_server.py). Required when TTS_MODE=qwen3_tts_http. */
   QWEN3_TTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** Miso TTS 8B HTTP (veralux-audio-stack/miso_tts_server.py). Required when TTS_MODE=miso_tts_http. */
+  MISO_TTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** NVIDIA Magpie HTTP (veralux-audio-stack/magpie_tts_server.py). Required when TTS_MODE=magpie_tts_http. */
+  MAGPIE_TTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  MAGPIE_TTS_SPEAKER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  MAGPIE_TTS_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  /** MeloTTS HTTP (veralux-audio-stack/melo_tts_server.py). Required when TTS_MODE=melo_tts_http. */
+  MELO_TTS_URL: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  MELO_TTS_SPEAKER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  MELO_TTS_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** Preset speaker id (e.g. Ryan). Matches Qwen3 CustomVoice presets. */
   QWEN3_TTS_SPEAKER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   QWEN3_TTS_LANGUAGE: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   QWEN3_TTS_INSTRUCT: z.preprocess(emptyToUndefined, z.string().optional()),
+  /** Miso speaker id (integer as string; default 0). */
+  MISO_TTS_SPEAKER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  MISO_TTS_MAX_AUDIO_LENGTH_MS: z.preprocess(emptyToUndefined, z.coerce.number().int().min(500).max(90_000).optional()),
+  MISO_TTS_TEMPERATURE: z.preprocess(emptyToUndefined, z.coerce.number().min(0).max(2).optional()),
+  MISO_TTS_TOP_K: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(1000).optional()),
   /** Must match the Chatterbox server CHATTERBOX_VARIANT. */
   CHATTERBOX_VARIANT: z.preprocess(
     emptyToUndefined,
@@ -403,6 +426,12 @@ const EnvSchema = z.object({
    * Improves server-side chunking for long replies; short lines are one segment.
    */
   CHATTERBOX_STREAMING: z.preprocess(stringToBoolean, z.boolean().default(false)),
+  /**
+   * When true, Demo Shop playTtsSegment uses POST .../tts/stream and plays the first
+   * sentence WAV without waiting for the rest. Default true (also readable via process.env
+   * in qwen3Tts so live env.js does not have to be remounted).
+   */
+  QWEN3_TTS_STREAMING: z.preprocess(stringToBoolean, z.boolean().default(true)),
   /** Coqui XTTS voice_id (e.g. "en_sample"). Default "en_sample" when unset; not Kokoro preset names. */
   COQUI_VOICE_ID: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
   /** When true, omit voice_id/speaker in Coqui requests (for single-speaker XTTS models). Default false. */
@@ -468,6 +497,7 @@ const EnvSchema = z.object({
   OPENAI_MODEL: z.preprocess(emptyToUndefined, z.string().min(1).default('gpt-4o-mini')),
   /** Optional OpenAI-compatible API base (default https://api.openai.com/v1). */
   OPENAI_BASE_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  ELEVENLABS_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
 
   /* ───────────────────────── Call transcript / summarizer ───────────────────────── */
   /** When set, write full call transcript (caller + assistant text) to this dir at teardown. No audio. */
@@ -567,24 +597,11 @@ const EnvSchema = z.object({
   TENANTCFG_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('tenantcfg')),
   CAP_PREFIX: z.preprocess(emptyToUndefined, z.string().min(1).default('cap')),
 }).superRefine((data, ctx) => {
-  if (data.TTS_MODE === 'kokoro_http' && (!data.KOKORO_URL || data.KOKORO_URL.trim() === '')) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'KOKORO_URL is required when TTS_MODE=kokoro_http', path: ['KOKORO_URL'] });
-  }
-  if (data.TTS_MODE === 'coqui_xtts' && (!data.COQUI_XTTS_URL || data.COQUI_XTTS_URL.trim() === '')) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'COQUI_XTTS_URL is required when TTS_MODE=coqui_xtts', path: ['COQUI_XTTS_URL'] });
-  }
-  if (data.TTS_MODE === 'chatterbox_http' && (!data.CHATTERBOX_URL || data.CHATTERBOX_URL.trim() === '')) {
+  if (!data.KOKORO_URL || data.KOKORO_URL.trim() === '') {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'CHATTERBOX_URL is required when TTS_MODE=chatterbox_http',
-      path: ['CHATTERBOX_URL'],
-    });
-  }
-  if (data.TTS_MODE === 'qwen3_tts_http' && (!data.QWEN3_TTS_URL || data.QWEN3_TTS_URL.trim() === '')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'QWEN3_TTS_URL is required when TTS_MODE=qwen3_tts_http',
-      path: ['QWEN3_TTS_URL'],
+      message: 'KOKORO_URL is required (Kokoro is the only TTS path)',
+      path: ['KOKORO_URL'],
     });
   }
   if (data.TENANT_CONCURRENCY_CAP_DEFAULT > data.GLOBAL_CONCURRENCY_CAP) {

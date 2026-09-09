@@ -151,6 +151,8 @@ export function telnyxWebhookSignedMessage(
 export interface TelnyxSignatureInputWithSecret extends TelnyxSignatureInput {
   /** Optional per-tenant secret. If provided, used instead of global TELNYX_WEBHOOK_SECRET. */
   tenantSecret?: string | null;
+  /** Optional per-tenant Ed25519 public key for tenant-owned Telnyx. */
+  tenantPublicKey?: string | null;
 }
 
 /**
@@ -163,6 +165,7 @@ export function verifyTelnyxSignature({
   timestamp,
   scheme,
   tenantSecret,
+  tenantPublicKey,
 }: TelnyxSignatureInputWithSecret): TelnyxSignatureCheck {
   const verifyOverride = parseBoolEnv(process.env.TELNYX_VERIFY_SIGNATURES);
   const skipVerify = verifyOverride === false || (verifyOverride !== true && env.TELNYX_SKIP_SIGNATURE);
@@ -201,7 +204,8 @@ export function verifyTelnyxSignature({
       return { ok, skipped: false, reason: ok ? undefined : 'signature_mismatch' };
     }
 
-    const publicKeyRaw = env.TELNYX_PUBLIC_KEY?.trim();
+    const publicKeyRaw =
+      tenantPublicKey?.trim() || env.TELNYX_PUBLIC_KEY?.trim();
     if (!publicKeyRaw) {
       return { ok: false, skipped: false, reason: 'public_key_missing' };
     }

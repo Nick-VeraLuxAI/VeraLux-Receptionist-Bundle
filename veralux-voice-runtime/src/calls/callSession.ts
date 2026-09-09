@@ -21,13 +21,32 @@ import {
 import { getProvider } from '../stt/registry';
 import { PstnTelnyxTransportSession } from '../transport/pstnTelnyxTransport';
 import type { TransferOptions, TransportSession } from '../transport/types';
-import { synthesizeSpeech } from '../tts';
+import { synthesizeSpeech, tryPlayKokoroStreamToTelnyx } from '../tts';
 import { splitQwenStreamingChunks } from '../tts/qwen3Chunking';
 import { attachAudioMeta, getAudioMeta, markAudioSpan, probeWav } from '../diagnostics/audioProbe';
 import type { TTSResult } from '../tts/types';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
 import { getEffectiveSpeakerWavUrl, type VoiceMode } from '../tenants/tenantConfig';
-import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK, evaluateBusinessHours } from '@veralux/shared';
+import { ASSISTANT_VOICE_LLM_ERROR_FALLBACK, evaluateBusinessHours, type CallCompletion } from '@veralux/shared';
+import {
+  applyShopSpeakGate,
+  applySpeakPolicy,
+  extractNightDeskLead,
+  formatTalkerBoard,
+  gcalBookHelperUrl,
+  greetingWithCallerName,
+  ingestDtmfDigit,
+  planReceptionistTurn,
+  playbookFromTenant,
+  tenantIntakeProfile,
+  type ReceptionistTurnPlan,
+} from './shopGate';
+import {
+  evaluateNightDeskTurn,
+  lookupCallerCid,
+  reportOncallOutcome,
+} from '../controlPlane';
+import { randomUUID } from 'crypto';
 import {
   generateAssistantReply,
   generateAssistantReplyStream,
@@ -47,6 +66,14 @@ import {
 } from './types';
 import { CallAudioCoordinator } from './callAudioCoordinator';
 import { encodePcm16MonoWav, forensicsTimeline, getForensicsSession } from '../observability/audioForensics';
+import {
+  buildAudioInvariantReport,
+  clearAudioInvariantCounters,
+  recordPlayStart,
+  recordStackedPlay,
+  snapshotAudioInvariantCounters,
+  type AudioInvariantReport,
+} from '../observability/audioInvariantReport';
 import { redactValue } from '../observability/redaction';
 import {
   matchAssistantEcho,
@@ -175,6 +202,17 @@ export class CallSession {
   private readonly tenantGreetingText?: string;
   /** Many caller phrasings → one canned reply; skips LLM when a phrase matches. */
   private readonly quickReplies?: RuntimeTenantConfig['quickReplies'];
+  private nightDeskCompletion?: CallCompletion;
+  private cidMatch?: {
+    name?: string;
+    openJobs?: Array<{ id: string; title?: string }>;
+    membership?: string;
+    warranty?: string;
+  };
+  private cidLookupPromise?: Promise<void>;
+  private intakeBookPosted = false;
+  private dtmfPhone?: string | null;
+  private dtmfBuffer = '';
 
   /**
    * Voice mode for XTTS: 'preset' uses built-in voice_id, 'cloned' uses reference audio.
@@ -190,6 +228,7 @@ export class CallSession {
   private endedAt?: number;
   private endedReason?: string;
   private active = true;
+  private transferPending = false;
   private pstnPlaybackEndAuthority: 'webhook' | 'watchdog' | null = null;
 
   private endPlaybackAuthoritatively(reason: 'webhook' | 'watchdog'): void {
@@ -243,6 +282,7 @@ export class CallSession {
   /** Last TTS segment duration (ms) — used for Tier 2 measured listen-after-playback grace (300–900ms). */
   private lastPlaybackSegmentDurationMs = 0;
   private playbackStopSignal?: { promise: Promise<void>; resolve: () => void };
+  private audioInvariantReportLast?: AudioInvariantReport;
   private transcriptHandlingToken = 0;
   private transcriptAcceptedForUtterance = false;
   private deferredTranscript?: { text: string; source?: 'partial_fallback' | 'final' };
@@ -423,12 +463,11 @@ export class CallSession {
       env.WHISPER_URL ??
       '';
 
-    if (!sttEndpointUrl) {
+    const sttMode = this.sttConfig?.mode ?? 'whisper_http';
+    const cloudStt = sttMode === 'openai_whisper' || sttMode === 'deepgram';
+    if (!sttEndpointUrl && !cloudStt) {
       log.warn({ event: 'stt_url_missing', ...this.logContext }, 'No STT URL configured');
     }
-
-
-    const sttMode = this.sttConfig?.mode ?? 'whisper_http';
 
     const selectedMode =
       sttMode === 'http_wav_json' && !env.ALLOW_HTTP_WAV_JSON ? 'whisper_http' : sttMode;
@@ -557,11 +596,56 @@ export class CallSession {
     this.state = 'INIT';
     this.hasStarted = true;
 
+    if (this.from) {
+      this.cidLookupPromise = lookupCallerCid(
+        this.tenantId || '',
+        this.from,
+      ).then((hit) => {
+        if (hit) this.cidMatch = hit;
+      });
+    }
+
     if (options.autoAnswer !== false) {
       void this.answerAndGreet();
     }
 
     return true;
+  }
+
+  public onDemoShopDtmf(rawDigit: string): void {
+    const next = ingestDtmfDigit(
+      { buffer: this.dtmfBuffer, phone: this.dtmfPhone, alreadyHasPhone: !!this.dtmfPhone },
+      rawDigit,
+    );
+    this.dtmfBuffer = next.buffer;
+    if (next.action === 'clear') {
+      this.dtmfPhone = null;
+      return;
+    }
+    if (next.phone) this.dtmfPhone = next.phone;
+  }
+
+  public getNightDeskLead(): Record<string, unknown> {
+    const profile = tenantIntakeProfile(this.fullTenantConfig, this.tenantId);
+    const extracted = extractNightDeskLead({
+      history: this.conversationHistory,
+      callerId: this.from,
+      existingCustomerName: this.cidMatch?.name,
+      membership: this.cidMatch?.membership,
+      dtmfPhone: this.dtmfPhone,
+      profile,
+      tenantId: this.tenantId,
+    });
+    return {
+      ...extracted,
+      completion: this.nightDeskCompletion,
+      existingCustomer: this.cidMatch?.name,
+      openJobs: this.cidMatch?.openJobs,
+      membership: this.cidMatch?.membership,
+      warranty: this.cidMatch?.warranty,
+      intakeProfile: profile,
+      bookingAdapter: profile.writer === 'gcal' || this.intakeBookPosted ? 'gcal_helper' : undefined,
+    };
   }
 
   public onAnswered(): boolean {
@@ -814,7 +898,13 @@ export class CallSession {
       return;
     }
     try {
-      this.markEnded('transfer');
+      const awaitTargetOutcome = Boolean(options?.targetLegClientState);
+      if (awaitTargetOutcome) {
+        this.transferPending = true;
+        this.clearDeadAirTimer();
+      } else {
+        this.markEnded('transfer');
+      }
       await this.transport.transfer(to, options);
       log.info(
         { event: 'call_transfer_requested', to, ...this.logContext },
@@ -822,9 +912,38 @@ export class CallSession {
       );
     } catch (error) {
       log.error({ err: error, to, ...this.logContext }, 'call transfer failed');
+      this.transferPending = false;
       this.active = true; // revert markEnded so session can continue
       throw error;
     }
+  }
+
+  public onTransferAnswered(): void {
+    if (!this.transferPending) return;
+    this.transferPending = false;
+    this.markEnded('transfer_answered');
+    this.end();
+  }
+
+  public async onTransferFailed(reason?: string): Promise<void> {
+    if (!this.transferPending) return;
+    this.transferPending = false;
+    this.active = true;
+    await this.playAssistantTurn(
+      "I couldn't reach the on-call person. I've created an urgent task for the shop instead.",
+      `transfer-failed-${this.nextTurnId()}`,
+    );
+    if (this.active && this.state !== ('ENDED' as CallSessionState)) {
+      this.enterListeningState(true);
+    }
+    log.warn(
+      {
+        event: 'oncall_transfer_failed_resumed',
+        reason,
+        ...this.logContext,
+      },
+      'on-call transfer failed; caller session resumed',
+    );
   }
 
   public isActive(): boolean {
@@ -861,6 +980,7 @@ export class CallSession {
 
     this.endedReason = reason;
     this.audioCoordinator.onHangup(this.endedAt, reason);
+    this.ensureAudioInvariantReport(reason);
     log.info(
       { event: 'call_marked_inactive', reason, ...this.logContext },
       'call marked inactive',
@@ -891,12 +1011,37 @@ export class CallSession {
   }
 
   public snapshotQualitySignals() {
+    const audioInvariants = this.ensureAudioInvariantReport('teardown');
     return {
       ...this.qualitySignals,
       sttLatencyMs: [...this.qualitySignals.sttLatencyMs],
       ttsLatencyMs: [...this.qualitySignals.ttsLatencyMs],
       llmLatencyMs: [...this.qualitySignals.llmLatencyMs],
+      audioInvariants,
     };
+  }
+
+  private ensureAudioInvariantReport(reason: string): AudioInvariantReport {
+    if (this.audioInvariantReportLast) return this.audioInvariantReportLast;
+    const report = buildAudioInvariantReport({
+      counters: snapshotAudioInvariantCounters(this.callControlId),
+      callDurationMs: Date.now() - this.metrics.createdAt.getTime(),
+      playbackPstnSampleRateHz: env.PLAYBACK_PSTN_SAMPLE_RATE,
+      aecEnabled: env.STT_AEC_ENABLED === true,
+      transportMode: this.transport.mode,
+    });
+    this.audioInvariantReportLast = report;
+    clearAudioInvariantCounters(this.callControlId);
+    log.info(
+      {
+        event: 'audio_invariant_report',
+        reason,
+        ...report,
+        ...this.logContext,
+      },
+      'audio invariant report',
+    );
+    return report;
   }
 
   public getLastActivityAt(): Date {
@@ -952,15 +1097,256 @@ export class CallSession {
     }
     const bh = this.fullTenantConfig?.llmContext?.businessHours;
     const ev = evaluateBusinessHours(bh, new Date());
+    const features = this.fullTenantConfig?.usageLimits?.features;
+    const afterHoursEnabled = features?.afterHoursMode !== false;
     const lines = [
       ev.isOpen ? 'Current status: OPEN (within scheduled hours).' : 'Current status: CLOSED (outside scheduled hours).',
       ev.summary ? `Weekly schedule:\n${ev.summary}` : '',
-      ev.afterHoursMessage ? `After-hours message for callers: ${ev.afterHoursMessage}` : '',
+      afterHoursEnabled && !ev.isOpen && ev.afterHoursMessage
+        ? `After-hours message for callers: ${ev.afterHoursMessage}`
+        : '',
     ].filter(Boolean);
     if (lines.length) {
       base['Business schedule'] = lines.join('\n\n');
     }
+    if (features) {
+      base['Calendar'] = features.calendarIntegration
+        ? 'Booking is enabled. Collect a preferred time and confirm the appointment.'
+        : 'Booking is not included on this plan. Take a message instead of promising a calendar slot.';
+      base['SMS follow-up'] = features.smsFollowup
+        ? 'A confirmation text is sent after the call when a caller number is known.'
+        : 'Do not promise a text follow-up. This plan does not include SMS follow-up.';
+      base['Call recording'] = features.callRecording
+        ? 'This call is recorded. Mention recording only if the caller asks.'
+        : 'This call is not recorded. Do not tell the caller they are being recorded.';
+      base['Priority support'] = features.prioritySupport
+        ? 'On-call paging is allowed, including during quiet hours.'
+        : 'On-call paging is blocked during quiet hours.';
+      base['Transfer lines'] = features.multiLocation
+        ? 'Transfer to a person or desk when the caller asks to be connected.'
+        : 'Transfers are not included. Take a message instead of handing the caller off.';
+    }
+    if (this.cidMatch?.name) {
+      base['Existing customer'] = this.cidMatch.name;
+    }
+    if (this.cidMatch?.openJobs?.length) {
+      base['Open jobs'] = this.cidMatch.openJobs.map((j) => j.title || j.id).join(', ');
+    }
+    if (this.cidMatch?.membership) {
+      base['Membership'] = this.cidMatch.membership;
+    }
+    if (this.cidMatch?.warranty) {
+      base['Warranty'] = this.cidMatch.warranty;
+    }
+    const board = this.buildTalkerBoardText();
+    if (board) {
+      base['Call board'] = board;
+    }
     return base;
+  }
+
+  private deskHoursAfterHours(): boolean {
+    const hours = evaluateBusinessHours(
+      this.fullTenantConfig?.llmContext?.businessHours,
+      new Date(),
+    );
+    return this.fullTenantConfig?.usageLimits?.features?.afterHoursMode !== false && !hours.isOpen;
+  }
+
+  private planDeskTurn(utterance: string): ReceptionistTurnPlan {
+    const profile = tenantIntakeProfile(this.fullTenantConfig, this.tenantId);
+    const quick = this.tryMatchQuickReply(utterance);
+    return planReceptionistTurn({
+      utterance,
+      history: this.conversationHistory,
+      callerId: this.from,
+      dtmfPhone: this.dtmfPhone,
+      existing: this.cidMatch,
+      profile,
+      tenantId: this.tenantId,
+      playbook: playbookFromTenant(this.fullTenantConfig) as never,
+      afterHours: this.deskHoursAfterHours(),
+      transfersAllowed: this.fullTenantConfig?.usageLimits?.features?.multiLocation !== false
+        && (this.transferProfiles?.length || 0) > 0,
+      transferProfiles: this.transferProfiles,
+      posted: this.intakeBookPosted,
+      pricingItems: this.fullTenantConfig?.llmContext?.pricing?.items,
+      quickReply: quick?.text,
+    });
+  }
+
+  private buildTalkerBoardText(): string | null {
+    const plan = this.planDeskTurn(
+      [...this.conversationHistory].reverse().find((t) => t.role === 'user')?.content || '',
+    );
+    return formatTalkerBoard(plan.board);
+  }
+
+  private async writeGcalBooking(plan: ReceptionistTurnPlan): Promise<{ ok: boolean; speak?: string }> {
+    const url = gcalBookHelperUrl();
+    const body = {
+      tenantId: this.tenantId,
+      callControlId: this.callControlId,
+      callId: this.callControlId,
+      callerId: this.from,
+      name: plan.slots.name,
+      phone: plan.slots.phone,
+      email: plan.slots.email,
+      start: plan.slots.start,
+      end: plan.slots.end,
+      title: plan.slots.name
+        ? `Booking — ${plan.slots.name}`
+        : `Booking — ${this.from || 'Caller'}`,
+      transcript: plan.slots.transcript,
+      confirmSignal: plan.slots.confirmSignal || plan.slots.writable || false,
+      startSource: plan.slots.startSource,
+    };
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) {
+        log.warn(
+          { event: 'intake_gcal_book_failed', status: resp.status, ...this.logContext },
+          'gcal book helper rejected write',
+        );
+        return { ok: false };
+      }
+      this.intakeBookPosted = true;
+      return {
+        ok: true,
+        speak: plan.slots.startSpeak ? `You're booked for ${plan.slots.startSpeak}.` : 'You are booked.',
+      };
+    } catch (error) {
+      log.warn({ err: error, event: 'intake_gcal_book_error', ...this.logContext }, 'gcal book helper error');
+      return { ok: false };
+    }
+  }
+
+  private async applyDeskPlan(userText: string, plan: ReceptionistTurnPlan): Promise<{
+    text: string;
+    transferTo?: string;
+    timeoutSecs?: number;
+    pageId?: string;
+    handled: boolean;
+  }> {
+    if (!plan.skipLlm || !plan.speak) {
+      return { text: plan.speak || '', handled: false };
+    }
+    let text = plan.speak;
+    let deskAction: string | undefined;
+    if (plan.writeTask) {
+      deskAction = 'write_task';
+      text = "I've written a task for the shop so this does not get lost.";
+    }
+    if (plan.intent === 'quote' && /hold it for (the )?owner|not on the published shop list/i.test(text)) {
+      deskAction = 'quote_hold';
+    }
+    if (plan.writeBook) {
+      const profile = tenantIntakeProfile(this.fullTenantConfig, this.tenantId);
+      deskAction = 'write_book';
+      if (profile.writer === 'gcal') {
+        const booked = await this.writeGcalBooking(plan);
+        text = booked.ok
+          ? booked.speak || text
+          : "I could not write that yet. I've made a task for the shop instead.";
+        if (!booked.ok) {
+          const tasked = await this.applyNightDeskGate(
+            userText,
+            "I've written a task for the shop so this does not get lost.",
+            'write_task',
+          );
+          return { ...tasked, text: tasked.text, handled: true };
+        }
+      } else {
+        text = plan.slots.startSpeak
+          ? `You're booked for ${plan.slots.startSpeak}.`
+          : 'You are booked.';
+      }
+    }
+    const gated = await this.applyNightDeskGate(userText, text, deskAction);
+    return {
+      text: gated.text,
+      transferTo: gated.transferTo || plan.transferTo,
+      timeoutSecs: gated.timeoutSecs || plan.timeoutSecs,
+      pageId: gated.pageId,
+      handled: true,
+    };
+  }
+
+  private async applyNightDeskGate(userText: string, replyText: string, deskAction?: string): Promise<{
+    text: string;
+    transferTo?: string;
+    timeoutSecs?: number;
+    pageId?: string;
+  }> {
+    const profile = tenantIntakeProfile(this.fullTenantConfig, this.tenantId);
+    const lead = extractNightDeskLead({
+      history: this.conversationHistory,
+      callerId: this.from,
+      existingCustomerName: this.cidMatch?.name,
+      membership: this.cidMatch?.membership,
+      dtmfPhone: this.dtmfPhone,
+      profile,
+      tenantId: this.tenantId,
+    });
+    if (this.cidMatch?.warranty) lead.warranty = this.cidMatch.warranty;
+    lead.intakeProfile = profile;
+    if (deskAction) lead.deskAction = deskAction;
+    if (profile.writer === 'gcal' || this.intakeBookPosted) lead.bookingAdapter = 'gcal_helper';
+    const hours = evaluateBusinessHours(
+      this.fullTenantConfig?.llmContext?.businessHours,
+      new Date(),
+    );
+    const remote = await evaluateNightDeskTurn({
+      tenantId: this.tenantId || '',
+      callId: this.callControlId,
+      callerId: this.from,
+      utterance: userText,
+      proposedReply: replyText,
+      transcript: this.conversationHistory
+        .map((turn) => `${turn.role}: ${turn.content}`)
+        .join('\n'),
+      lead,
+      afterHours:
+        this.fullTenantConfig?.usageLimits?.features?.afterHoursMode !== false && !hours.isOpen,
+      existingOpenJobs: this.cidMatch?.openJobs?.length,
+      membership: this.cidMatch?.membership,
+    });
+    if (remote) {
+      if (remote.persisted && remote.completion) {
+        this.nightDeskCompletion = remote.completion;
+      }
+      return {
+        text: remote.text,
+        transferTo: remote.transfer?.to,
+        timeoutSecs: remote.transfer?.timeoutSecs,
+        pageId: remote.transfer?.pageId,
+      };
+    }
+
+    const local = applyShopSpeakGate({
+      playbookRaw: playbookFromTenant(this.fullTenantConfig),
+      transferProfiles: this.transferProfiles,
+      userText,
+      replyText,
+      existingOpenJobs: this.cidMatch?.openJobs?.length,
+      membership: this.cidMatch?.membership,
+    });
+    if (local.completion === 'booked' || local.completion === 'approval_held') {
+      return {
+        text:
+          'I cannot write that next step right now, so I will not claim it is booked or held. Please try again.',
+      };
+    }
+    return {
+      text: local.text,
+      transferTo: local.transferTo,
+      timeoutSecs: local.timeoutSecs,
+    };
   }
 
   /**
@@ -971,6 +1357,9 @@ export class CallSession {
   private async tryRespondToLateFinal(transcript: string): Promise<void> {
     this.isRespondingToLateFinal = true;
     try {
+      // Do not emit an ungated terminal promise after hangup. The transcript
+      // is still captured and call-end completion will create a task.
+      if (this.fullTenantConfig?.shopPlaybook) return;
       let response = '';
       try {
         const quick = this.tryMatchQuickReply(transcript);
@@ -1382,6 +1771,9 @@ export class CallSession {
 
 
   private beginPlayback(segmentId?: string): void {
+    if (this.playbackState.active) {
+      recordStackedPlay(this.callControlId);
+    }
     if (!this.playbackState.active) {
       this.playbackStopSignal = this.createPlaybackStopSignal();
     }
@@ -1472,16 +1864,7 @@ export class CallSession {
     attachAudioMeta(audio, baseMeta);
     probeWav('tts.out.raw', audio, baseMeta);
 
-    const ttsMode = this.ttsConfig?.mode;
-    const wavSrc =
-      ttsMode === 'coqui_xtts'
-        ? 'coqui_xtts'
-        : ttsMode === 'chatterbox_http'
-          ? 'chatterbox'
-          : ttsMode === 'qwen3_tts_http'
-            ? 'qwen3_tts_http'
-            : 'kokoro';
-    this.logWavInfo(wavSrc, id, audio);
+    this.logWavInfo('kokoro', id, audio);
   }
 
   private logWavInfo(
@@ -2446,6 +2829,7 @@ export class CallSession {
 
       const llmHooks = this.buildLlmForensicsHooks(safeAssistantTurn);
 
+      await this.cidLookupPromise;
       this.state = 'THINKING';
       this.appendTranscriptSegment(trimmed);
       this.appendHistory({ role: 'user', content: trimmed, timestamp: new Date() });
@@ -2456,9 +2840,55 @@ export class CallSession {
       let replySource = 'unknown';
       let playbackDone: Promise<void> | undefined;
       let replyResult: AssistantReplyResult | undefined;
+      let deskPlan: ReceptionistTurnPlan | undefined;
 
       try {
-        if (env.BRAIN_STREAMING_ENABLED) {
+        deskPlan = this.planDeskTurn(trimmed);
+        const deskHandled = await this.applyDeskPlan(trimmed, deskPlan);
+        if (deskHandled.handled) {
+          response = deskHandled.text;
+          replySource = 'call_board';
+          replyResult = { text: response, source: 'call_board' as AssistantReplyResult['source'] };
+          this.appendHistory({ role: 'assistant', content: response, timestamp: new Date() });
+          if (deskHandled.transferTo) {
+            await this.playAssistantTurn(response, assistantTurnId);
+            try {
+              const targetLegClientState = deskHandled.pageId
+                ? Buffer.from(
+                    JSON.stringify({
+                      kind: 'veralux_oncall_transfer',
+                      tenantId: this.tenantId,
+                      tenant_id: this.tenantId,
+                      callId: this.callControlId,
+                      pageId: deskHandled.pageId,
+                    }),
+                  ).toString('base64')
+                : undefined;
+              await this.transferCall(deskHandled.transferTo, {
+                timeoutSecs: deskHandled.timeoutSecs,
+                targetLegClientState,
+                commandId: randomUUID(),
+              });
+              if (deskHandled.pageId) this.nightDeskCompletion = this.nightDeskCompletion || 'on_call_paged';
+            } catch (error) {
+              log.error({ err: error, to: deskHandled.transferTo, ...this.logContext }, 'desk transfer failed');
+              await this.playAssistantTurn(
+                "I wasn't able to complete the transfer. I've written a task for the shop.",
+                assistantTurnId,
+              );
+            }
+            return;
+          }
+          await this.playAssistantTurn(response, assistantTurnId);
+          return;
+        }
+
+        // Shop-law replies must be fully evaluated and their side effects
+        // persisted before the first caller-visible audio byte.
+        if (
+          env.BRAIN_STREAMING_ENABLED &&
+          !this.fullTenantConfig?.shopPlaybook
+        ) {
           const streamResult = await this.streamAssistantReply(trimmed, handlingToken, llmHooks, assistantTurnId);
           replyResult = streamResult.reply;
           response = streamResult.reply.text;
@@ -2502,7 +2932,15 @@ export class CallSession {
         response = ASSISTANT_VOICE_LLM_ERROR_FALLBACK;
         replySource = 'fallback_error';
         log.error(
-          { err: error, assistant_reply_source: replySource, ...this.logContext },
+          {
+            err:
+              error instanceof Error
+                ? { name: error.name, message: error.message, stack: error.stack, cause: (error as any).cause }
+                : error,
+            err_message: error instanceof Error ? error.message : String(error),
+            assistant_reply_source: replySource,
+            ...this.logContext,
+          },
           'assistant reply generation failed',
         );
       }
@@ -2565,8 +3003,25 @@ export class CallSession {
         );
       }
 
-      // AI requested transfer: play reply text then transfer the call.
-      if (replyResult?.transfer?.to) {
+      const nightDesk = await this.applyNightDeskGate(
+        trimmed,
+        applySpeakPolicy({
+          replyText: response,
+          posted: this.intakeBookPosted,
+          writable: deskPlan?.slots.writable,
+          startIso: deskPlan?.slots.start,
+          allowHandoff:
+            this.fullTenantConfig?.usageLimits?.features?.multiLocation !== false &&
+            (this.transferProfiles?.length || 0) > 0,
+          board: deskPlan?.board,
+        }),
+      );
+      response = nightDesk.text;
+      const transferTo = nightDesk.transferTo || replyResult?.transfer?.to;
+      const transferTimeout = nightDesk.timeoutSecs || replyResult?.transfer?.timeoutSecs;
+
+      // AI or shop-law requested transfer: play reply text then transfer the call.
+      if (transferTo) {
         this.appendHistory({ role: 'assistant', content: response, timestamp: new Date() });
         if (env.BRAIN_STREAMING_ENABLED && playbackDone) {
           await playbackDone;
@@ -2574,21 +3029,47 @@ export class CallSession {
           await this.playAssistantTurn(response, assistantTurnId);
         }
         try {
-          await this.transferCall(replyResult.transfer.to, {
-            audioUrl: replyResult.transfer.audioUrl,
-            timeoutSecs: replyResult.transfer.timeoutSecs,
+          const targetLegClientState = nightDesk.pageId
+            ? Buffer.from(
+                JSON.stringify({
+                  kind: 'veralux_oncall_transfer',
+                  tenantId: this.tenantId,
+                  tenant_id: this.tenantId,
+                  callId: this.callControlId,
+                  pageId: nightDesk.pageId,
+                }),
+              ).toString('base64')
+            : undefined;
+          await this.transferCall(transferTo, {
+            audioUrl: replyResult?.transfer?.audioUrl,
+            timeoutSecs: transferTimeout,
+            targetLegClientState,
+            commandId: randomUUID(),
           });
+          if (nightDesk.transferTo) this.nightDeskCompletion = this.nightDeskCompletion || 'on_call_paged';
           log.info(
-            { event: 'ai_transfer_completed', to: replyResult.transfer.to, ...this.logContext },
+            { event: 'ai_transfer_completed', to: transferTo, ...this.logContext },
             'AI requested transfer completed',
           );
         } catch (error) {
           log.error(
-            { err: error, to: replyResult.transfer.to, ...this.logContext },
+            { err: error, to: transferTo, ...this.logContext },
             'AI transfer failed',
           );
+          this.nightDeskCompletion = 'tasked';
+          if (nightDesk.pageId) {
+            await reportOncallOutcome({
+              tenantId: this.tenantId || '',
+              callId: this.callControlId,
+              status: 'failed',
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 500)
+                  : 'transfer_command_failed',
+            });
+          }
           await this.playAssistantTurn(
-            "I wasn't able to complete the transfer. Please try again or stay on the line.",
+            "I wasn't able to complete the transfer. I've written a task for the shop.",
             assistantTurnId,
           );
         }
@@ -2597,10 +3078,11 @@ export class CallSession {
 
       this.appendHistory({ role: 'assistant', content: response, timestamp: new Date() });
 
-      if (env.BRAIN_STREAMING_ENABLED) {
-        if (playbackDone) {
-          await playbackDone;
-        }
+      // Streaming: await in-flight segment playback when present.
+      // If the stream died before any playbackDone (e.g. queueTtsSegment throw / LLM error),
+      // always speak the reply/fallback so the caller never gets dead air.
+      if (env.BRAIN_STREAMING_ENABLED && playbackDone) {
+        await playbackDone;
       } else {
         await this.playAssistantTurn(response, assistantTurnId);
       }
@@ -2613,7 +3095,11 @@ export class CallSession {
 
         // reset handling flags and go back to listening
         this.isHandlingTranscript = false;
-        if (this.active && this.state !== ('ENDED' as CallSessionState)) {
+        if (
+          this.active &&
+          !this.transferPending &&
+          this.state !== ('ENDED' as CallSessionState)
+        ) {
           // Only re-arm listening if we are NOT in playback and not already listening.
           if (!this.isPlaybackActive() && this.state !== 'LISTENING') {
             this.enterListeningState(true);
@@ -2856,6 +3342,8 @@ export class CallSession {
 
       this.onAnswered();
 
+      await this.cidLookupPromise;
+
       // Sprint 0 cohesion fix: prefer the per-tenant greeting (admin/owner edited,
       // published to Redis as `tenantcfg:<tenantId>.llmContext.prompts.greetingText`)
       // before falling back to the global env default. Previous behavior always
@@ -2864,8 +3352,10 @@ export class CallSession {
         typeof this.tenantGreetingText === 'string' && this.tenantGreetingText.trim()
           ? this.tenantGreetingText.trim()
           : undefined;
-      const greetingText =
-        tenantGreeting ?? env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?';
+      const greetingText = greetingWithCallerName(
+        tenantGreeting ?? env.GREETING_TEXT ?? 'Hi! Thanks for calling. How can I help you today?',
+        this.cidMatch?.name,
+      );
 
       if (this.transport.mode === 'webrtc_hd') {
         await this.playText(greetingText, 'greeting');
@@ -2932,8 +3422,7 @@ export class CallSession {
 
     try {
       const tenantLabel = this.tenantId ?? 'unknown';
-      const useQwenChunking =
-        this.ttsConfig?.mode === 'qwen3_tts_http' && this.ttsConfig.qwen3Streaming === true;
+      const useQwenChunking = false;
       const splitChunks = useQwenChunking ? splitQwenStreamingChunks(text) : [];
       const effectiveChunks = splitChunks.length > 0 ? splitChunks : [text];
 
@@ -2953,16 +3442,51 @@ export class CallSession {
         };
         markAudioSpan('tts_start', spanMeta);
         const ttsStart = Date.now();
+        if (this.transport.mode === 'pstn') {
+          const streamed = await tryPlayKokoroStreamToTelnyx({
+            callControlId: this.callControlId,
+            text: chunkText,
+            ttsConfig: this.ttsConfig,
+            logContext: this.logContext,
+            shouldAbort: () =>
+              !this.active ||
+              this.state === 'ENDED' ||
+              this.playbackState.interrupted ||
+              (this.shouldSkipTelnyxAction('playback_start') && !allowWhenEnded),
+            onFirstAudio: () => {
+              markAudioSpan('tts_ready', spanMeta);
+              markAudioSpan('tx_sent', spanMeta);
+              this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
+              recordPlayStart(this.callControlId);
+              this.audioCoordinator.onTtsStart(Date.now(), 'tts_playback_start');
+            },
+            onDurationMs: (ms) => {
+              this.playbackState.segmentDurationMs = ms;
+            },
+          });
+          endTts();
+          if (streamed.ok) {
+            log.info(
+              {
+                event: 'tts_synthesized',
+                duration_ms: Date.now() - ttsStart,
+                stream_chunks: streamed.chunks,
+                first_audio_ms: streamed.firstAudioMs,
+                ...this.logContext,
+              },
+              'tts synthesized',
+            );
+            if (isLastChunk) playbackEndDeferred = true;
+            continue;
+          }
+        }
         let result: TTSResult;
         try {
           const currentSpeakerWavUrl = this.getCurrentSpeakerWavUrl();
           result = await synthesizeSpeech(
             {
               text: chunkText,
-              voice:
-                this.ttsConfig?.mode === 'qwen3_tts_http'
-                  ? this.ttsConfig.speaker
-                  : this.ttsConfig?.voice,
+              voice: this.ttsConfig?.mode === 'kokoro_http' ? this.ttsConfig.voice : undefined,
               format: this.ttsConfig?.format,
               sampleRate: this.ttsConfig?.sampleRate,
               speakerWavUrl: currentSpeakerWavUrl,
@@ -3008,10 +3532,7 @@ export class CallSession {
           void fos
             .writeJson(`tts/011_tts_request_${safeChunkId}.json`, {
               text: chunkText,
-              voice:
-                this.ttsConfig?.mode === 'qwen3_tts_http'
-                  ? this.ttsConfig.speaker
-                  : this.ttsConfig?.voice,
+              voice: this.ttsConfig?.mode === 'kokoro_http' ? this.ttsConfig.voice : undefined,
               format: this.ttsConfig?.format,
               content_type: result.contentType,
               mode: this.ttsConfig?.mode,
@@ -3141,6 +3662,7 @@ export class CallSession {
 
           markAudioSpan('tx_sent', spanMeta);
           this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
+          recordPlayStart(this.callControlId);
           await this.transport.playback.play(playbackInput);
 
           if (this.transport.mode === 'pstn') {
@@ -3261,6 +3783,39 @@ export class CallSession {
     };
     markAudioSpan('tts_start', spanMeta);
     const ttsStart = Date.now();
+    if (this.transport.mode === 'pstn') {
+      const streamed = await tryPlayKokoroStreamToTelnyx({
+        callControlId: this.callControlId,
+        text: segmentText,
+        ttsConfig: this.ttsConfig,
+        logContext: this.logContext,
+        shouldAbort: () => !this.active || this.state === 'ENDED' || this.playbackState.interrupted,
+        onFirstAudio: () => {
+          markAudioSpan('tts_ready', spanMeta);
+          markAudioSpan('tx_sent', spanMeta);
+          this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
+          recordPlayStart(this.callControlId);
+          this.audioCoordinator.onTtsStart(Date.now(), 'tts_segment_playback_start');
+        },
+        onDurationMs: (ms) => {
+          this.playbackState.segmentDurationMs = ms;
+        },
+      });
+      endTts();
+      if (streamed.ok) {
+        log.info(
+          {
+            event: 'tts_synthesized',
+            duration_ms: Date.now() - ttsStart,
+            stream_chunks: streamed.chunks,
+            first_audio_ms: streamed.firstAudioMs,
+            ...this.logContext,
+          },
+          'tts synthesized',
+        );
+        return;
+      }
+    }
     let result: TTSResult;
     try {
       const currentSpeakerWavUrl = this.getCurrentSpeakerWavUrl();
@@ -3268,9 +3823,7 @@ export class CallSession {
         {
           text: segmentText,
           voice:
-            this.ttsConfig?.mode === 'qwen3_tts_http'
-              ? this.ttsConfig.speaker
-              : this.ttsConfig?.voice,
+            this.ttsConfig?.mode === 'kokoro_http' ? this.ttsConfig.voice : undefined,
           format: this.ttsConfig?.format,
           sampleRate: this.ttsConfig?.sampleRate,
           speakerWavUrl: currentSpeakerWavUrl,
@@ -3388,6 +3941,7 @@ export class CallSession {
 
       markAudioSpan('tx_sent', spanMeta);
       this.maybeRecordTurnFinalToFirstPlaybackMs(tenantLabel);
+      recordPlayStart(this.callControlId);
       await this.transport.playback.play(playbackInput);
 
       // ✅ IMPORTANT: do NOT call onPlaybackEnded() here.

@@ -110,7 +110,7 @@ Reference: **`CONFIG_MATRIX.md`**, **`ENV_VALIDATION_PLAN.md`**.
 | `POSTGRES_*`, `JWT_SECRET`, `ADMIN_API_KEY`, `SECRET_ENCRYPTION_KEY`, `MEDIA_STREAM_TOKEN` | Core secrets | Yes |
 | `BASE_URL`, `PUBLIC_BASE_URL`, `AUDIO_PUBLIC_BASE_URL`, `ADMIN_ALLOWED_ORIGINS` | URLs / CORS | Yes |
 | `TELNYX_*`, `OPENAI_*`, `LLM_PROVIDER` | Voice + LLM | Yes for default stack |
-| `TTS_MODE` | `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http` | Yes for voice |
+| `TTS_MODE` | `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`, `miso_tts_http` | Yes for voice |
 
 Defaults for many runtime knobs are in **`docker-compose.yml`**; override via **`.env.internal`** when needed.
 
@@ -123,6 +123,16 @@ Default ports (change in `.env` if needed):
 | Control Plane (API + UI) | 4000 | `CONTROL_PORT` |
 | Runtime | 4001 | `RUNTIME_PORT` |
 | PostgreSQL | 5432 | `POSTGRES_PORT` |
+
+### Consoles (same origin on the control plane)
+
+| URL | App |
+|-----|-----|
+| `/admin` | React platform console |
+| `/portal` | React owner portal |
+| `/admin-legacy`, `/portal-legacy`, `/owner` | HTML fallback |
+
+The React app is built from `web/` into `control-plane/public/app` (`npm run build:web`). It talks only to `/api/*` — never to TTS engines directly.
 
 ---
 

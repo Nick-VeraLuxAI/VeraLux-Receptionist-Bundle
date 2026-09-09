@@ -12,7 +12,6 @@ dist
 .vscode
 *.test.js
 tests
-legacy
 Dockerfile
 docker-compose*.yml
 .dockerignore

@@ -10,6 +10,9 @@ const URL_LIKE_KEYS = new Set([
   "coquiXttsUrl",
   "chatterboxUrl",
   "qwen3TtsUrl",
+  "misoTtsUrl",
+  "magpieTtsUrl",
+  "meloTtsUrl",
   "xttsUrl",
   "publicBaseUrl",
   "speakerWavUrl",
@@ -31,6 +34,12 @@ function isInternalHostname(host: string): boolean {
     h === "brain" ||
     h === "control" ||
     h === "veralux-qwen3-tts" ||
+    h === "veralux-miso-tts" ||
+    h === "miso-tts" ||
+    h === "veralux-magpie-tts" ||
+    h === "magpie-tts" ||
+    h === "veralux-melo-tts" ||
+    h === "melo-tts" ||
     h.startsWith("172.") ||
     h.startsWith("10.") ||
     h.startsWith("192.168.")
@@ -78,7 +87,7 @@ export function redactPublishedRuntimeConfig(config: RuntimeTenantConfig): Recor
   }
   if (raw.tts && typeof raw.tts === "object") {
     const tts = raw.tts as Record<string, unknown>;
-    for (const k of ["kokoroUrl", "coquiXttsUrl", "chatterboxUrl", "qwen3TtsUrl"]) {
+    for (const k of ["kokoroUrl", "coquiXttsUrl", "chatterboxUrl", "qwen3TtsUrl", "misoTtsUrl", "magpieTtsUrl", "meloTtsUrl"]) {
       if (typeof tts[k] === "string") tts[k] = redactHttpUrlToPlaceholder(tts[k] as string) ?? "[redacted]";
     }
   }

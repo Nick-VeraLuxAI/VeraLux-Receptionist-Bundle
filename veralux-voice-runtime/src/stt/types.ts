@@ -1,4 +1,4 @@
-export type STTMode = 'whisper_http' | 'disabled' | 'http_wav_json';
+export type STTMode = 'whisper_http' | 'disabled' | 'http_wav_json' | 'openai_whisper' | 'deepgram';
 
 import type { AudioMeta } from '../diagnostics/audioProbe';
 

@@ -9,7 +9,9 @@ If operational reality diverges from this contract, the contract is wrong for th
 
 ---
 
-## 1. Single supported deployment model
+## 1. Supported deployment models
+
+### 1A. On-prem Compose (primary)
 
 **One Docker Compose project on one Linux (or macOS Docker Desktop) host, using the repository root as the working directory.**
 
@@ -23,6 +25,10 @@ If operational reality diverges from this contract, the contract is wrong for th
 **Host density:** At most **one** in-contract stack per Docker engine. This repository uses fixed Docker **`container_name`** values (`veralux-control`, `veralux-runtime`, `veralux-postgres`, `veralux-redis`, etc.); a second stack on the same engine will conflict.
 
 **Optional merge file:** Docker Compose may auto-load **`docker-compose.override.yml`** if present beside `docker-compose.yml`. That file is **not** shipped as part of the product contract; if operators add it on a host, they own the diff.
+
+### 1B. Cloud-hosted (second official track)
+
+Per-customer **control + runtime + managed Postgres + Redis** on Render, Railway, or AWS, using frontier STT/LLM/TTS APIs. Orchestrated from the hub admin **Pipeline** page (`/admin/pipeline`). See **`docs/CLOUD_HOSTED_PIPELINE.md`** and **`docs/CLOUD_API_DEPLOYMENT.md`**. This track does **not** replace Compose-on-one-host. Kubernetes/Swarm remain unsupported.
 
 ---
 
@@ -55,8 +61,8 @@ These **Compose service names** from root `docker-compose.yml` are **always** pa
 
 | Profile | STT | TTS-related (see note) |
 |---------|-----|-------------------------|
-| `gpu` | `whisper-gpu` | `kokoro-gpu`, `xtts-gpu`, `chatterbox-gpu`, `qwen3-tts-gpu` (all defined; only those matching `TTS_MODE` and URLs must be healthy for calls) |
-| `cpu` | `whisper-cpu` | `kokoro-cpu`, `xtts-cpu`, `qwen3-tts-cpu` |
+| `gpu` | `whisper-gpu` | `kokoro-gpu`, `xtts-gpu`, `chatterbox-gpu`, `qwen3-tts-gpu`, `miso-tts-gpu` (all defined; only those matching `TTS_MODE` and URLs must be healthy for calls) |
+| `cpu` | `whisper-cpu` | `kokoro-cpu`, `xtts-cpu`, `qwen3-tts-cpu`, `miso-tts-cpu` |
 
 **Note:** `chatterbox-gpu` exists in `docker-compose.yml`; there is **no** `chatterbox-cpu` service. Therefore **`TTS_MODE=chatterbox_http` is only valid when the deployment uses the `gpu` profile** (NVIDIA present per `deploy.sh` detection). A CPU-only host with `chatterbox_http` is **out of contract** (see `UNSUPPORTED_PATTERNS.md`).
 
@@ -94,7 +100,7 @@ If `TTS_MODE` is **not** one of the four values above, `./deploy.sh` passes **no
 |------------|----------------|
 | **NVIDIA GPU + NVIDIA Container Toolkit** | For `--profile gpu`. |
 | **Hugging Face token** | For `chatterbox-gpu` / `qwen3-tts-*` image behavior when models require auth (`HF_TOKEN` in compose env). |
-| **Stripe** | Only if billing features are used (`STRIPE_*`). |
+| **Stripe** | Only if billing features are used (`STRIPE_*`). Webhook: `POST {CONTROL_PLANE_PUBLIC_URL}/api/stripe/webhook`. See `docs/STRIPE_BILLING.md`. |
 | **SMTP** | Only if workflow email actions are used (`SMTP_*`). |
 | **AWS CLI** | Only if `./scripts/backup.sh --s3` is used. |
 

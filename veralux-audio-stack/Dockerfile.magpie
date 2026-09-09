@@ -1,0 +1,42 @@
+# NVIDIA Magpie TTS 357M HTTP server (port 7012). GPU recommended.
+# Requires HF_TOKEN if the checkpoint is gated on Hugging Face.
+FROM pytorch/pytorch:2.7.1-cuda12.8-cudnn9-runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libsndfile1 \
+    ffmpeg \
+    git \
+    curl \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip wheel \
+    && pip install --no-cache-dir "numpy>=1.24,<2"
+
+COPY magpie_tts_server.py ./
+
+# Install NeMo Speech after the image PyTorch so MagpieTTSModel is available.
+# kaldialign + NeMo-text-processing are used for apply_TN / alignment helpers.
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.32.0" \
+    "gunicorn>=23.0.0" \
+    "slowapi>=0.1.9" \
+    "pydantic>=2.0" \
+    "soundfile>=0.12.0" \
+    "huggingface_hub>=0.24.0" \
+    "peft>=0.13.0" \
+    kaldialign \
+    && pip install --no-cache-dir "nemo_toolkit[tts] @ git+https://github.com/NVIDIA-NeMo/Speech.git@main" \
+    && pip install --no-cache-dir "git+https://github.com/NVIDIA/NeMo-text-processing.git"
+
+ENV MAGPIE_TTS_DEVICE=cuda
+ENV MAGPIE_TTS_MODEL=nvidia/magpie_tts_multilingual_357m
+EXPOSE 7012
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=900s --retries=8 \
+  CMD curl -sf http://127.0.0.1:7012/health || exit 1
+
+CMD ["uvicorn", "magpie_tts_server:app", "--host", "0.0.0.0", "--port", "7012"]

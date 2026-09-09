@@ -41,13 +41,13 @@ Templates: **`.env.example`** (operators), **`.env.internal.example`** (advanced
 | `TELNYX_PHONE_NUMBER` | C | Primary DID (tenant DIDs also in DB). |
 | `TELNYX_VERIFY_SIGNATURES` | C | Must stay `true` in production. |
 | `LLM_PROVIDER`, `OPENAI_API_KEY`, `OPENAI_MODEL` | S/C | Cloud LLM default. |
-| `TTS_MODE` | C | `coqui_xtts` \| `kokoro_http` \| `qwen3_tts_http` \| `chatterbox_http`. |
+| `TTS_MODE` | C | `coqui_xtts` \| `kokoro_http` \| `qwen3_tts_http` \| `chatterbox_http` \| `miso_tts_http`. |
 | `HF_TOKEN` | S | HF gated models (Chatterbox/Qwen containers). |
 | `STRIPE_*` | S/F | Billing when used. |
 | `SMTP_*` | S/F | Workflow email when used. |
 | `CLOUDFLARE_TUNNEL_TOKEN`, `NGROK_AUTHTOKEN` | S/F | Tunnels. |
 | `CLOUDFLARED_TAG`, `NGROK_TAG` | C | Pin tunnel images. |
-| `INSTALLER_USERNAME`, `INSTALLER_PASSWORD` | C/S | `install.sh` admin-auth; password unset → **`ADMIN_API_KEY`** (see `control-plane/src/server.ts`). |
+| `INSTALLER_USERNAME`, `INSTALLER_PASSWORD`, `ADMIN_CONSOLE_EMAIL` | C/S | Bootstrap staff login for `/admin`. After **Settings → Your sign-in**, hashed credentials live in Postgres (`console_credentials`) and no longer require a control restart. |
 | `LOG_LEVEL` | C | Typical `info`. |
 
 `API_KEY` appears in **`docker-compose.yml`** for `control` but is **unused** in control-plane TypeScript — ignore or remove in a future cleanup.
@@ -84,7 +84,7 @@ Includes (non-exhaustive):
 
 - **DIDs** (`dids`), per-tenant **capacity** caps (`caps`).
 - **STT**: `stt.mode`, `stt.whisperUrl`, `stt.chunkMs`, `stt.language`, etc.
-- **TTS**: mode-specific blocks (`kokoro_http`, `coqui_xtts`, `chatterbox_http`, `qwen3_tts_http`) — URLs, voice, cloning refs.
+- **TTS**: mode-specific blocks (`kokoro_http`, `coqui_xtts`, `chatterbox_http`, `qwen3_tts_http`, `miso_tts_http`) — URLs, voice, cloning refs.
 - **LLM context**: `llmContext.prompts`, forwarding profiles, pricing text.
 - **Assistant**: `assistantContext`, `quickReplies`.
 - **Call forwarding**: `callForwarding`, `transferProfiles`.

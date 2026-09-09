@@ -1,5 +1,7 @@
 # Billing Usage Model
 
+Stripe subscriptions and the live catalog: see [`docs/STRIPE_BILLING.md`](docs/STRIPE_BILLING.md).
+
 ## Source of Truth
 
 - `tenant_limits` stores plan metadata and enforceable limits.

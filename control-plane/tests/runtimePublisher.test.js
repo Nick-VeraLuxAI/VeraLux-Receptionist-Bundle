@@ -98,6 +98,10 @@ test("runtimePublisher publishes and reads tenant config", async () => {
   const loaded = await publisher.getTenantConfig("tenantA");
 
   assert.deepEqual(loaded, config);
+
+  await publisher.unpublishTenantConfig("tenantA");
+  const gone = await publisher.getTenantConfig("tenantA");
+  assert.equal(gone, null);
 });
 
 test("withRuntimePublishTimestamp sets ISO field", () => {

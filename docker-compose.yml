@@ -9,9 +9,10 @@
 #
 # OPTIONAL: `./deploy.sh up` merges `.env.internal` when present (see deploy.sh).
 # ---------------------------------------------------------------------------
-# Do NOT use plain `docker compose up -d` as your primary startup: Whisper,
-# XTTS, Kokoro, and Qwen TTS run under Compose profiles (gpu/cpu). deploy.sh
-# selects them from TTS_MODE + hardware. Plain `up` starts control/runtime only
+# Do NOT use plain `docker compose up -d` as your primary startup: Whisper
+# and Kokoro run under Compose profiles (gpu/cpu). Other TTS engines are
+# parked on profile `legacy-tts` and are not started by default.
+# deploy.sh selects gpu/cpu from hardware. Plain `up` starts control/runtime only
 # and voice/STT/TTS will fail until profiles are applied.
 #
 # Developers may still use targeted commands, e.g.:
@@ -84,14 +85,17 @@ services:
       - REDIS_URL=redis://redis:6379
       - JWT_SECRET=${JWT_SECRET}
       - API_KEY=${API_KEY:-${ADMIN_API_KEY}}
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_PROVIDER=${LLM_PROVIDER:-local}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
-      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-Nemotron-Nano-30B-A3B-NVFP4}
+      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-http://host.docker.internal:8082/v1/chat/completions}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - TELNYX_PHONE_NUMBER=${TELNYX_PHONE_NUMBER}
       - TELNYX_API_KEY=${TELNYX_API_KEY}
+      - TELNYX_CONNECTION_ID=${TELNYX_CONNECTION_ID:-}
       - VERALUX_WEBHOOK_URL=${VERALUX_WEBHOOK_URL:-}
       - BASE_URL=${BASE_URL:-http://localhost:4000}
+      - CONTROL_PLANE_PUBLIC_URL=${CONTROL_PLANE_PUBLIC_URL:-}
       - SECRET_ENCRYPTION_KEY=${SECRET_ENCRYPTION_KEY}
       - SECRET_MANAGER=${SECRET_MANAGER:-db}
       - ADMIN_API_KEY=${ADMIN_API_KEY}
@@ -109,16 +113,23 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-noreply@veralux.ai}
+      # Completed night desk
+      - JOBBER_CLIENT_ID=${JOBBER_CLIENT_ID:-}
+      - JOBBER_CLIENT_SECRET=${JOBBER_CLIENT_SECRET:-}
+      - JOBBER_GRAPHQL_VERSION=${JOBBER_GRAPHQL_VERSION:-2025-04-16}
+      - INBOUND_LEAD_TOKEN=${INBOUND_LEAD_TOKEN:-}
+      - ONCALL_DRILL_AUDIO_URL=${ONCALL_DRILL_AUDIO_URL:-}
       # White-label UI + copy (see CUSTOMER_CONFIG_SURFACE.md, GET /api/branding)
       - BRAND_NAME=${BRAND_NAME:-}
-      # Use ${VAR-default}: unset → bundled logo; explicit BRAND_LOGO_URL= in .env → hide (see customerBranding.ts)
-      - BRAND_LOGO_URL=${BRAND_LOGO_URL-/veralux-logo.png}
+      # Use ${VAR-default}: unset → official bundled assets; explicit empty value → hide (see customerBranding.ts)
+      - BRAND_LOGO_URL=${BRAND_LOGO_URL-/brand/veralux-emblem.png}
+      - BRAND_WORDMARK_URL=${BRAND_WORDMARK_URL-/brand/veralux-wordmark-name.png}
       - BRAND_LOGO_ALT=${BRAND_LOGO_ALT:-}
       - BRAND_ADMIN_HEADLINE=${BRAND_ADMIN_HEADLINE:-}
       - BRAND_ADMIN_TAGLINE=${BRAND_ADMIN_TAGLINE:-}
       - BRAND_PORTAL_BROWSER_TITLE=${BRAND_PORTAL_BROWSER_TITLE:-}
       - BRAND_PORTAL_HEADER=${BRAND_PORTAL_HEADER:-}
-      - BRAND_PORTAL_FOOTER_URL=${BRAND_PORTAL_FOOTER_URL:-}
+      - BRAND_PORTAL_FOOTER_URL=${BRAND_PORTAL_FOOTER_URL-https://veralux.ai}
       - BRAND_PORTAL_FOOTER_DISABLED=${BRAND_PORTAL_FOOTER_DISABLED:-}
       - BRAND_PORTAL_FOOTER_LINK_TEXT=${BRAND_PORTAL_FOOTER_LINK_TEXT:-}
       - BRAND_OWNER_BROWSER_TITLE=${BRAND_OWNER_BROWSER_TITLE:-}
@@ -128,12 +139,16 @@ services:
       - TELNYX_CONNECTION_DISPLAY_NAME=${TELNYX_CONNECTION_DISPLAY_NAME:-}
       - WORKFLOW_SMS_DEFAULT_MESSAGE=${WORKFLOW_SMS_DEFAULT_MESSAGE:-}
       # ── Redis sync env vars (used by redisSync.ts) ──
-      - TTS_MODE=${TTS_MODE:-coqui_xtts}
+      - TTS_MODE=${TTS_MODE:-kokoro_http}
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
       - CHATTERBOX_URL=${CHATTERBOX_URL:-http://chatterbox:7005}
       # Qwen3 is service qwen3-tts-gpu (profile gpu); hostname resolves only when that container is up.
       - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://veralux-qwen3-tts:7010}
+      # Miso is service miso-tts-gpu (profile gpu); hostname resolves only when that container is up.
+      - MISO_TTS_URL=${MISO_TTS_URL:-http://veralux-miso-tts:7011}
+      - MAGPIE_TTS_URL=${MAGPIE_TTS_URL:-http://veralux-magpie-tts:7012}
+      - MELO_TTS_URL=${MELO_TTS_URL:-http://veralux-melo-tts:7013}
       - WHISPER_URL=${WHISPER_URL:-http://whisper:9000/transcribe}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -192,25 +207,30 @@ services:
       - TTS_HEALTH_URL=${TTS_HEALTH_URL:-}
       - LLM_HEALTH_URL=${LLM_HEALTH_URL:-}
       # LLM / OpenAI
-      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
-      - PLATFORM_LLM_PROVIDER=${PLATFORM_LLM_PROVIDER:-brain_local}
+      - LLM_PROVIDER=${LLM_PROVIDER:-local}
+      - PLATFORM_LLM_PROVIDER=${PLATFORM_LLM_PROVIDER:-nemotron}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
-      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-Nemotron-Nano-30B-A3B-NVFP4}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-http://host.docker.internal:8082/v1}
+      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-http://host.docker.internal:8082/v1/chat/completions}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       # Telnyx Configuration
       - TELNYX_API_KEY=${TELNYX_API_KEY}
       - TELNYX_PUBLIC_KEY=${TELNYX_PUBLIC_KEY}
       - TELNYX_PHONE_NUMBER=${TELNYX_PHONE_NUMBER}
       - TELNYX_VERIFY_SIGNATURES=${TELNYX_VERIFY_SIGNATURES:-true}
-      - TELNYX_ACCEPT_CODECS=${TELNYX_ACCEPT_CODECS:-PCMU,AMR-WB}
+      - TELNYX_ACCEPT_CODECS=${TELNYX_ACCEPT_CODECS:-AMR-WB,PCMU}
+      - TELNYX_STREAM_CODEC=${TELNYX_STREAM_CODEC:-L16}
+      - TELNYX_STREAM_BIDIRECTIONAL_MODE=${TELNYX_STREAM_BIDIRECTIONAL_MODE:-rtp}
+      - TELNYX_STREAM_BIDIRECTIONAL_CODEC=${TELNYX_STREAM_BIDIRECTIONAL_CODEC:-L16}
+      - TELNYX_STREAM_BIDIRECTIONAL_SAMPLING_RATE=${TELNYX_STREAM_BIDIRECTIONAL_SAMPLING_RATE:-16000}
       - TELNYX_AMRWB_DECODE=${TELNYX_AMRWB_DECODE:-true}
-      - PLAYBACK_PSTN_SAMPLE_RATE=${PLAYBACK_PSTN_SAMPLE_RATE:-24000}
+      - PLAYBACK_PSTN_SAMPLE_RATE=${PLAYBACK_PSTN_SAMPLE_RATE:-16000}
       # URLs
       - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
       - AUDIO_PUBLIC_BASE_URL=${AUDIO_PUBLIC_BASE_URL}
-      # TTS Mode (coqui_xtts | kokoro_http | chatterbox_http | qwen3_tts_http)
-      - TTS_MODE=${TTS_MODE:-coqui_xtts}
+      # TTS Mode — Kokoro is the only live path
+      - TTS_MODE=${TTS_MODE:-kokoro_http}
       - KOKORO_URL=${KOKORO_URL:-http://kokoro:7001/tts}
       - XTTS_URL=${XTTS_URL:-http://xtts:7002}
       - COQUI_XTTS_URL=${COQUI_XTTS_URL:-http://xtts:7002/tts}
@@ -220,8 +240,20 @@ services:
       - CHATTERBOX_STREAMING=${CHATTERBOX_STREAMING:-false}
       # Qwen3 is service qwen3-tts-gpu (profile gpu); hostname resolves only when that container is up.
       - QWEN3_TTS_URL=${QWEN3_TTS_URL:-http://veralux-qwen3-tts:7010}
-      - QWEN3_TTS_SPEAKER=${QWEN3_TTS_SPEAKER:-Ryan}
+      - QWEN3_TTS_SPEAKER=${QWEN3_TTS_SPEAKER:-Serena}
       - QWEN3_TTS_LANGUAGE=${QWEN3_TTS_LANGUAGE:-English}
+      # Miso TTS 8B is service miso-tts-gpu (profile gpu); requires a high-VRAM GPU for practical latency.
+      - MISO_TTS_URL=${MISO_TTS_URL:-http://veralux-miso-tts:7011}
+      - MAGPIE_TTS_URL=${MAGPIE_TTS_URL:-http://veralux-magpie-tts:7012}
+      - MAGPIE_TTS_SPEAKER=${MAGPIE_TTS_SPEAKER:-Sofia}
+      - MAGPIE_TTS_LANGUAGE=${MAGPIE_TTS_LANGUAGE:-en}
+      - MELO_TTS_URL=${MELO_TTS_URL:-http://veralux-melo-tts:7013}
+      - MELO_TTS_SPEAKER=${MELO_TTS_SPEAKER:-EN-US}
+      - MELO_TTS_LANGUAGE=${MELO_TTS_LANGUAGE:-EN}
+      - MISO_TTS_SPEAKER=${MISO_TTS_SPEAKER:-0}
+      - MISO_TTS_MAX_AUDIO_LENGTH_MS=${MISO_TTS_MAX_AUDIO_LENGTH_MS:-10000}
+      - MISO_TTS_TEMPERATURE=${MISO_TTS_TEMPERATURE:-0.9}
+      - MISO_TTS_TOP_K=${MISO_TTS_TOP_K:-50}
       # Media/Audio
       - MEDIA_STREAM_TOKEN=${MEDIA_STREAM_TOKEN}
       - AUDIO_STORAGE_DIR=${AUDIO_STORAGE_DIR:-/app/audio}
@@ -503,7 +535,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - gpu
+      - legacy-tts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7002/health"]
       interval: 30s
@@ -541,7 +573,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - gpu
+      - legacy-tts
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:7005/health"]
       interval: 30s
@@ -599,7 +631,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - gpu
+      - legacy-tts
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:7010/health"]
       interval: 30s
@@ -627,12 +659,150 @@ services:
       - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
       - RATE_LIMIT_PER_MINUTE=${QWEN3_TTS_RATE_LIMIT_PER_MINUTE:-10000}
       - QWEN3_TTS_MAX_CONCURRENT=${QWEN3_TTS_MAX_CONCURRENT:-1}
+      - QWEN3_TTS_DEFAULT_SPEAKER=${QWEN3_TTS_DEFAULT_SPEAKER:-Serena}
+      - QWEN3_TTS_DEFAULT_LANGUAGE=${QWEN3_TTS_DEFAULT_LANGUAGE:-English}
+    volumes:
+      - ${QWEN3_TTS_MODEL_DIR:-/mnt/model-storage/vera-animation-models/qwen3-tts/1.7b-customvoice}:/models/qwen3-customvoice:ro
     ports:
       - "${QWEN3_TTS_PORT:-7010}:7010"
     networks:
       veralux-network:
         aliases:
           - qwen3-tts
+
+  miso-tts-gpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/miso-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.misotts
+    container_name: veralux-miso-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - legacy-tts
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7011/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 900s
+    deploy:
+      resources:
+        limits:
+          cpus: "8.0"
+          memory: 32G
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${MISO_TTS_GPU_IDS:-0}"]
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${MISO_TTS_GPU_IDS:-0}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - MISO_TTS_DEVICE=${MISO_TTS_DEVICE:-cuda}
+      - MISO_TTS_MODEL=${MISO_TTS_MODEL:-MisoLabs/MisoTTS}
+      - MISO_TTS_DTYPE=${MISO_TTS_DTYPE:-bfloat16}
+      - RATE_LIMIT_PER_MINUTE=${MISO_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - MISO_TTS_MAX_CONCURRENT=${MISO_TTS_MAX_CONCURRENT:-1}
+      - MISO_TTS_DEFAULT_MAX_AUDIO_MS=${MISO_TTS_DEFAULT_MAX_AUDIO_MS:-10000}
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+    ports:
+      - "${MISO_TTS_PORT:-7011}:7011"
+    networks:
+      veralux-network:
+        aliases:
+          - miso-tts
+
+  magpie-tts-gpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/magpie-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.magpie
+    container_name: veralux-magpie-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - legacy-tts
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7012/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 8
+      start_period: 900s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 12G
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${MAGPIE_TTS_GPU_IDS:-0}"]
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${MAGPIE_TTS_GPU_IDS:-0}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - MAGPIE_TTS_DEVICE=${MAGPIE_TTS_DEVICE:-cuda}
+      - MAGPIE_TTS_MODEL=${MAGPIE_TTS_MODEL:-nvidia/magpie_tts_multilingual_357m}
+      - MAGPIE_TTS_DEFAULT_SPEAKER=${MAGPIE_TTS_DEFAULT_SPEAKER:-Sofia}
+      - MAGPIE_TTS_DEFAULT_LANGUAGE=${MAGPIE_TTS_DEFAULT_LANGUAGE:-en}
+      - MAGPIE_TTS_WARMUP=${MAGPIE_TTS_WARMUP:-true}
+      - MAGPIE_TTS_DTYPE=${MAGPIE_TTS_DTYPE:-float32}
+      - MAGPIE_TTS_USE_CFG=${MAGPIE_TTS_USE_CFG:-false}
+      - MAGPIE_TTS_APPLY_TN=${MAGPIE_TTS_APPLY_TN:-false}
+      - RATE_LIMIT_PER_MINUTE=${MAGPIE_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - MAGPIE_TTS_MAX_CONCURRENT=${MAGPIE_TTS_MAX_CONCURRENT:-1}
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+    ports:
+      - "${MAGPIE_TTS_PORT:-7012}:7012"
+    networks:
+      veralux-network:
+        aliases:
+          - magpie-tts
+
+  melo-tts-gpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/melo-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.melotts
+    container_name: veralux-melo-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - legacy-tts
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7013/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 8
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${MELO_TTS_GPU_IDS:-0}"]
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=${MELO_TTS_GPU_IDS:-0}
+      - MELO_TTS_DEVICE=${MELO_TTS_DEVICE:-cuda}
+      - MELO_TTS_DEFAULT_LANG=${MELO_TTS_DEFAULT_LANG:-EN}
+      - MELO_TTS_DEFAULT_SPEAKER=${MELO_TTS_DEFAULT_SPEAKER:-EN-US}
+      - MELO_TTS_WARMUP=${MELO_TTS_WARMUP:-true}
+      - RATE_LIMIT_PER_MINUTE=${MELO_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - MELO_TTS_MAX_CONCURRENT=${MELO_TTS_MAX_CONCURRENT:-1}
+      - PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
+    ports:
+      - "${MELO_TTS_PORT:-7013}:7013"
+    networks:
+      veralux-network:
+        aliases:
+          - melo-tts
 
   # =============================================================================
   # CPU Services (No GPU required - auto-selected by deploy.sh)
@@ -721,7 +891,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - cpu
+      - legacy-tts
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7002/health"]
       interval: 30s
@@ -757,7 +927,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     profiles:
-      - cpu
+      - legacy-tts
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:7010/health"]
       interval: 30s
@@ -786,6 +956,47 @@ services:
       veralux-network:
         aliases:
           - qwen3-tts
+
+  miso-tts-cpu:
+    image: ${REGISTRY:-ghcr.io/nick-veraluxai}/miso-tts:${VERSION:-0.1.0}
+    build:
+      context: ./veralux-audio-stack
+      dockerfile: Dockerfile.misotts
+    container_name: veralux-miso-tts
+    restart: unless-stopped
+    logging: *default-logging
+    profiles:
+      - legacy-tts
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:7011/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 1800s
+    deploy:
+      resources:
+        limits:
+          cpus: "12.0"
+          memory: 48G
+        reservations:
+          cpus: "4.0"
+          memory: 24G
+    environment:
+      - CUDA_VISIBLE_DEVICES=""
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+      - MISO_TTS_DEVICE=cpu
+      - MISO_TTS_MODEL=${MISO_TTS_MODEL:-MisoLabs/MisoTTS}
+      - MISO_TTS_DTYPE=${MISO_TTS_DTYPE:-bfloat16}
+      - RATE_LIMIT_PER_MINUTE=${MISO_TTS_RATE_LIMIT_PER_MINUTE:-10000}
+      - MISO_TTS_MAX_CONCURRENT=${MISO_TTS_MAX_CONCURRENT:-1}
+      - MISO_TTS_DEFAULT_MAX_AUDIO_MS=${MISO_TTS_DEFAULT_MAX_AUDIO_MS:-10000}
+    ports:
+      - "${MISO_TTS_PORT:-7011}:7011"
+    networks:
+      veralux-network:
+        aliases:
+          - miso-tts
 
   # ---------------------------------------------------------------------------
   # Local LLM (optional profile: llm) — vLLM Qwen2.5-7B-Instruct-AWQ + brain gateway

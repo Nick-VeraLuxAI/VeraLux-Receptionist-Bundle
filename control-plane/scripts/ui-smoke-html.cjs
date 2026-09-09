@@ -52,13 +52,13 @@ function stripPortalAdvancedVoice(html) {
     .replace(/<details[^>]*class="[^"]*portal-tts-advanced[^"]*"[\s\S]*?<\/details>/gi, "");
 }
 
-function loadHtml(path, filePath) {
+function loadHtml(urlPath, filePath) {
   if (process.env.UI_SMOKE_READ_LOCAL === "1") {
     const fs = require("node:fs");
     const p = require("node:path").join(__dirname, "..", "public", filePath);
     return { status: 200, text: fs.readFileSync(p, "utf8"), url: `file://${p}` };
   }
-  return fetchText(path);
+  return fetchText(urlPath);
 }
 
 function countId(html, id) {
@@ -75,8 +75,8 @@ function findForbidden(text, terms) {
 }
 
 async function checkPortal() {
-  const { status, text } = await loadHtml("/portal", "portal.html");
-  pass("GET /portal", status === 200, `status ${status}`);
+  const { status, text } = await loadHtml("/portal-legacy", "legacy/portal.html");
+  pass("GET /portal-legacy", status === 200, `status ${status}`);
 
   const ids = [
     "login-screen",
@@ -123,8 +123,8 @@ async function checkPortal() {
 }
 
 async function checkAdmin() {
-  const { status, text } = await loadHtml("/admin", "admin.html");
-  pass("GET /admin", status === 200, `status ${status}`);
+  const { status, text } = await loadHtml("/admin-legacy", "legacy/admin.html");
+  pass("GET /admin-legacy", status === 200, `status ${status}`);
 
   for (const id of ["tenant-select", "vlx-admin-build-stamp", "refresh-all"]) {
     pass(`admin id=${id}`, countId(text, id) >= 1, "");
@@ -143,8 +143,29 @@ async function checkAdmin() {
   pass("admin uses admin-neural.css", text.includes("admin-neural.css"), "");
 }
 
+async function checkSpa() {
+  if (process.env.UI_SMOKE_READ_LOCAL === "1") {
+    const fs = require("node:fs");
+    const p = require("node:path").join(__dirname, "..", "public", "app", "index.html");
+    if (!fs.existsSync(p)) {
+      pass("SPA index present", true, "not built (optional in local read mode)");
+      return;
+    }
+    const text = fs.readFileSync(p, "utf8");
+    pass("SPA index has #root", text.includes('id="root"'), "");
+    return;
+  }
+  for (const pathName of ["/admin", "/portal"]) {
+    const { status, text } = await fetchText(pathName);
+    pass(`GET ${pathName} SPA`, status === 200 || status === 503, `status ${status}`);
+    if (status === 200) {
+      pass(`${pathName} has #root`, text.includes('id="root"') || text.includes("/app/static"), "");
+    }
+  }
+}
+
 async function checkOwner() {
-  const { status, text } = await loadHtml("/owner", "owner.html");
+  const { status, text } = await loadHtml("/owner", "legacy/owner.html");
   pass("GET /owner", status === 200, `status ${status}`);
 
   pass("owner internal banner", text.includes("vlx-internal-banner"), "");
@@ -171,6 +192,7 @@ async function main() {
     await checkPortal();
     await checkAdmin();
     await checkOwner();
+    await checkSpa();
   } catch (e) {
     pass("fetch error", false, e.message || String(e));
   }

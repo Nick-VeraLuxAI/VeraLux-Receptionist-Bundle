@@ -9,7 +9,21 @@ export type TriggerType =
   | "after_hours_call"
   | "keyword_detected"
   | "missed_call"
-  | "scheduled";
+  | "scheduled"
+  | "booking_succeeded"
+  | "qa_flagged"
+  | "job_completed";
+
+export interface TriggerWhen {
+  completions?: string[];
+  reasons?: string[];
+  stormMode?: boolean;
+  incompleteCapture?: boolean;
+  quoteHeld?: boolean;
+  membershipMatch?: boolean;
+  qaRisk?: boolean;
+  requireKeywords?: boolean;
+}
 
 export interface TriggerConfig {
   /** Keywords to match in transcript (for keyword_detected) */
@@ -26,6 +40,9 @@ export interface TriggerConfig {
   maxDurationSeconds?: number;
   /** Minimum turns to not count as missed (for missed_call) */
   minTurns?: number;
+  /** Extra match filters shared across trigger types */
+  when?: TriggerWhen;
+  delayHours?: number;
 }
 
 // ── Action types ─────────────────────────────────
@@ -36,7 +53,16 @@ export type ActionType =
   | "fire_webhook"
   | "ai_summarize"
   | "ai_extract"
-  | "store_lead";
+  | "store_lead"
+  | "book_calendar"
+  | "page_on_call"
+  | "send_digest"
+  | "create_approval"
+  | "write_fsm_job"
+  | "escalate_orphan"
+  | "hold_booking"
+  | "estimate_followup"
+  | "noshow_alert";
 
 export interface WorkflowStep {
   action: ActionType;
@@ -56,6 +82,7 @@ export interface Workflow {
   steps: WorkflowStep[];
   createdBy: string;
   adminLocked: boolean;
+  templateId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,6 +103,7 @@ export interface WorkflowRun {
   error: string | null;
   startedAt: string;
   completedAt: string | null;
+  workflowName?: string;
 }
 
 export interface StepResult {
@@ -108,7 +136,7 @@ export interface Lead {
 // ── Event payload ────────────────────────────────
 
 export interface CallEndedEvent {
-  type: "call_ended";
+  type: "call_ended" | "booking_succeeded" | "qa_flagged" | "job_completed";
   tenantId: string;
   callId: string;
   callerId?: string;
@@ -118,6 +146,13 @@ export interface CallEndedEvent {
   transcript?: string;
   lead?: Record<string, any>;
   timestamp: string;
+  completion?: string;
+  completionReason?: string;
+  stormMode?: boolean;
+  membershipNames?: string[];
+  qa?: { score: number; rubric?: Record<string, boolean>; risk?: boolean };
+  jobStatus?: string;
+  reviewUrl?: string;
 }
 
 export interface ScheduledEvent {

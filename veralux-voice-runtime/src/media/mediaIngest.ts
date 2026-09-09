@@ -11,8 +11,10 @@ import type { AudioMeta } from '../diagnostics/audioProbe';
 import { env } from '../env';
 import { log } from '../log';
 import { encodePcm16MonoWav, forensicsTimeline, getForensicsSession } from '../observability/audioForensics';
+import { recordDecodeFailure, recordDecodeOk, recordSeqGap } from '../observability/audioInvariantReport'; // VERA_DEMO_SHOP_AUDIOINV_20260907 observe-only
 import { incMediaInboundSeqGapFrames } from '../metrics';
 import type { TransportMode } from '../transport/types';
+import { isL16Codec, TELNYX_WS_STREAM_CODEC } from '../telnyx/streamCodec';
 
 type Base64Encoding = 'base64' | 'base64url';
 
@@ -98,6 +100,7 @@ export type MediaIngestOptions = {
 
   // Optional tap hook (used by server.ts)
   onAcceptedPayload?: (tap: MediaIngestAcceptedPayloadTap) => void;
+  onMark?: (name: string) => void;
 };
 
 const DEFAULT_HEALTH_WINDOW_MS = 1000;
@@ -127,6 +130,9 @@ let captureActiveCallId: string | null = null;
 
 const SENSITIVE_KEY_REGEX = /(token|authorization|auth|signature|secret|api_key)/i;
 const AMRWB_FILE_HEADER = Buffer.from('#!AMR-WB\n', 'ascii');
+/** Bind-mount assert: observe-only decode classification. */
+const DEMO_SHOP_AUDIOINV_MARKER = 'VERA_DEMO_SHOP_AUDIOINV_20260907';
+void DEMO_SHOP_AUDIOINV_MARKER;
 const AMRWB_CONTRACT_TEXT =
   'amr-wb contract\n' +
   '- inbound: telnyx amr-wb bandwidth-efficient (BE)\n' +
@@ -541,9 +547,10 @@ function pickBestPayloadCandidate(candidates: PayloadCandidate[], codec: string)
 
 function normalizeCodec(value: string | undefined): string {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
-  if (!normalized) return 'AMR-WB';
+  if (!normalized) return TELNYX_WS_STREAM_CODEC;
 
   if (normalized === 'AMRWB' || normalized === 'AMR_WB') return 'AMR-WB';
+  if (isL16Codec(normalized)) return 'L16';
   return normalized;
 }
 
@@ -918,6 +925,7 @@ export class MediaIngest {
   private readonly getLastSpeechStartAtMs?: () => number | null;
 
   private readonly onAcceptedPayload?: (tap: MediaIngestAcceptedPayloadTap) => void;
+  private readonly onMark?: (name: string) => void;
 
   private readonly healthMonitor = new MediaIngestHealthMonitor();
 
@@ -1017,6 +1025,7 @@ export class MediaIngest {
     this.getLastSpeechStartAtMs = options.getLastSpeechStartAtMs;
 
     this.onAcceptedPayload = options.onAcceptedPayload;
+    this.onMark = options.onMark;
 
     const maxRestartAttempts =
       typeof options.maxRestartAttempts === 'number' && Number.isFinite(options.maxRestartAttempts)
@@ -1151,6 +1160,22 @@ export class MediaIngest {
 
     if (event === 'stop') {
       if (this.captureState && !this.captureState.stopped) finalizeCapture(this.captureState, 'ws_stop');
+      return;
+    }
+
+    if (event === 'mark') {
+      const mark = message.mark && typeof message.mark === 'object' ? (message.mark as Record<string, unknown>) : {};
+      const name = this.getString(mark.name) ?? this.getString(message.name) ?? '';
+      log.info(
+        {
+          event: 'telnyx_stream_mark',
+          call_control_id: this.callControlId,
+          mark_name: name || null,
+          ...(this.logContext ?? {}),
+        },
+        'telnyx bidirectional stream mark',
+      );
+      if (name) this.onMark?.(name);
       return;
     }
 
@@ -1371,6 +1396,7 @@ export class MediaIngest {
         'media payload too short',
       );
       this.healthMonitor.recordPayload(trimmedPayload.length, buffer.length, 0, 0, false);
+      recordDecodeFailure(this.callControlId, currentCodec, buffer.length);
       this.checkHealth(currentCodec);
       return;
     }
@@ -1445,6 +1471,7 @@ export class MediaIngest {
         const gap = seqNum - prevSeq - 1;
         incMediaInboundSeqGapFrames(gap);
         const warnMin = env.MEDIA_SEQ_GAP_LOG_MIN;
+        recordSeqGap(this.callControlId, gap);
         if (gap >= warnMin) {
           const nowGapLog = Date.now();
           if (nowGapLog - this.lastMediaSeqGapLogAtMs >= 3000) {
@@ -1958,28 +1985,67 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
 
     let normalizedEncoding = normalizeCodec(encoding ?? this.mediaEncoding);
 
-    // Optional: force PSTN to AMR-WB
+    // Never coerce the WebSocket fork to AMR-WB. SIP codecs stay on TELNYX_ACCEPT_CODECS.
     if (
       this.transportMode === 'pstn' &&
       parseBoolEnv(process.env.TELNYX_FORCE_AMRWB_PSTN) &&
       this.allowAmrWb &&
       this.acceptCodecs.has('AMR-WB')
     ) {
-      normalizedEncoding = 'AMR-WB';
-      this.pinnedCodec = 'AMR-WB';
+      log.error(
+        {
+          event: 'telnyx_force_amrwb_ignored',
+          call_control_id: this.callControlId,
+          requested_stream_codec: TELNYX_WS_STREAM_CODEC,
+          ...(this.logContext ?? {}),
+        },
+        'TELNYX_FORCE_AMRWB_PSTN ignored; WebSocket stream is L16',
+      );
     }
 
     if (encoding || !this.mediaEncoding) {
       this.mediaEncoding = normalizedEncoding;
-      this.mediaSampleRate = sampleRate ?? (normalizedEncoding === 'AMR-WB' ? 16000 : undefined);
+      this.mediaSampleRate =
+        sampleRate ??
+        (normalizedEncoding === 'L16' || normalizedEncoding === 'AMR-WB' ? 16000 : undefined);
       this.mediaChannels = channels;
     }
 
-    // ✅ If this is Telnyx PSTN AMR-WB, declare "BE as received" at ingest layer.
     this.maybeEnableForceBe(normalizedEncoding, 'start');
 
     if (!this.mediaCodecLogged) {
       this.mediaCodecLogged = true;
+      const l16InUse = isL16Codec(normalizedEncoding) && (this.mediaSampleRate ?? 16000) === 16000;
+      if (!l16InUse) {
+        log.error(
+          {
+            event: 'telnyx_stream_codec_not_l16',
+            call_control_id: this.callControlId,
+            requested_stream_codec: TELNYX_WS_STREAM_CODEC,
+            actual_codec: normalizedEncoding,
+            actual_sample_rate: this.mediaSampleRate ?? null,
+            ...(this.logContext ?? {}),
+          },
+          'Telnyx media_format is not L16 16 kHz; AMR-WB ingest fallback is disabled',
+        );
+      }
+      log.info(
+        {
+          event: 'telnyx_stream_codec_negotiated',
+          call_control_id: this.callControlId,
+          requested_stream_codec: TELNYX_WS_STREAM_CODEC,
+          requested_bidirectional_mode: 'rtp',
+          requested_bidirectional_codec: 'L16',
+          requested_bidirectional_sampling_rate: 16000,
+          actual_codec: normalizedEncoding,
+          actual_sample_rate: this.mediaSampleRate ?? null,
+          channels,
+          l16_in_use: l16InUse,
+          stream_track: this.expectedTrack ?? null,
+          ...(this.logContext ?? {}),
+        },
+        'Telnyx WebSocket stream codec negotiated',
+      );
       log.info(
         {
           event: 'media_ingest_codec_detected',
@@ -1997,8 +2063,10 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
   }
 
   private isCodecSupported(codec: string): { supported: boolean; reason?: string } {
-    if (!this.acceptCodecs.has(codec)) return { supported: false, reason: 'codec_not_accepted' };
-    if (codec === 'AMR-WB' && !this.allowAmrWb) return { supported: false, reason: 'amrwb_decode_disabled' };
+    if (codec === 'AMR-WB') return { supported: false, reason: 'amrwb_stream_fallback_disabled' };
+    if (!this.acceptCodecs.has(codec) && !isL16Codec(codec)) {
+      return { supported: false, reason: 'codec_not_accepted' };
+    }
     if (codec === 'G722' && !this.allowG722) return { supported: false, reason: 'g722_decode_disabled' };
     if (codec === 'OPUS' && !this.allowOpus) return { supported: false, reason: 'opus_decode_disabled' };
     return { supported: true };
@@ -2012,7 +2080,7 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
         {
           event: 'media_ingest_codec_defaulted',
           call_control_id: this.callControlId,
-          assumed_codec: 'AMR-WB',
+          assumed_codec: TELNYX_WS_STREAM_CODEC,
           reason: 'mediaEncoding unset (media_format.encoding missing or start not processed yet)',
           payload_len: buffer.length,
           seq,
@@ -2056,18 +2124,18 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
 
       const meta: AudioMeta = {
         callId: this.callControlId,
-        format: encoding === 'PCMU' ? 'pcmu' : encoding === 'PCMA' ? 'alaw' : undefined,
+        format: encoding === 'PCMU' ? 'pcmu' : encoding === 'PCMA' ? 'alaw' : encoding === 'L16' ? 'pcm16le' : undefined,
         codec: encoding,
         sampleRateHz: this.mediaSampleRate,
         channels: this.mediaChannels ?? 1,
-        bitDepth: encoding === 'PCMU' || encoding === 'PCMA' ? 8 : undefined,
+        bitDepth: encoding === 'PCMU' || encoding === 'PCMA' ? 8 : encoding === 'L16' ? 16 : undefined,
         logContext: { call_control_id: this.callControlId, ...(this.logContext ?? {}) },
         lineage: ['rx.telnyx.raw'],
       };
 
       attachAudioMeta(buffer, meta);
       if (diagnosticsEnabled()) {
-        if (encoding === 'PCMU' || encoding === 'PCMA') {
+        if (encoding === 'PCMU' || encoding === 'PCMA' || encoding === 'L16') {
           probePcm('rx.telnyx.raw', buffer, meta);
         } else {
           log.info(
@@ -2314,7 +2382,10 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
       // Don't mark AMR-WB frames as "tiny" just because decode failed/buffered.
       const pseudoDecodedLen = encoding === 'AMR-WB' ? 999 : 0;
       this.healthMonitor.recordPayload(buffer.length, pseudoDecodedLen, 0, 0, amrwbBuffering ? true : false);
-      if (!amrwbBuffering) this.checkHealth(encoding);
+      if (!amrwbBuffering) {
+        recordDecodeFailure(this.callControlId, encoding, buffer.length);
+        this.checkHealth(encoding);
+      }
       return;
     }
 
@@ -2362,6 +2433,7 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
       peak = stats.peak;
     }
     decodeOk = true;
+    recordDecodeOk(this.callControlId);
 
     const sampleRateHz = decodeResult.sampleRateHz;
 
@@ -2648,12 +2720,7 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
     }
 
     // Determine what codec we would actually request on restart
-    const requestedCodec =
-      this.transportMode === 'pstn' &&
-      this.allowAmrWb &&
-      this.acceptCodecs.has('AMR-WB')
-        ? 'AMR-WB'
-        : codec;
+    const requestedCodec = TELNYX_WS_STREAM_CODEC;
 
     // 🚫 STOP NO-OP RESTARTS (this is the bug)
     // If the restart would not change codecs, do NOT restart.
@@ -2703,9 +2770,8 @@ private guessDumpKind(raw: Buffer): 'wav_riff' | 'unknown' {
 
       const ok = await this.onRestartStreaming(requestedCodec, reason);
 
-      if (ok && requestedCodec === 'AMR-WB') {
-        this.pinnedCodec = 'AMR-WB';
-        this.maybeEnableForceBe('AMR-WB', 'payload');
+      if (ok && requestedCodec === TELNYX_WS_STREAM_CODEC) {
+        this.pinnedCodec = TELNYX_WS_STREAM_CODEC;
       }
 
       if (!ok) {

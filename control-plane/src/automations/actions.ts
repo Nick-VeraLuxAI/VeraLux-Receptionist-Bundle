@@ -6,10 +6,23 @@
  */
 
 import type { PipelineContext, CallEndedEvent } from "./types";
-import { createLead } from "./db";
-import { pool } from "../db";
+import { createLead, findLeadByCallId, updateLead } from "./db";
 import * as crypto from "crypto";
 import { fetchWithTimeoutRetry } from "../httpClient";
+import { checkFeatureEntitlement } from "../featureEntitlements";
+import {
+  bookCalendar,
+  createApprovalAction,
+  escalateOrphanAction,
+  estimateFollowupAction,
+  holdBookingAction,
+  noshowAlertAction,
+  pageOnCall,
+  resolveEmailDestination,
+  resolveSmsDestination,
+  sendDigestAction,
+  writeFsmJobAction,
+} from "./templateActions";
 
 // ── send_email ───────────────────────────────────
 
@@ -19,6 +32,7 @@ export async function sendEmail(
     to: string;
     subject?: string;
     body?: string;
+    template?: string;
     smtpHost?: string;
     smtpPort?: number;
     smtpUser?: string;
@@ -44,7 +58,12 @@ export async function sendEmail(
     config.fromAddress || process.env.SMTP_FROM || "noreply@localhost";
 
   const subject = interpolate(config.subject || "Workflow notification", ctx);
-  const body = interpolate(config.body || "A workflow event occurred.", ctx);
+  const body = interpolate(config.body || config.template || "A workflow event occurred.", ctx);
+  const to = await resolveEmailDestination(ctx, config.to);
+  if (!to) {
+    console.warn("[actions/send_email] No destination resolved");
+    return { sent: false, to: config.to, subject };
+  }
 
   const transporter = nodemailer.createTransport({
     host,
@@ -55,13 +74,13 @@ export async function sendEmail(
 
   await transporter.sendMail({
     from,
-    to: config.to,
+    to,
     subject,
     text: body,
     html: body.replace(/\n/g, "<br>"),
   });
 
-  return { sent: true, to: config.to, subject };
+  return { sent: true, to, subject };
 }
 
 // ── send_sms ─────────────────────────────────────
@@ -71,20 +90,32 @@ export async function sendSms(
   config: {
     to: string;
     message?: string;
+    template?: string;
     from?: string;
+    reviewUrl?: string;
   }
-): Promise<{ sent: boolean; to: string }> {
+): Promise<{ sent: boolean; to: string; reason?: string }> {
+  const entitled = await checkFeatureEntitlement(ctx.tenantId, "smsFollowup", { action: "send_sms" });
+  if (!entitled.allowed) {
+    return { sent: false, to: config.to || "", reason: "feature_denied_by_plan" };
+  }
   const message = interpolate(
     config.message ||
+      config.template ||
       process.env.WORKFLOW_SMS_DEFAULT_MESSAGE?.trim() ||
       "You have a new notification.",
     ctx,
-  );
+  ).split("{{reviewUrl}}").join(String(config.reviewUrl || ""));
+  const to = await resolveSmsDestination(ctx, config.to);
   const from = config.from || process.env.TELNYX_PHONE_NUMBER;
 
   if (!from) {
     console.warn("[actions/send_sms] No from number configured");
-    return { sent: false, to: config.to };
+    return { sent: false, to };
+  }
+  if (!to) {
+    console.warn("[actions/send_sms] No destination resolved");
+    return { sent: false, to: config.to || "" };
   }
 
   const apiKey = process.env.TELNYX_API_KEY;
@@ -102,7 +133,7 @@ export async function sendSms(
       },
       body: JSON.stringify({
         from,
-        to: config.to,
+        to,
         text: message,
       }),
       timeoutMs: 10_000,
@@ -112,13 +143,13 @@ export async function sendSms(
     if (!resp.ok) {
       const errBody = await resp.text();
       console.error("[actions/send_sms] Telnyx error:", errBody);
-      return { sent: false, to: config.to };
+      return { sent: false, to };
     }
 
-    return { sent: true, to: config.to };
+    return { sent: true, to };
   } catch (err) {
     console.error("[actions/send_sms] Error:", err);
-    return { sent: false, to: config.to };
+    return { sent: false, to };
   }
 }
 
@@ -322,8 +353,10 @@ export async function storeLead(
     category?: string;
     priority?: string;
     notes?: string;
+    tag?: string;
+    upsert?: boolean;
   }
-): Promise<{ leadId: string }> {
+): Promise<{ leadId: string; upserted?: boolean }> {
   const callEvent = ctx.event as CallEndedEvent;
 
   // Get data from a previous AI extract step if specified
@@ -343,12 +376,29 @@ export async function storeLead(
     phone: config.phone || extractedData.phone || eventLead.phone || callEvent.callerId || undefined,
     email: config.email || extractedData.email || eventLead.email || undefined,
     issue: config.issue || extractedData.issue || eventLead.issue || undefined,
-    category: config.category || extractedData.category || eventLead.category || undefined,
+    category: config.category || extractedData.category || eventLead.category || config.tag || undefined,
     priority: config.priority || extractedData.priority || "normal",
     notes: config.notes || extractedData.notes || undefined,
     rawExtract: Object.keys(extractedData).length ? extractedData : undefined,
     sourceWorkflowId: ctx.workflow.id,
   };
+
+  if (config.upsert !== false && leadData.callId) {
+    const existing = await findLeadByCallId(ctx.tenantId, leadData.callId);
+    if (existing) {
+      const updated = await updateLead(existing.id, {
+        name: leadData.name,
+        phone: leadData.phone,
+        email: leadData.email,
+        issue: leadData.issue,
+        category: leadData.category,
+        priority: leadData.priority,
+        notes: leadData.notes,
+        rawExtract: leadData.rawExtract,
+      });
+      return { leadId: updated?.id || existing.id, upserted: true };
+    }
+  }
 
   const lead = await createLead(leadData);
   return { leadId: lead.id };
@@ -372,6 +422,13 @@ function interpolate(template: string, ctx: PipelineContext): string {
       callEvent.transcript ??
       callEvent.turns?.map(t => `${t.role}: ${t.content}`).join("\n") ??
       "(no transcript)",
+    "{{name}}": String(callEvent.lead?.name || callEvent.lead?.customerName || "there"),
+    "{{reviewUrl}}": String(
+      (ctx.stepOutputs && Object.values(ctx.stepOutputs).find((o) => o?.reviewUrl)?.reviewUrl) ||
+        callEvent.reviewUrl ||
+        callEvent.lead?.reviewUrl ||
+        "",
+    ),
   };
 
   // Also substitute step outputs like {{step.1.summary}}
@@ -402,4 +459,14 @@ export const actionHandlers: Record<
   ai_summarize: aiSummarize as any,
   ai_extract: aiExtract as any,
   store_lead: storeLead as any,
+  book_calendar: bookCalendar as any,
+  page_on_call: pageOnCall as any,
+  send_digest: sendDigestAction as any,
+  create_approval: createApprovalAction as any,
+  write_fsm_job: writeFsmJobAction as any,
+  escalate_orphan: escalateOrphanAction as any,
+  hold_booking: holdBookingAction as any,
+  estimate_followup: estimateFollowupAction as any,
+  noshow_alert: noshowAlertAction as any,
 };
+

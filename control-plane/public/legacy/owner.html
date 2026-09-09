@@ -1,0 +1,2685 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <title>Your Receptionist — VeraLux</title>
+    <script src="/apply-branding.js" defer></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/veralux-shell.css" />
+    <style>
+      :root {
+        --bg: #070708;
+        --surface: rgba(246, 243, 236, 0.03);
+        --surface-hover: rgba(246, 243, 236, 0.06);
+        --border: rgba(246, 243, 236, 0.08);
+        --border-focus: rgba(201, 160, 78, 0.5);
+        --text: #F6F3EC;
+        --text-soft: #c9c3b5;
+        --muted: #8a8477;
+        --primary: #C9A04E;
+        --primary-glow: rgba(201, 160, 78, 0.35);
+        --accent: #d4af61;
+        --accent-warm: #C9A04E;
+        --success: #34d399;
+        --success-glow: rgba(52, 211, 153, 0.25);
+        --danger: #f87171;
+        font-family: "Outfit", system-ui, sans-serif;
+        color: var(--text);
+        background: var(--bg);
+      }
+      .tts-param-range {
+        width: 100%;
+        accent-color: var(--primary);
+        height: 8px;
+        margin-top: 8px;
+        cursor: pointer;
+      }
+      .tts-slider-label {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+        font-weight: 600;
+      }
+      .tts-slider-value {
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 500;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        position: relative;
+        overflow-x: hidden;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 100% 80% at 20% -10%, rgba(201, 160, 78, 0.12), transparent 50%),
+          radial-gradient(ellipse 80% 60% at 90% 20%, rgba(201, 160, 78, 0.06), transparent 45%),
+          radial-gradient(ellipse 60% 80% at 50% 100%, rgba(201, 160, 78, 0.04), transparent 50%);
+        pointer-events: none;
+        z-index: 0;
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 0;
+      }
+      .owner-header {
+        position: relative;
+        z-index: 1;
+        padding: 28px 32px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, transparent 100%);
+      }
+      .owner-brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      .owner-logo {
+        width: 52px;
+        height: 52px;
+        border-radius: 16px;
+        box-shadow: 0 0 40px var(--primary-glow), 0 8px 32px rgba(0,0,0,0.3);
+        overflow: hidden;
+      }
+      .owner-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .owner-brand h1 {
+        margin: 0;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, var(--text) 0%, var(--text-soft) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+      .owner-brand .tagline {
+        font-size: 14px;
+        color: var(--muted);
+        margin-top: 4px;
+        font-weight: 400;
+      }
+      .owner-actions { display: flex; align-items: center; gap: 12px; }
+      .owner-status {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 18px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        background: rgba(52, 211, 153, 0.12);
+        color: var(--success);
+        border: 1px solid rgba(52, 211, 153, 0.25);
+        box-shadow: 0 0 24px var(--success-glow);
+      }
+      .owner-status::before {
+        content: "";
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--success);
+        box-shadow: 0 0 12px var(--success);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      .owner-status.owner-status--error::before { background: var(--danger); box-shadow: 0 0 12px var(--danger); }
+      .owner-status.owner-status--error {
+        background: rgba(248, 113, 113, 0.12);
+        color: var(--danger);
+        border-color: rgba(248, 113, 113, 0.25);
+        box-shadow: 0 0 24px rgba(248, 113, 113, 0.15);
+      }
+      .owner-status.owner-status--checking::before { background: var(--muted); box-shadow: none; animation: none; }
+      .owner-status.owner-status--checking { color: var(--muted); border-color: var(--border); box-shadow: none; }
+      @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(1.05); } }
+      .owner-main {
+        position: relative;
+        z-index: 1;
+        padding: 32px;
+        max-width: 680px;
+        margin: 0 auto;
+      }
+      .owner-panel {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 24px;
+        margin-bottom: 24px;
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        animation: panelIn 0.5s ease backwards;
+      }
+      .owner-panel:nth-child(1) { animation-delay: 0.05s; }
+      .owner-panel:nth-child(2) { animation-delay: 0.1s; }
+      .owner-panel:nth-child(3) { animation-delay: 0.15s; }
+      .owner-panel:nth-child(4) { animation-delay: 0.2s; }
+      .owner-panel:nth-child(5) { animation-delay: 0.25s; }
+      .owner-panel:nth-child(6) { animation-delay: 0.3s; }
+      .owner-panel:nth-child(7) { animation-delay: 0.35s; }
+      @keyframes panelIn {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .owner-panel:hover {
+        border-color: rgba(255,255,255,0.1);
+        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      }
+      .owner-panel h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--text);
+      }
+      .owner-panel .help {
+        font-size: 13px;
+        color: var(--text-soft);
+        margin-bottom: 16px;
+        line-height: 1.5;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--text-soft);
+      }
+      input, textarea, select {
+        width: 100%;
+        padding: 12px 14px;
+        margin-bottom: 14px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.03);
+        color: var(--text);
+        font-family: "Outfit", system-ui, sans-serif;
+        font-size: 14px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+      select {
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7fa0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        padding-right: 40px;
+      }
+      select option {
+        background: #0a0f1a;
+        color: var(--text);
+      }
+      input::placeholder, textarea::placeholder { color: var(--muted); }
+      input:focus, textarea:focus, select:focus {
+        outline: none;
+        border-color: var(--border-focus);
+        box-shadow: 0 0 0 3px rgba(201, 160, 78, 0.15);
+      }
+      button {
+        background: linear-gradient(135deg, var(--primary) 0%, #a67e3a 100%);
+        color: #fff;
+        border: none;
+        border-radius: 12px;
+        padding: 12px 20px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        font-family: inherit;
+        letter-spacing: 0.01em;
+        box-shadow: 0 4px 20px var(--primary-glow);
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+      button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 28px var(--primary-glow);
+      }
+      button:active { transform: translateY(0); }
+      button.secondary {
+        background: var(--surface-hover);
+        color: var(--text);
+        border: 1px solid var(--border);
+        box-shadow: none;
+      }
+      button.secondary:hover {
+        background: rgba(255,255,255,0.08);
+        border-color: rgba(255,255,255,0.12);
+      }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+      .row input { margin-bottom: 0; }
+      .row input.sm { max-width: 140px; }
+      .row input.mid { max-width: 180px; }
+      ul.owner-list { list-style: none; padding: 0; margin: 12px 0 0; }
+      ul.owner-list li {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        transition: background 0.2s ease, border-color 0.2s ease;
+      }
+      ul.owner-list li:hover {
+        background: rgba(255,255,255,0.05);
+        border-color: rgba(255,255,255,0.08);
+      }
+      ul.owner-list li .remove { font-size: 12px; padding: 6px 12px; }
+      .owner-footer {
+        position: relative;
+        z-index: 1;
+        text-align: center;
+        padding: 28px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .owner-footer a {
+        color: var(--accent);
+        text-decoration: none;
+        font-weight: 500;
+        transition: color 0.2s ease;
+      }
+      .owner-footer a:hover { color: var(--primary); }
+      .modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 9, 15, 0.85);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
+      .modal.active { display: flex; }
+      .modal-card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+        border: 1px solid var(--border);
+        border-radius: 24px;
+        padding: 32px;
+        max-width: 400px;
+        width: 90%;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.4);
+      }
+      .modal-card h3 { margin: 0 0 8px; font-size: 20px; font-weight: 600; }
+      .modal-card .help { margin-bottom: 16px; }
+      .modal-card input { margin-bottom: 16px; }
+      .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+      .stat-row { display: flex; gap: 24px; margin-top: 14px; flex-wrap: wrap; }
+      .stat {
+        font-size: 14px;
+        color: var(--text-soft);
+        padding: 12px 16px;
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        border: 1px solid var(--border);
+      }
+      .stat strong { color: var(--text); font-weight: 600; }
+    </style>
+  </head>
+  <body data-vlx-branding-page="owner">
+    <div class="vlx-internal-banner" role="note">
+      <p class="vlx-internal-banner__title" id="vlx-owner-internal-banner-title">Internal setup tool — VeraLux implementers only</p>
+      <p class="vlx-internal-banner__copy" id="vlx-owner-internal-banner-copy">Clients should use the <a href="/portal">Business Portal</a> to manage their AI receptionist. This page is for provisioning, Telnyx, and technical setup.</p>
+    </div>
+    <header class="owner-header">
+      <div class="owner-brand">
+        <div class="owner-logo"><img class="vlx-brand-logo" src="/veralux-logo.png" alt="VeraLux" /></div>
+        <div>
+          <h1>Your receptionist</h1>
+          <div class="tagline">One place to set up calls, transfers, and pricing.</div>
+        </div>
+      </div>
+      <div class="owner-actions">
+        <span id="owner-status-pill" class="owner-status owner-status--checking">Checking…</span>
+      </div>
+    </header>
+
+    <main class="owner-main">
+      <section class="owner-panel">
+        <h2>Your business line</h2>
+        <p class="help">Enter the phone number callers dial to reach your business. We'll set up your AI receptionist to answer it.</p>
+
+        <div class="row" style="margin-top: 12px;">
+          <input type="text" id="owner-numbers" placeholder="e.g. +15551234567" style="flex: 1; min-width: 200px" />
+          <button type="button" id="owner-save-numbers">Connect</button>
+        </div>
+        <div id="owner-numbers-status" class="help" style="margin-top: 8px; min-height: 20px;"></div>
+
+        <!-- Number not found prompt -->
+        <div id="number-not-found" style="display: none; margin-top: 16px; padding: 20px; border-radius: 12px; background: var(--surface-hover); border: 1px solid var(--border);">
+          <p style="margin: 0 0 16px; font-size: 14px;"><strong>That number isn't set up for your AI receptionist yet.</strong></p>
+          <p class="help" style="margin: 0 0 8px;">Choose how to connect your business line:</p>
+
+          <!-- Option 1: Get new number + forwarding -->
+          <div style="margin: 16px 0; padding: 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border);">
+            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--accent);">Option 1: Get a new number + forward calls (Recommended)</p>
+            <p class="help" style="margin: 0 0 10px;">Get a new number now, then set up call forwarding on your existing line. Works in minutes.</p>
+            <div class="row" style="flex-wrap: wrap; gap: 8px;">
+              <select id="telnyx-country" style="width: 80px;">
+                <option value="US">US</option>
+                <option value="CA">CA</option>
+                <option value="GB">UK</option>
+              </select>
+              <input type="text" id="telnyx-area" class="sm" placeholder="Area code" style="width: 100px;" />
+              <button type="button" id="telnyx-get-number">Find numbers</button>
+            </div>
+            <ul id="telnyx-available-list" class="owner-list" style="max-height: 140px; overflow-y: auto; margin-top: 10px;"></ul>
+            <div id="telnyx-purchase-status" class="help" style="margin-top: 6px; min-height: 18px;"></div>
+          </div>
+
+          <!-- Option 2: Port number -->
+          <div style="padding: 14px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border);">
+            <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--text-soft);">Option 2: Port your number (3-10 days)</p>
+            <p class="help" style="margin: 0;">Transfer ownership of your number to Telnyx. Once complete, calls go directly to your receptionist without forwarding. <a href="https://portal.telnyx.com/#/numbers/porting" target="_blank" style="color: var(--accent);">Start port request →</a></p>
+          </div>
+        </div>
+
+        <!-- Success state -->
+        <div id="number-provisioned" style="display: none; margin-top: 16px; padding: 16px; border-radius: 12px; background: rgba(52, 211, 153, 0.1); border: 1px solid rgba(52, 211, 153, 0.25);">
+          <p style="margin: 0; color: var(--success);"><strong>✓ Your receptionist is ready!</strong></p>
+          <p class="help" style="margin: 8px 0 0;">Calls to <strong id="provisioned-number"></strong> will be answered by your AI receptionist.</p>
+          <div id="forwarding-instructions" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(52, 211, 153, 0.2);">
+            <p class="help" style="margin: 0 0 6px;"><strong>Next step:</strong> Set up call forwarding from <strong id="business-number-display"></strong> to <strong id="telnyx-number-display"></strong></p>
+            <p class="help" style="margin: 0;">On most phones, dial <code style="background: var(--surface); padding: 2px 6px; border-radius: 4px;">*72<span id="forward-to-number"></span></code> or configure forwarding in your carrier's app/website.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Client portal password</h2>
+        <p class="help">Password for the <strong>Business Portal</strong> (client sign-in at <a href="/portal">/portal</a>). Separate from the admin access token you use to unlock this page.</p>
+        <label for="owner-portal-pass-current">Current portal password</label>
+        <input id="owner-portal-pass-current" type="password" autocomplete="current-password" />
+        <label for="owner-portal-pass-new">New password</label>
+        <input id="owner-portal-pass-new" type="password" autocomplete="new-password" minlength="8" />
+        <label for="owner-portal-pass-new2">Confirm new password</label>
+        <input id="owner-portal-pass-new2" type="password" autocomplete="new-password" minlength="8" />
+        <button type="button" id="owner-portal-pass-save" style="margin-top: 10px;">Update portal password</button>
+        <div id="owner-portal-pass-status" class="help" style="margin-top: 8px; min-height: 20px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Optional: your OpenAI API key</h2>
+        <p class="help">
+          If you prefer your own OpenAI billing, paste a key here. It is encrypted on the server, never shown again, and is not exposed to browsers after save.
+          Leave on <strong>VeraLux default</strong> to use the platform voice model settings.
+        </p>
+        <div id="owner-llm-status" class="help" style="margin-bottom: 8px;"></div>
+        <label for="owner-llm-mode">Mode</label>
+        <select id="owner-llm-mode">
+          <option value="platform_default">VeraLux default</option>
+          <option value="tenant_api_key">My OpenAI API key</option>
+        </select>
+        <label for="owner-llm-model">Model (when using your key)</label>
+        <input id="owner-llm-model" type="text" placeholder="gpt-4o-mini" />
+        <label for="owner-llm-key">API key (write-only)</label>
+        <input id="owner-llm-key" type="password" autocomplete="off" placeholder="sk-…" />
+        <div class="row" style="margin-top: 10px; flex-wrap: wrap; gap: 8px;">
+          <button type="button" id="owner-llm-save">Save</button>
+          <button type="button" class="secondary" id="owner-llm-test">Test key (uses typed key)</button>
+        </div>
+        <div id="owner-llm-save-status" class="help" style="margin-top: 8px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>When to transfer calls</h2>
+        <p class="help">Who should the receptionist transfer callers to? Add yourself or your team (name, number, role).</p>
+        <div class="row">
+          <input type="text" id="fp-name" class="sm" placeholder="Name" />
+          <input type="text" id="fp-number" class="mid" placeholder="+15551234567" />
+          <input type="text" id="fp-role" class="mid" placeholder="Role (e.g. Owner)" />
+          <button type="button" id="fp-add">Add</button>
+        </div>
+        <ul id="forwarding-profiles-list" class="owner-list"></ul>
+        <button type="button" class="secondary" id="fp-save" style="margin-top: 10px">Save list</button>
+        <div id="fp-status" class="help" style="margin-top: 6px; min-height: 18px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Services & products</h2>
+        <p class="help">What your receptionist can tell callers about your services, products, and rates. Keep it short.</p>
+        <div class="row">
+          <select id="price-type" class="sm" style="min-width:100px;">
+            <option value="service">Service</option>
+            <option value="product">Product</option>
+          </select>
+          <input type="text" id="price-name" class="sm" placeholder="Name" />
+          <input type="text" id="price-amount" class="sm" placeholder="Price" />
+          <input type="text" id="price-desc" class="mid" placeholder="Short description" />
+          <button type="button" id="price-add">Add</button>
+        </div>
+        <ul id="pricing-items-list" class="owner-list"></ul>
+        <label for="pricing-notes" style="margin-top: 10px;">Notes (optional)</label>
+        <textarea id="pricing-notes" rows="2" placeholder="e.g. Rates may vary"></textarea>
+        <button type="button" class="secondary" id="price-save" style="margin-top: 8px">Save pricing</button>
+        <div id="price-status" class="help" style="margin-top: 6px; min-height: 18px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Receptionist personality</h2>
+        <p class="help">Customize how your AI receptionist introduces itself and interacts with callers.</p>
+        
+        <label for="owner-greetingText">Greeting message (what callers hear first)</label>
+        <textarea id="owner-greetingText" rows="2" placeholder="e.g. Hi! Thanks for calling Sunny Day Plumbing. How can I help you today?"></textarea>
+
+        <label for="owner-systemPreamble">Who is your receptionist?</label>
+        <textarea id="owner-systemPreamble" rows="4" placeholder="e.g. You're the friendly receptionist for Sunny Day Plumbing. Greet callers warmly, ask how you can help, and offer to schedule an appointment or connect them with the right person."></textarea>
+        
+        <label for="owner-voicePrompt">How should it sound?</label>
+        <textarea id="owner-voicePrompt" rows="2" placeholder="e.g. Warm and helpful, like a real person. Keep answers short and natural. Use the caller's name when you know it."></textarea>
+        
+        <label for="owner-policyPrompt">What should it never do?</label>
+        <textarea id="owner-policyPrompt" rows="3" placeholder="e.g. Don't give out personal phone numbers. Don't promise specific prices. Always offer to take a message if unsure."></textarea>
+        
+        <!-- Hidden: schemaHint is technical, kept for API compatibility -->
+        <input type="hidden" id="owner-schemaHint" value="" />
+        
+        <button type="button" id="owner-save-prompts" style="margin-top: 12px">Save changes</button>
+        <div id="owner-prompts-status" class="help" style="margin-top: 6px; min-height: 18px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Quick replies</h2>
+        <p class="help">
+          Map caller phrases to one spoken answer. When a transcript contains a phrase (case-insensitive), the receptionist skips the LLM and speaks your reply. Phrases must be at least 4 characters; the first matching intent wins. Requires live voice configuration to be active.
+        </p>
+        <div id="owner-qr-status" class="help" style="margin-bottom: 10px; min-height: 18px;"></div>
+        <div id="owner-qr-list"></div>
+        <div class="row" style="margin-top: 12px; flex-wrap: wrap; gap: 8px">
+          <button type="button" id="owner-qr-add">Add intent</button>
+          <button type="button" id="owner-qr-save" class="vlx-btn vlx-btn--primary">Save quick replies</button>
+          <button type="button" class="secondary" id="owner-qr-reload">Reload</button>
+        </div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Receptionist voice</h2>
+        <p class="help">Choose how your receptionist sounds. Pick a TTS engine first — only controls that apply to that engine are shown. Use the active voice control for preset vs a saved custom voice.</p>
+
+        <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border);">
+          <h3 style="margin: 0 0 10px; font-size: 15px;">TTS engine &amp; tuning</h3>
+          <label for="owner-ttsMode">TTS provider</label>
+          <select id="owner-ttsMode" style="width: 100%; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+            <option value="coqui_xtts" selected>Coqui XTTS (cloning)</option>
+            <option value="chatterbox_http">Chatterbox (Resemble AI)</option>
+            <option value="kokoro_http">Kokoro HTTP</option>
+            <option value="qwen3_tts_http">Qwen3 TTS (1.7B CustomVoice)</option>
+            <option value="miso_tts_http">Miso TTS 8B (Miso One)</option>
+          </select>
+          <p id="owner-tts-provider-blurb" class="help" style="margin-top: 4px; margin-bottom: 12px;"></p>
+
+          <div id="owner-tts-panel-url" style="margin-top: 10px">
+            <label for="owner-ttsUrl" id="owner-tts-url-label">TTS server URL</label>
+            <input id="owner-ttsUrl" type="url" placeholder="http://127.0.0.1:7002/tts" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-tts-url-hint" class="help" style="margin-top: 6px; display: none"></p>
+          </div>
+
+          <div id="owner-tts-panel-chatterbox" style="display: none; margin-top: 14px">
+            <label for="owner-chatterboxVariant">Voice model variant</label>
+            <select id="owner-chatterboxVariant" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="turbo" selected>Turbo (English, low-latency)</option>
+              <option value="standard">Standard (English)</option>
+              <option value="multilingual">Multilingual</option>
+            </select>
+            <p class="help" style="margin-top: 8px;">
+              Must match your server’s <code>CHATTERBOX_VARIANT</code>. Turbo is fastest for English but needs a reference voice. Multilingual needs a language code.
+            </p>
+            <p class="help" style="margin-top: 8px;">
+              This HTTP API only accepts text, reference audio, and language. No extra per-request sampling controls—tuning is via server env (variant, workers, device).
+            </p>
+          </div>
+
+          <div id="owner-tts-panel-qwen3" style="display: none; margin-top: 14px">
+            <label for="owner-qwen3Instruct">Speaking style (optional)</label>
+            <textarea id="owner-qwen3Instruct" rows="2" placeholder="e.g. Speak in a warm, professional tone" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;"></textarea>
+            <label style="display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; cursor: pointer">
+              <input type="checkbox" id="owner-qwen3Streaming" style="margin-top: 3px" />
+              <span><strong>Chunked synthesis (faster first words)</strong><br /><span class="small muted">Splits long replies into sentences for quicker first playback. Each chunk is still a full Qwen3 request. Random sampling makes chunks sound inconsistent; default is off for a steady voice.</span></span>
+            </label>
+            <p class="help" style="margin-top: 8px;">Describe how you want it to sound in plain English. Server URL is set above.</p>
+            <details style="margin-top: 12px">
+              <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech generation (optional)</summary>
+              <p class="help" style="margin: 8px 0">Sliders start at sensible defaults; tune if needed.</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                <div>
+                  <label for="owner-qwen3DoSample" style="font-weight: 600">Use random sampling</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">On: varies each run. Default (unset): runtime uses off. <code>do_sample</code></p>
+                  <select id="owner-qwen3DoSample" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default (deterministic)</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3Temperature"><span style="font-weight: 600">Creativity (temperature)</span><span id="owner-qwen3TemperatureVal" class="tts-slider-value">0.75</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Higher = more varied. <code>temperature</code></p>
+                  <input id="owner-qwen3Temperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.75" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3TopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="owner-qwen3TopPVal" class="tts-slider-value">0.92</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                  <input id="owner-qwen3TopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3TopK"><span style="font-weight: 600">Choice limit (top‑k)</span><span id="owner-qwen3TopKVal" class="tts-slider-value">50</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                  <input id="owner-qwen3TopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="50" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3RepetitionPenalty"><span style="font-weight: 600">Discourage repeats</span><span id="owner-qwen3RepetitionPenaltyVal" class="tts-slider-value">1.05</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>repetition_penalty</code></p>
+                  <input id="owner-qwen3RepetitionPenalty" class="tts-param-range" type="range" min="0.5" max="2" step="0.05" value="1.05" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3MaxNewTokens"><span style="font-weight: 600">Max generation length</span><span id="owner-qwen3MaxNewTokensVal" class="tts-slider-value">2048</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">Upper bound on generated audio tokens. <code>max_new_tokens</code></p>
+                  <input id="owner-qwen3MaxNewTokens" class="tts-param-range" type="range" min="256" max="8192" step="64" value="2048" />
+                </div>
+                <div>
+                  <label for="owner-qwen3NonStreamingMode" style="font-weight: 600">Process full text at once</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>non_streaming_mode</code></p>
+                  <select id="owner-qwen3NonStreamingMode" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+              </div>
+              <p class="help" style="margin: 12px 0 6px; font-weight: 600">Secondary voice (advanced)</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px">
+                <div>
+                  <label for="owner-qwen3SubtalkerDoSample" style="font-weight: 600">Secondary voice: random sampling</label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_dosample</code></p>
+                  <select id="owner-qwen3SubtalkerDoSample" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3SubtalkerTopK"><span style="font-weight: 600">Secondary voice: choice limit (top‑k)</span><span id="owner-qwen3SubtalkerTopKVal" class="tts-slider-value">40</span></label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_k</code></p>
+                  <input id="owner-qwen3SubtalkerTopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="40" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3SubtalkerTopP"><span style="font-weight: 600">Secondary voice: focus diversity (top‑p)</span><span id="owner-qwen3SubtalkerTopPVal" class="tts-slider-value">0.90</span></label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_top_p</code></p>
+                  <input id="owner-qwen3SubtalkerTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.9" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-qwen3SubtalkerTemperature"><span style="font-weight: 600">Secondary voice: creativity (temperature)</span><span id="owner-qwen3SubtalkerTemperatureVal" class="tts-slider-value">0.72</span></label>
+                  <p class="help" style="margin: 2px 0 4px; font-size: 12px"><code>subtalker_temperature</code></p>
+                  <input id="owner-qwen3SubtalkerTemperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.72" />
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div id="owner-tts-panel-voice-id" style="display: none; margin-top: 14px">
+            <label for="owner-ttsVoiceId" id="owner-tts-voice-id-label">Voice ID</label>
+            <select id="owner-ttsVoiceId" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" aria-label="Voice"></select>
+            <p id="owner-tts-voice-id-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-language" style="display: none; margin-top: 12px">
+            <label for="owner-ttsLanguage" id="owner-tts-language-label">Language</label>
+            <select id="owner-ttsLanguage" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" aria-label="Language"></select>
+            <p id="owner-tts-language-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-xtts-preset" style="display: none; margin-top: 14px">
+            <label for="owner-ttsPreset">Character &amp; pacing preset</label>
+            <select id="owner-ttsPreset" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="neutral">Neutral</option>
+              <option value="warm">Warm</option>
+              <option value="energetic">Energetic</option>
+              <option value="calm">Calm</option>
+            </select>
+            <p class="help" style="margin-top: 8px;">Tone and default pace for Coqui XTTS. Works with speaking speed below.</p>
+          </div>
+
+          <div id="owner-tts-panel-coqui-adv" style="display: none; margin-top: 14px">
+            <details>
+              <summary style="cursor: pointer; color: var(--primary)">Fine-tune speech decoding (optional)</summary>
+              <p class="help" style="margin: 8px 0">Same ideas as Qwen3: creativity, diversity, repeats. Sliders start at sensible defaults.</p>
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; margin-top: 8px">
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiTemperature"><span style="font-weight: 600">Creativity (temperature)</span><span id="owner-coquiTemperatureVal" class="tts-slider-value">0.75</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>temperature</code></p>
+                  <input id="owner-coquiTemperature" class="tts-param-range" type="range" min="0" max="2" step="0.05" value="0.75" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiTopP"><span style="font-weight: 600">Focus diversity (top‑p)</span><span id="owner-coquiTopPVal" class="tts-slider-value">0.92</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_p</code></p>
+                  <input id="owner-coquiTopP" class="tts-param-range" type="range" min="0" max="1" step="0.01" value="0.92" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiTopK"><span style="font-weight: 600">Choice limit (top‑k)</span><span id="owner-coquiTopKVal" class="tts-slider-value">50</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>top_k</code></p>
+                  <input id="owner-coquiTopK" class="tts-param-range" type="range" min="0" max="200" step="1" value="50" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiRepetitionPenalty"><span style="font-weight: 600">Discourage repeats</span><span id="owner-coquiRepetitionPenaltyVal" class="tts-slider-value">1.05</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>repetition_penalty</code></p>
+                  <input id="owner-coquiRepetitionPenalty" class="tts-param-range" type="range" min="0.5" max="2" step="0.05" value="1.05" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiLengthPenalty"><span style="font-weight: 600">Phrase length bias</span><span id="owner-coquiLengthPenaltyVal" class="tts-slider-value">1.00</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>length_penalty</code></p>
+                  <input id="owner-coquiLengthPenalty" class="tts-param-range" type="range" min="-2" max="2" step="0.1" value="1" />
+                </div>
+                <div>
+                  <label class="tts-slider-label" for="owner-coquiSpeed"><span style="font-weight: 600">Speaking speed (override)</span><span id="owner-coquiSpeedVal" class="tts-slider-value">0.95</span></label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px">If set, replaces the slider below for XTTS <code>speed</code> only.</p>
+                  <input id="owner-coquiSpeed" class="tts-param-range" type="range" min="0.25" max="4" step="0.05" value="0.95" />
+                </div>
+                <div>
+                  <label for="owner-coquiSplitSentences" style="font-weight: 600">Split into sentences</label>
+                  <p class="help" style="margin: 2px 0 4px; line-height: 1.35; font-size: 12px"><code>split_sentences</code></p>
+                  <select id="owner-coquiSplitSentences" style="width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit">
+                    <option value="">Default</option><option value="true">On</option><option value="false">Off</option>
+                  </select>
+                </div>
+              </div>
+            </details>
+          </div>
+
+          <div id="owner-tts-panel-rate" style="display: none; margin-top: 14px">
+            <label for="owner-ttsRate">Speaking speed <span id="owner-ttsRateValue" class="help" style="float: right">0.95</span></label>
+            <input id="owner-ttsRate" type="range" min="0.80" max="1.20" step="0.01" value="0.95" style="width: 100%; margin-top: 6px;" />
+            <p id="owner-tts-rate-hint" class="help" style="margin-top: 4px;"></p>
+          </div>
+
+          <div id="owner-tts-panel-cloning" style="display: none; margin-top: 14px; padding: 14px; border-radius: 12px; background: rgba(201, 160, 78, 0.06); border: 1px solid rgba(201, 160, 78, 0.18)">
+            <h4 id="owner-tts-cloning-heading" style="margin: 0 0 10px; font-size: 14px; color: var(--primary)">Reference / cloning</h4>
+            <label for="owner-defaultVoiceMode">How to pick the voice on each call</label>
+            <select id="owner-defaultVoiceMode" style="width: 100%; padding: 12px 14px; margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+              <option value="preset">Built-in voice ID (preset)</option>
+              <option value="cloned">Cloned from reference recording</option>
+            </select>
+            <p class="help" style="margin-top: 10px;">Reference audio: 3–15s clear speech. Paste a WAV URL (often added in admin). This stays in sync with <strong>Active voice</strong> below when you pick a custom voice.</p>
+            <label for="owner-clonedVoiceUrl" style="margin-top: 12px; display: block">Reference audio URL (WAV)</label>
+            <input id="owner-clonedVoiceUrl" type="url" placeholder="https://…" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <label for="owner-clonedVoiceLabel" style="margin-top: 10px; display: block">Voice label (optional)</label>
+            <input id="owner-clonedVoiceLabel" type="text" placeholder="e.g. Owner voice" style="width: 100%; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;" />
+            <p id="owner-voice-cloning-warning" class="help" style="display: none; margin-top: 10px; color: var(--accent-warm);">Cloned mode is selected but no reference URL is set.</p>
+          </div>
+        </div>
+
+        <label for="voice-selector" style="margin-top: 20px; display: block">Active voice</label>
+        <select id="voice-selector" style="width: 100%; padding: 12px 14px; margin-bottom: 14px; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.03); color: var(--text); font-family: inherit; font-size: 14px;">
+          <option value="preset:default">Default Voice (Preset)</option>
+        </select>
+        <div id="voice-selector-status" class="help" style="margin-bottom: 16px; min-height: 18px;"></div>
+
+        <!-- Saved cloned voices -->
+        <div id="cloned-voices-section">
+          <label style="margin-top: 8px;">Your saved voices</label>
+          <ul id="cloned-voices-list" class="owner-list"></ul>
+        </div>
+
+        <button type="button" id="save-voice-settings" style="margin-top: 16px;">Save voice settings</button>
+        <div id="voice-settings-status" class="help" style="margin-top: 6px; min-height: 18px;"></div>
+      </section>
+
+      <section class="owner-panel">
+        <h2>Recent activity</h2>
+        <p class="help">Calls and messages your receptionist has handled.</p>
+        <div class="stat-row">
+          <span class="stat">Calls: <strong id="stat-calls">—</strong></span>
+          <span class="stat">Messages: <strong id="stat-messages">—</strong></span>
+        </div>
+        <button type="button" class="secondary" id="owner-refresh" style="margin-top: 10px">Refresh</button>
+      </section>
+
+      <!-- Billing (hidden if admin disables) -->
+      <section class="owner-panel" id="billing-section" style="display:none;">
+        <h2>Your subscription</h2>
+        <p class="help">Your current plan and payment details.</p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:8px 0;">
+          <div class="stat">Plan: <strong id="bill-plan">—</strong></div>
+          <div class="stat">Status: <strong id="bill-status">—</strong></div>
+          <div class="stat">Price: <strong id="bill-price">—</strong></div>
+          <div class="stat">Frequency: <strong id="bill-frequency">—</strong></div>
+          <div class="stat">Next billing: <strong id="bill-next">—</strong></div>
+          <div class="stat">Payment: <strong id="bill-payment">—</strong></div>
+        </div>
+        <!-- Stripe actions (shown when Stripe is configured) -->
+        <div id="bill-stripe-actions" style="display:none; margin-top:14px;">
+          <div id="bill-checkout-area" style="display:none; margin-bottom:10px;">
+            <button type="button" id="bill-pay-now" style="width:100%; padding:12px; font-size:15px;">Pay now</button>
+          </div>
+          <button type="button" id="bill-manage-billing" style="width:100%;">Manage billing & payment methods</button>
+          <div id="bill-stripe-msg" class="help" style="margin-top:6px;"></div>
+        </div>
+        <!-- Manual fallback (shown when Stripe is NOT configured) -->
+        <div id="bill-manual-actions" style="display:none; margin-top:14px;">
+            <h3>Update payment method</h3>
+            <div class="row" style="gap:8px;">
+              <select id="bill-card-brand" class="sm" style="min-width:110px;">
+                <option value="">Select</option>
+                <option value="visa">Visa</option>
+                <option value="mastercard">Mastercard</option>
+                <option value="amex">Amex</option>
+                <option value="discover">Discover</option>
+                <option value="other">Other</option>
+              </select>
+              <input type="text" id="bill-card-last4" class="sm" maxlength="4" placeholder="Last 4 digits" style="max-width:120px;" />
+              <button type="button" id="bill-update-payment">Update</button>
+            </div>
+            <div id="bill-status-msg" class="help" style="margin-top:6px;"></div>
+        </div>
+      </section>
+
+      <!-- Leads -->
+      <section class="owner-panel" id="owner-leads-section">
+        <h2>Leads</h2>
+        <p class="help">Contacts and leads automatically captured from calls.</p>
+        <div id="owner-leads-empty" class="help" style="margin:12px 0;">No leads captured yet.</div>
+        <table id="owner-leads-table" style="display:none; width:100%; border-collapse:collapse; margin-top:12px;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th class="help" style="padding:6px 8px;">Name</th>
+              <th class="help" style="padding:6px 8px;">Phone</th>
+              <th class="help" style="padding:6px 8px;">Issue</th>
+              <th class="help" style="padding:6px 8px;">Priority</th>
+              <th class="help" style="padding:6px 8px;">Date</th>
+            </tr>
+          </thead>
+          <tbody id="owner-leads-body"></tbody>
+        </table>
+      </section>
+
+      <!-- Workflows -->
+      <section class="owner-panel" id="owner-workflows-section" style="display:none;">
+        <h2>Automations</h2>
+        <p class="help">Active workflow automations for your business.</p>
+        <div id="owner-wf-empty" class="help" style="margin:12px 0;">No workflows configured.</div>
+        <table id="owner-wf-table" style="display:none; width:100%; border-collapse:collapse; margin-top:12px;">
+          <thead>
+            <tr style="text-align:left; border-bottom:1px solid var(--border);">
+              <th class="help" style="padding:6px 8px;">Name</th>
+              <th class="help" style="padding:6px 8px;">Trigger</th>
+              <th class="help" style="padding:6px 8px;">Steps</th>
+              <th class="help" style="padding:6px 8px;">Status</th>
+            </tr>
+          </thead>
+          <tbody id="owner-wf-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <footer class="owner-footer">
+      <span class="help">Operator tools: use the <a href="/admin">VeraLux operations console</a> only if you are on the VeraLux team. Clients use the <a href="/portal">Business Portal</a>.</span>
+    </footer>
+
+    <div id="owner-modal" class="modal">
+      <div class="modal-card">
+        <h3>Sign in</h3>
+        <p class="help">Enter your access token to manage your receptionist.</p>
+        <input id="owner-pass-input" type="password" placeholder="Your access token" autocomplete="off" />
+        <div id="owner-pass-error" class="help" style="color: var(--danger); min-height: 18px;"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" id="owner-pass-cancel">Cancel</button>
+          <button type="button" id="owner-pass-confirm">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/qwen3-tts-options.js"></script>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const OWNER_TENANT_ID = "default";
+      let ownerAuthToken = "";
+      let ownerAuthorized = false;
+      let forwardingProfilesCache = [];
+      let pricingCache = { items: [], notes: "" };
+      
+      // Voice configuration cache
+      let voiceConfig = {
+        ttsMode: "coqui_xtts",
+        defaultVoiceMode: "preset",
+        presetVoice: "default",
+        clonedVoices: [], // Array of { id, label, speakerWavUrl }
+        activeVoiceId: "preset:default",
+      };
+
+      function escapeHtml(str) {
+        if (str == null) return "";
+        const s = String(str);
+        return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      }
+
+      function setOwnerStatus(msg, isErr = false, checking = false) {
+        const pill = $("owner-status-pill");
+        if (!pill) return;
+        pill.textContent = msg;
+        pill.classList.toggle("owner-status--error", isErr);
+        pill.classList.toggle("owner-status--checking", checking);
+      }
+
+      async function refreshReadyStatus() {
+        setOwnerStatus("Checking…", false, true);
+        try {
+          const res = await fetch("/ready");
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.status === "ok") {
+            setOwnerStatus("Ready", false, false);
+            return;
+          }
+          const c = data.checks || {};
+          if (c.db === false && c.redis === false) setOwnerStatus("Service temporarily unavailable", true, false);
+          else if (c.db === false) setOwnerStatus("Service temporarily unavailable", true, false);
+          else if (c.redis === false) setOwnerStatus("Voice service unavailable", true, false);
+          else setOwnerStatus("Unavailable", true, false);
+        } catch {
+          setOwnerStatus("Unavailable", true, false);
+        }
+      }
+
+      function setOwnerAuthHeaders(headers) {
+        if (!ownerAuthToken) return;
+        if (ownerAuthToken.split(".").length === 3) {
+          headers.set("Authorization", `Bearer ${ownerAuthToken}`);
+        } else {
+          headers.set("X-Admin-Key", ownerAuthToken);
+        }
+      }
+
+      async function ownerFetch(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        if (!options.skipTenantHeader) {
+          headers.set("X-Tenant-ID", OWNER_TENANT_ID);
+          headers.set("X-Active-Tenant", OWNER_TENANT_ID);
+        }
+        setOwnerAuthHeaders(headers);
+        const { skipTenantHeader, ...rest } = options;
+        const res = await fetch(url, { ...rest, headers });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+
+      function showOwnerModal() {
+        $("owner-pass-input").value = "";
+        $("owner-pass-error").textContent = "";
+        $("owner-modal").classList.add("active");
+        $("owner-pass-input").focus();
+      }
+
+      function hideOwnerModal() {
+        $("owner-modal").classList.remove("active");
+      }
+
+      async function validateToken(token) {
+        try {
+          const headers = new Headers();
+          if (token.split(".").length === 3) {
+            headers.set("Authorization", `Bearer ${token}`);
+          } else {
+            headers.set("X-Admin-Key", token);
+          }
+          const res = await fetch("/api/admin/tenants", { headers });
+          return res.ok;
+        } catch {
+          return false;
+        }
+      }
+
+      async function saveOwnerPortalPasscode() {
+        const cur = $("owner-portal-pass-current").value.trim();
+        const n1 = $("owner-portal-pass-new").value.trim();
+        const n2 = $("owner-portal-pass-new2").value.trim();
+        const st = $("owner-portal-pass-status");
+        st.textContent = "";
+        st.style.color = "";
+        if (!cur || !n1 || !n2) {
+          st.textContent = "Fill in all fields.";
+          return;
+        }
+        if (n1.length < 8) {
+          st.textContent = "New password must be at least 8 characters.";
+          return;
+        }
+        if (n1 !== n2) {
+          st.textContent = "New passwords do not match.";
+          return;
+        }
+        $("owner-portal-pass-save").disabled = true;
+        try {
+          await ownerFetch(
+            `/api/admin/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/owner-portal-password/change`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ currentPassword: cur, newPassword: n1 }),
+            }
+          );
+          $("owner-portal-pass-current").value = "";
+          $("owner-portal-pass-new").value = "";
+          $("owner-portal-pass-new2").value = "";
+          st.style.color = "var(--success)";
+          st.textContent = "Portal password updated.";
+        } catch (e) {
+          const t = String(e && e.message ? e.message : e);
+          if (t.includes("invalid_current_password")) {
+            st.textContent = "Current portal password is incorrect.";
+          } else if (t.includes("password_too_short")) {
+            st.textContent = "New password must be at least 8 characters.";
+          } else if (t.includes("no_email_login")) {
+            st.textContent = "Email login is not set up yet. Use the operations console to add an owner email and password.";
+          } else {
+            st.textContent = "Could not update. Check your access and try again.";
+          }
+        } finally {
+          $("owner-portal-pass-save").disabled = false;
+        }
+      }
+
+      function requireAuth(cb) {
+        if (ownerAuthorized) { cb(); return; }
+        $("owner-pass-confirm").onclick = async () => {
+          const pass = $("owner-pass-input").value.trim();
+          if (!pass) {
+            $("owner-pass-error").textContent = "Please enter your access token.";
+            return;
+          }
+          $("owner-pass-error").textContent = "Validating...";
+          $("owner-pass-confirm").disabled = true;
+          const valid = await validateToken(pass);
+          $("owner-pass-confirm").disabled = false;
+          if (!valid) {
+            $("owner-pass-error").textContent = "Invalid access token. Please try again.";
+            return;
+          }
+          ownerAuthToken = pass;
+          ownerAuthorized = true;
+          hideOwnerModal();
+          refreshReadyStatus();
+          cb();
+        };
+        showOwnerModal();
+      }
+
+      async function loadOwnerData() {
+        try {
+          await checkStripeStatus();
+          const [tenantsRes, profilesRes, pricingRes, promptsRes, analyticsRes, billingRes] = await Promise.all([
+            ownerFetch("/api/admin/tenants", { skipTenantHeader: true }),
+            ownerFetch("/api/admin/forwarding-profiles"),
+            ownerFetch("/api/admin/pricing"),
+            ownerFetch("/api/admin/prompts").catch(() => null),
+            ownerFetch("/api/admin/analytics").catch(() => null),
+            ownerFetch("/api/admin/subscription").catch(() => null),
+          ]);
+          // Load leads and workflows in background
+          loadOwnerLeads();
+          loadOwnerWorkflows();
+          loadOwnerQuickReplies().catch(() => {});
+          
+          // Also load voice config
+          loadVoiceConfig().catch(() => {});
+          loadOwnerLlmConfig().catch(() => {});
+          const tenantsList = tenantsRes.tenants || [];
+          const me = tenantsList.find((t) => t.id === OWNER_TENANT_ID) || { id: OWNER_TENANT_ID, name: "My business", numbers: [] };
+          const myTelnyxNumbers = me.numbers || [];
+          const myBusinessNumber = me.businessNumber || "";
+
+          // Show the business number in the input (what customers dial)
+          $("owner-numbers").value = myBusinessNumber || myTelnyxNumbers.join(", ");
+
+          // Also set pendingBusinessNumber so it's available if they proceed to purchase
+          if (myBusinessNumber) {
+            pendingBusinessNumber = myBusinessNumber;
+          }
+
+          // Check if we have a complete setup (Telnyx number linked)
+          if (myTelnyxNumbers.length > 0) {
+            if (telnyxConfigured) {
+              const match = findTelnyxNumber(myTelnyxNumbers[0]);
+              if (match && match.provisioned) {
+                showProvisionedState(myTelnyxNumbers[0], myBusinessNumber || null);
+              } else if (match) {
+                // Number exists but not provisioned yet - show status
+                $("owner-numbers-status").innerHTML = `<span class="help">Telnyx number found but not yet provisioned. Click Connect to complete setup.</span>`;
+              }
+            } else {
+              // Telnyx not configured but we have a number saved - show provisioned
+              showProvisionedState(myTelnyxNumbers[0], myBusinessNumber || null);
+            }
+          } else if (myBusinessNumber && telnyxConfigured) {
+            // Business number saved but no Telnyx number yet - incomplete setup
+            $("owner-numbers-status").innerHTML = `<span class="help" style="color: var(--accent-warm);">Business number saved. Click Connect to get a Telnyx number for call forwarding.</span>`;
+          }
+
+          forwardingProfilesCache = Array.isArray(profilesRes?.profiles) ? profilesRes.profiles : [];
+          pricingCache = pricingRes && typeof pricingRes === "object"
+            ? { items: Array.isArray(pricingRes.items) ? pricingRes.items : [], notes: pricingRes.notes || "" }
+            : { items: [], notes: "" };
+          renderForwarding();
+          renderPricing();
+          if (promptsRes) {
+            $("owner-greetingText").value = promptsRes.greetingText || "";
+            $("owner-systemPreamble").value = promptsRes.systemPreamble || "";
+            $("owner-policyPrompt").value = promptsRes.policyPrompt || "";
+            $("owner-voicePrompt").value = promptsRes.voicePrompt || "";
+            $("owner-schemaHint").value = promptsRes.schemaHint || "";
+          }
+          if (analyticsRes) {
+            $("stat-calls").textContent = analyticsRes.callCount ?? "—";
+            $("stat-messages").textContent = analyticsRes.callerMessageCount ?? "—";
+          }
+          if (billingRes) renderBilling(billingRes);
+        } catch (err) {
+          $("owner-numbers-status").textContent = "";
+        }
+      }
+
+      // ── Billing ──
+      let stripeConfigured = false;
+
+      async function checkStripeStatus() {
+        try {
+          const status = await ownerFetch("/api/admin/stripe/status");
+          stripeConfigured = !!status.configured;
+        } catch { stripeConfigured = false; }
+      }
+
+      async function loadOwnerLlmConfig() {
+        const st = $("owner-llm-status");
+        st.textContent = "";
+        try {
+          const cfg = await ownerFetch("/api/owner/llm-config");
+          $("owner-llm-mode").value = cfg.mode === "tenant_api_key" ? "tenant_api_key" : "platform_default";
+          if (cfg.model) $("owner-llm-model").value = cfg.model;
+          $("owner-llm-key").value = "";
+          const bits = [];
+          if (cfg.configured) bits.push("API key on file");
+          else if (cfg.mode === "tenant_api_key") bits.push("No API key saved yet");
+          if (cfg.fingerprint) bits.push(`Fingerprint …${String(cfg.fingerprint).slice(-6)}`);
+          if (cfg.lastTestedAt) bits.push(`Last test: ${cfg.lastTestedAt} (${cfg.lastStatus || "?"})`);
+          st.textContent = bits.join(" · ") || "Using platform default.";
+        } catch {
+          st.textContent = "Could not load LLM settings.";
+        }
+      }
+
+      async function saveOwnerLlmConfig() {
+        const statusEl = $("owner-llm-save-status");
+        statusEl.textContent = "";
+        const mode = $("owner-llm-mode").value;
+        const model = ($("owner-llm-model").value || "").trim() || "gpt-4o-mini";
+        const apiKey = ($("owner-llm-key").value || "").trim();
+        const body = { mode, tenantProvider: "openai", tenantModel: model, tenantKeyErrorPolicy: "platform_default" };
+        if (apiKey) body.apiKey = apiKey;
+        $("owner-llm-save").disabled = true;
+        try {
+          const cfg = await ownerFetch("/api/owner/llm-config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          $("owner-llm-key").value = "";
+          statusEl.style.color = "var(--success)";
+          statusEl.textContent = "Saved. " + (cfg.configured ? "Tenant key active." : "Using platform default.");
+          await loadOwnerLlmConfig();
+        } catch (e) {
+          statusEl.style.color = "var(--danger)";
+          statusEl.textContent = "Save failed.";
+        } finally {
+          $("owner-llm-save").disabled = false;
+        }
+      }
+
+      async function testOwnerLlmKey() {
+        const statusEl = $("owner-llm-save-status");
+        statusEl.textContent = "";
+        const apiKey = ($("owner-llm-key").value || "").trim();
+        const model = ($("owner-llm-model").value || "").trim() || "gpt-4o-mini";
+        if (!apiKey) {
+          statusEl.textContent = "Enter an API key to test.";
+          return;
+        }
+        $("owner-llm-test").disabled = true;
+        try {
+          const r = await ownerFetch("/api/owner/llm-config/test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ apiKey, model }),
+          });
+          statusEl.style.color = r.ok ? "var(--success)" : "var(--danger)";
+          statusEl.textContent = r.ok ? "Key accepted by OpenAI." : `Test failed: ${r.status || "error"}`;
+        } catch {
+          statusEl.style.color = "var(--danger)";
+          statusEl.textContent = "Test request failed.";
+        } finally {
+          $("owner-llm-test").disabled = false;
+        }
+      }
+
+      function renderBilling(sub) {
+        // Hide billing if admin disabled it, no subscription, or plan was removed
+        if (!sub || !sub.showBillingPortal || sub.configured === false
+            || (sub.status === "cancelled" && !sub.planName && !sub.stripePriceId)) {
+          $("billing-section").style.display = "none";
+          return;
+        }
+        $("billing-section").style.display = "";
+        $("bill-plan").textContent = sub.planName || "—";
+        const statusMap = { trial: "Trial", active: "Active", past_due: "Past due", paused: "Paused", cancelled: "Cancelled" };
+        $("bill-status").textContent = statusMap[sub.status] || sub.status || "—";
+        const price = sub.priceCents ? "$" + (sub.priceCents / 100).toFixed(2) : "—";
+        const curr = (sub.currency || "usd").toUpperCase();
+        $("bill-price").textContent = sub.priceCents ? `${price} ${curr}` : "—";
+        const freqMap = { monthly: "Monthly", quarterly: "Quarterly", yearly: "Yearly", one_time: "One-time" };
+        $("bill-frequency").textContent = freqMap[sub.billingFrequency] || sub.billingFrequency || "—";
+        $("bill-next").textContent = sub.nextBillingDate ? new Date(sub.nextBillingDate).toLocaleDateString() : "—";
+        const card = sub.paymentMethodBrand && sub.paymentMethodLast4
+          ? `${sub.paymentMethodBrand.charAt(0).toUpperCase() + sub.paymentMethodBrand.slice(1)} ····${sub.paymentMethodLast4}`
+          : "None on file";
+        $("bill-payment").textContent = card;
+        // Show Stripe actions or manual fallback
+        if (stripeConfigured) {
+          $("bill-stripe-actions").style.display = "";
+          $("bill-manual-actions").style.display = "none";
+          // Show "Pay now" if there's a Stripe price but no active Stripe subscription
+          const hasStripeSubscription = !!sub.stripeSubscriptionId;
+          const hasStripePriceId = !!sub.stripePriceId;
+          if (hasStripePriceId && !hasStripeSubscription) {
+            $("bill-checkout-area").style.display = "";
+          } else {
+            $("bill-checkout-area").style.display = "none";
+          }
+        } else {
+          $("bill-stripe-actions").style.display = "none";
+          $("bill-manual-actions").style.display = "";
+          if (sub.paymentMethodBrand) $("bill-card-brand").value = sub.paymentMethodBrand;
+          if (sub.paymentMethodLast4) $("bill-card-last4").value = sub.paymentMethodLast4;
+        }
+      }
+
+      async function payNowOwner() {
+        const statusEl = $("bill-stripe-msg");
+        try {
+          if (statusEl) statusEl.textContent = "Redirecting to checkout…";
+          const sub = await ownerFetch("/api/admin/subscription");
+          if (!sub.stripePriceId) {
+            if (statusEl) statusEl.textContent = "No price configured. Contact your provider.";
+            return;
+          }
+          const data = await ownerFetch("/api/admin/stripe/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              priceId: sub.stripePriceId,
+              successUrl: window.location.href + "?checkout=success",
+              cancelUrl: window.location.href + "?checkout=cancelled",
+            }),
+          });
+          if (data.url) window.location.href = data.url;
+          else if (statusEl) statusEl.textContent = "Could not create checkout session.";
+        } catch (err) {
+          if (statusEl) statusEl.textContent = "Checkout error: " + (err.message || err);
+        }
+      }
+
+      async function openOwnerBillingPortal() {
+        const statusEl = $("bill-stripe-msg");
+        try {
+          const data = await ownerFetch("/api/admin/stripe/portal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ returnUrl: window.location.href }),
+          });
+          if (data.url) window.location.href = data.url;
+        } catch (err) {
+          if (statusEl) statusEl.textContent = "Could not open billing portal: " + (err.message || err);
+        }
+      }
+
+      async function updateOwnerPayment() {
+        const brand = $("bill-card-brand").value;
+        const last4 = $("bill-card-last4").value.trim();
+        const statusEl = $("bill-status-msg");
+        if (!brand || !last4 || last4.length !== 4) {
+          if (statusEl) statusEl.textContent = "Please select a card brand and enter the last 4 digits.";
+          return;
+        }
+        try {
+          await ownerFetch("/api/admin/subscription", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ paymentMethodBrand: brand, paymentMethodLast4: last4 }),
+          });
+          if (statusEl) statusEl.textContent = "Payment method updated.";
+          // Refresh
+          const sub = await ownerFetch("/api/admin/subscription");
+          renderBilling(sub);
+        } catch (err) {
+          if (statusEl) statusEl.textContent = "Update failed: " + (err.message || err);
+        }
+      }
+
+      function renderForwarding() {
+        const list = $("forwarding-profiles-list");
+        list.innerHTML = "";
+        if (forwardingProfilesCache.length === 0) {
+          list.innerHTML = "<li class=\"help\">No contacts yet. Add someone above.</li>";
+          return;
+        }
+        forwardingProfilesCache.forEach((p, i) => {
+          const li = document.createElement("li");
+          li.innerHTML = `
+            <span><strong>${escapeHtml(p.name)}</strong> ${escapeHtml(p.number)} <span class=\"help\">${escapeHtml(p.role || "")}</span></span>
+            <button type="button" class="secondary remove" data-i="${i}">Remove</button>
+          `;
+          li.querySelector("button").onclick = () => {
+            forwardingProfilesCache.splice(i, 1);
+            renderForwarding();
+          };
+          list.appendChild(li);
+        });
+      }
+
+      function renderPricing() {
+        const list = $("pricing-items-list");
+        const notesEl = $("pricing-notes");
+        if (notesEl) notesEl.value = pricingCache.notes || "";
+        list.innerHTML = "";
+        if (!pricingCache.items || pricingCache.items.length === 0) {
+          list.innerHTML = "<li class=\"help\">No items yet. Add one above.</li>";
+          return;
+        }
+        pricingCache.items.forEach((item, i) => {
+          const li = document.createElement("li");
+          const badge = (item.type === "product")
+            ? '<span style="background:rgba(201,160,78,0.18);color:#C9A04E;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-right:6px;">Product</span>'
+            : '<span style="background:rgba(246,243,236,0.10);color:var(--muted);padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;margin-right:6px;">Service</span>';
+          li.innerHTML = `
+            <span>${badge}<strong>${escapeHtml(item.name)}</strong> ${escapeHtml(item.price)} ${item.description ? `<span class="help">${escapeHtml(item.description)}</span>` : ""}</span>
+            <button type="button" class="secondary remove" data-i="${i}">Remove</button>
+          `;
+          li.querySelector("button").onclick = () => {
+            pricingCache.items.splice(i, 1);
+            renderPricing();
+          };
+          list.appendChild(li);
+        });
+      }
+
+      async function saveForwarding() {
+        try {
+          await ownerFetch("/api/admin/forwarding-profiles", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ profiles: forwardingProfilesCache }),
+          });
+          $("fp-status").textContent = "Saved.";
+        } catch (err) {
+          $("fp-status").textContent = "Failed: " + err.message;
+        }
+      }
+
+      async function savePricing() {
+        const notesEl = $("pricing-notes");
+        if (notesEl) pricingCache.notes = notesEl.value.trim();
+        try {
+          await ownerFetch("/api/admin/pricing", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pricingCache),
+          });
+          $("price-status").textContent = "Saved.";
+        } catch (err) {
+          $("price-status").textContent = "Failed: " + err.message;
+        }
+      }
+
+      async function saveOwnerPrompts() {
+        const statusEl = $("owner-prompts-status");
+        try {
+          await ownerFetch("/api/admin/prompts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              greetingText: $("owner-greetingText").value,
+              systemPreamble: $("owner-systemPreamble").value,
+              policyPrompt: $("owner-policyPrompt").value,
+              voicePrompt: $("owner-voicePrompt").value,
+              schemaHint: $("owner-schemaHint").value,
+            }),
+          });
+          if (statusEl) statusEl.textContent = "Saved.";
+          refreshReadyStatus();
+        } catch (err) {
+          if (statusEl) statusEl.textContent = "Failed: " + err.message;
+        }
+      }
+
+      let ownerQuickRepliesCache = [];
+
+      function parseOwnerQrMatchLines(raw) {
+        return (raw || "")
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+
+      async function loadOwnerQuickReplies() {
+        const st = $("owner-qr-status");
+        try {
+          const data = await ownerFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/quick-replies`
+          );
+          ownerQuickRepliesCache = Array.isArray(data.quickReplies) ? data.quickReplies : [];
+          if (st) {
+            st.textContent = data.runtimeConfigMissing
+              ? "Quick replies are not active on live calls yet — save voice settings in the operations console, then save quick replies."
+              : `Loaded ${ownerQuickRepliesCache.length} intent(s).`;
+          }
+          renderOwnerQuickReplies();
+        } catch (err) {
+          if (st) st.textContent = "Load failed: " + err.message;
+          console.error("loadOwnerQuickReplies:", err);
+        }
+      }
+
+      function renderOwnerQuickReplies() {
+        const root = $("owner-qr-list");
+        if (!root) return;
+        root.innerHTML = "";
+        ownerQuickRepliesCache.forEach((intent, idx) => {
+          const card = document.createElement("div");
+          card.style.cssText = "margin-bottom:12px;padding:12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.02)";
+          const idVal = intent.id ? escapeHtml(String(intent.id)) : "";
+          const matchText = (intent.match || []).join("\n");
+          const replyText = intent.reply || "";
+          card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <strong>Intent ${idx + 1}</strong>
+              <button type="button" class="secondary owner-qr-remove" data-idx="${idx}">Remove</button>
+            </div>
+            <label class="help" for="owner-qr-id-${idx}">Id (optional, for logs)</label>
+            <input type="text" id="owner-qr-id-${idx}" class="owner-qr-id" data-idx="${idx}" value="${idVal}" placeholder="e.g. hours" style="width:100%;max-width:420px;margin:4px 0 8px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px" />
+            <label class="help" for="owner-qr-match-${idx}">Caller phrases (one per line, each ≥ 4 characters)</label>
+            <textarea id="owner-qr-match-${idx}" class="owner-qr-match" data-idx="${idx}" rows="3" style="width:100%;margin:4px 0 8px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(matchText)}</textarea>
+            <label class="help" for="owner-qr-reply-${idx}">Reply spoken to caller</label>
+            <textarea id="owner-qr-reply-${idx}" class="owner-qr-reply" data-idx="${idx}" rows="3" style="width:100%;margin-top:4px;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,0.03);color:var(--text);font-family:inherit;font-size:14px">${escapeHtml(replyText)}</textarea>
+          `;
+          card.querySelector(".owner-qr-remove").addEventListener("click", () => {
+            ownerQuickRepliesCache.splice(idx, 1);
+            renderOwnerQuickReplies();
+          });
+          root.appendChild(card);
+        });
+      }
+
+      function collectOwnerQuickRepliesFromDom() {
+        const cards = document.querySelectorAll("#owner-qr-list > div");
+        const out = [];
+        cards.forEach((card) => {
+          const id = card.querySelector(".owner-qr-id")?.value?.trim() || undefined;
+          const match = parseOwnerQrMatchLines(card.querySelector(".owner-qr-match")?.value || "");
+          const reply = card.querySelector(".owner-qr-reply")?.value?.trim() || "";
+          if (!match.length && !reply) return;
+          const row = { match, reply };
+          if (id) row.id = id;
+          out.push(row);
+        });
+        return out;
+      }
+
+      async function saveOwnerQuickReplies() {
+        const st = $("owner-qr-status");
+        try {
+          const quickReplies = collectOwnerQuickRepliesFromDom();
+          await ownerFetch(
+            `/api/admin/runtime/tenants/${encodeURIComponent(OWNER_TENANT_ID)}/quick-replies`,
+            {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ quickReplies }),
+            }
+          );
+          if (st) st.textContent = "Quick replies saved for live calls.";
+          await loadOwnerQuickReplies();
+          refreshReadyStatus();
+        } catch (err) {
+          if (st) st.textContent = "Save failed: " + err.message;
+        }
+      }
+
+      function addOwnerQuickReplyIntent() {
+        ownerQuickRepliesCache.push({ match: [], reply: "" });
+        renderOwnerQuickReplies();
+      }
+
+      /* ── Voice Settings (per-engine panels, aligned with admin) ─────────────────────────── */
+
+      function ownerUpdateTtsLabels() {
+        const rateEl = $("owner-ttsRate");
+        const rateVal = $("owner-ttsRateValue");
+        if (rateEl && rateVal) rateVal.textContent = Number(rateEl.value).toFixed(2);
+      }
+
+      function updateOwnerTtsProviderPanels(voiceFromCfg, langFromCfg) {
+        const modeEl = $("owner-ttsMode");
+        if (!modeEl) return;
+        const mode = modeEl.value;
+        voiceConfig.ttsMode = mode;
+        const showClone = mode === "coqui_xtts" || mode === "chatterbox_http" || mode === "miso_tts_http";
+
+        const showBlock = (id, on) => {
+          const el = $(id);
+          if (el) el.style.display = on ? "block" : "none";
+        };
+
+        const blurb = $("owner-tts-provider-blurb");
+        if (blurb) {
+          const blurbs = {
+            kokoro_http:
+              "Kokoro: fast, lightweight voices. Set your server URL and a voice name from your Kokoro install. No cloning on this path.",
+            coqui_xtts:
+              "Coqui XTTS: built-in voice ID or clone from a reference recording. Language, character preset, and speaking speed apply here.",
+            chatterbox_http:
+              "Chatterbox: voice from a reference clip. Pick the same model variant your server runs; set language; Multilingual needs both.",
+            qwen3_tts_http:
+              "Qwen3 CustomVoice: preset speaker and language, optional plain-English style, and optional fine-tuning if you need it.",
+            miso_tts_http:
+              "Miso One / Miso TTS 8B: expressive English speech generation. Use speaker IDs such as 0; optional reference audio can condition the voice.",
+          };
+          blurb.textContent = blurbs[mode] || "";
+        }
+
+        showBlock("owner-tts-panel-chatterbox", mode === "chatterbox_http");
+        showBlock("owner-tts-panel-qwen3", mode === "qwen3_tts_http");
+        showBlock("owner-tts-panel-cloning", showClone);
+        showBlock("owner-tts-panel-voice-id", mode === "kokoro_http" || mode === "coqui_xtts" || mode === "qwen3_tts_http" || mode === "miso_tts_http");
+        showBlock("owner-tts-panel-language", showClone || mode === "qwen3_tts_http");
+        showBlock("owner-tts-panel-xtts-preset", mode === "coqui_xtts");
+        showBlock("owner-tts-panel-coqui-adv", mode === "coqui_xtts");
+        showBlock("owner-tts-panel-rate", mode === "kokoro_http" || mode === "coqui_xtts");
+
+        const rateHint = $("owner-tts-rate-hint");
+        if (rateHint) {
+          rateHint.textContent =
+            mode === "kokoro_http"
+              ? "1.0 = normal pace. Sent as JSON field rate (maps to synthesis speed on the Kokoro server)."
+              : "1.0 = normal pace. Sent as Coqui XTTS speed unless you set an override in Fine-tune above.";
+        }
+
+        const cloneHead = $("owner-tts-cloning-heading");
+        if (cloneHead) {
+          cloneHead.textContent =
+            mode === "chatterbox_http"
+              ? "Reference voice sample (Chatterbox)"
+              : mode === "miso_tts_http"
+                ? "Reference voice sample (Miso TTS)"
+                : "Clone from reference audio (Coqui XTTS)";
+        }
+
+        const urlLabel = $("owner-tts-url-label");
+        if (urlLabel) {
+          urlLabel.textContent =
+            mode === "kokoro_http"
+              ? "Kokoro server URL"
+              : mode === "chatterbox_http"
+                ? "Chatterbox server URL"
+                : mode === "qwen3_tts_http"
+                  ? "Qwen3-TTS server URL"
+                  : mode === "miso_tts_http"
+                    ? "Miso TTS server URL"
+                  : "Coqui XTTS server URL";
+        }
+        const urlInput = $("owner-ttsUrl");
+        if (urlInput) {
+          urlInput.placeholder =
+            mode === "kokoro_http"
+              ? "http://127.0.0.1:7001/tts"
+              : mode === "chatterbox_http"
+                ? "http://127.0.0.1:7005"
+                : mode === "qwen3_tts_http"
+                  ? "http://veralux-qwen3-tts:7010"
+                  : mode === "miso_tts_http"
+                    ? "http://veralux-miso-tts:7011"
+                  : "http://127.0.0.1:7002/tts";
+        }
+        const oUrlHint = $("owner-tts-url-hint");
+        if (oUrlHint) {
+          if (mode === "qwen3_tts_http") {
+            oUrlHint.style.display = "block";
+            oUrlHint.textContent =
+              "Preview runs from the control-plane container. Use http://veralux-qwen3-tts:7010 when Qwen3 is up. DNS errors → start: docker compose --profile gpu up -d qwen3-tts-gpu";
+          } else if (mode === "miso_tts_http") {
+            oUrlHint.style.display = "block";
+            oUrlHint.textContent =
+              "Preview runs from the control-plane container. Use http://veralux-miso-tts:7011 when Miso is up. Miso TTS 8B needs a high-VRAM GPU for practical latency.";
+          } else {
+            oUrlHint.style.display = "none";
+            oUrlHint.textContent = "";
+          }
+        }
+
+        const vLabel = $("owner-tts-voice-id-label");
+        const vHint = $("owner-tts-voice-id-hint");
+        if (vLabel && vHint) {
+          if (mode === "kokoro_http") {
+            vLabel.textContent = "Voice (Kokoro preset)";
+            vHint.textContent = "Choose a voice from the list; it must exist on your Kokoro server.";
+          } else if (mode === "qwen3_tts_http") {
+            vLabel.textContent = "Speaker (built-in preset)";
+            vHint.textContent = "All CustomVoice speakers from the Qwen3 model card.";
+          } else if (mode === "miso_tts_http") {
+            vLabel.textContent = "Speaker ID";
+            vHint.textContent = "Miso expects numeric speaker IDs; use 0 unless you are conditioning a multi-speaker context.";
+          } else {
+            vLabel.textContent = "Built-in voice ID (XTTS)";
+            vHint.textContent =
+              "Used when “Preset” mode is selected; skipped when using a cloned reference WAV.";
+          }
+        }
+
+        const langHint = $("owner-tts-language-hint");
+        if (langHint) {
+          langHint.textContent =
+            mode === "chatterbox_http"
+              ? "Pick a language code for synthesis. Required for Multilingual; must match what your server expects."
+              : mode === "qwen3_tts_http"
+                ? "Full language names (not ISO codes). “Auto” infers from text."
+                : mode === "kokoro_http"
+                  ? "Language is not used for Kokoro HTTP in this stack; voice choice carries locale."
+                  : "Pick a language code for Coqui XTTS.";
+        }
+
+        const voiceEl = $("owner-ttsVoiceId");
+        const langEl = $("owner-ttsLanguage");
+        if (window.TTS_VOICE_LANG_UI && voiceEl && langEl) {
+          const v = voiceFromCfg !== undefined && voiceFromCfg !== null ? String(voiceFromCfg) : voiceEl.value;
+          const l = langFromCfg !== undefined && langFromCfg !== null ? String(langFromCfg) : langEl.value;
+          const r = window.TTS_VOICE_LANG_UI.resolveVoiceLangDefaults(mode, v, l);
+          window.TTS_VOICE_LANG_UI.fillVoiceSelect(voiceEl, mode, r.voice);
+          window.TTS_VOICE_LANG_UI.fillLanguageSelect(langEl, mode, r.lang);
+        }
+
+        const warningEl = $("owner-voice-cloning-warning");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+        if (warningEl && defaultVoiceModeEl && clonedVoiceUrlEl) {
+          const isClonedMode = defaultVoiceModeEl.value === "cloned";
+          const hasUrl = clonedVoiceUrlEl.value.trim().length > 0;
+          warningEl.style.display = isClonedMode && !hasUrl && showClone ? "block" : "none";
+        } else if (warningEl) {
+          warningEl.style.display = "none";
+        }
+      }
+
+      /** Qwen3 numeric controls: slider presets when API returns no value. */
+      const QWEN3_RANGE_DEFAULTS = {
+        qwen3Temperature: 0.75,
+        qwen3TopP: 0.92,
+        qwen3TopK: 50,
+        qwen3RepetitionPenalty: 1.05,
+        qwen3MaxNewTokens: 2048,
+        qwen3SubtalkerTopK: 40,
+        qwen3SubtalkerTopP: 0.9,
+        qwen3SubtalkerTemperature: 0.72,
+      };
+
+      function formatQwen3SliderDisplay(fullId, n) {
+        const id = fullId.replace(/^(?:portal-|owner-)?/, "");
+        if (!Number.isFinite(n)) return "—";
+        if (id === "qwen3TopK" || id === "qwen3SubtalkerTopK" || id === "qwen3MaxNewTokens") return String(Math.round(n));
+        return n.toFixed(2);
+      }
+
+      function qwen3DefaultForFullId(fullId) {
+        for (const k of Object.keys(QWEN3_RANGE_DEFAULTS)) {
+          if (fullId === k || fullId.endsWith(k)) return QWEN3_RANGE_DEFAULTS[k];
+        }
+        return undefined;
+      }
+
+      function setQwen3SliderFromCfg(fullId, cfgVal) {
+        const el = $(fullId);
+        const span = $(fullId + "Val");
+        const d = qwen3DefaultForFullId(fullId);
+        const raw =
+          cfgVal !== undefined && cfgVal !== null && String(cfgVal).trim() !== ""
+            ? Number(cfgVal)
+            : d;
+        if (!el || el.type !== "range") return;
+        if (raw === undefined || !Number.isFinite(raw)) return;
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        const clamped = Math.min(max, Math.max(min, raw));
+        el.value = String(clamped);
+        if (span) span.textContent = formatQwen3SliderDisplay(fullId, clamped);
+      }
+
+      function wireQwen3RangeSliders(idPrefix) {
+        const pre = idPrefix || "";
+        Object.keys(QWEN3_RANGE_DEFAULTS).forEach((suffix) => {
+          const id = pre + suffix;
+          const el = $(id);
+          if (!el || el.type !== "range" || el.dataset.rangeWired === "1") return;
+          el.dataset.rangeWired = "1";
+          const span = $(id + "Val");
+          const sync = () => {
+            if (span) span.textContent = formatQwen3SliderDisplay(id, parseFloat(el.value));
+          };
+          el.addEventListener("input", sync);
+          el.addEventListener("change", sync);
+          sync();
+        });
+      }
+
+      /** Coqui XTTS fine-tune: slider presets when API returns no value. */
+      const COQUI_RANGE_DEFAULTS = {
+        coquiTemperature: 0.75,
+        coquiTopP: 0.92,
+        coquiTopK: 50,
+        coquiRepetitionPenalty: 1.05,
+        coquiLengthPenalty: 1.0,
+        coquiSpeed: 0.95,
+      };
+
+      function formatCoquiSliderDisplay(fullId, n) {
+        const id = fullId.replace(/^(?:portal-|owner-)?/, "");
+        if (!Number.isFinite(n)) return "—";
+        if (id === "coquiTopK") return String(Math.round(n));
+        return n.toFixed(2);
+      }
+
+      function coquiDefaultForFullId(fullId) {
+        for (const k of Object.keys(COQUI_RANGE_DEFAULTS)) {
+          if (fullId === k || fullId.endsWith(k)) return COQUI_RANGE_DEFAULTS[k];
+        }
+        return undefined;
+      }
+
+      function setCoquiSliderFromCfg(fullId, cfgVal) {
+        const el = $(fullId);
+        const span = $(fullId + "Val");
+        const d = coquiDefaultForFullId(fullId);
+        const raw =
+          cfgVal !== undefined && cfgVal !== null && String(cfgVal).trim() !== ""
+            ? Number(cfgVal)
+            : d;
+        if (!el || el.type !== "range") return;
+        if (raw === undefined || !Number.isFinite(raw)) return;
+        const min = parseFloat(el.min);
+        const max = parseFloat(el.max);
+        const clamped = Math.min(max, Math.max(min, raw));
+        el.value = String(clamped);
+        if (span) span.textContent = formatCoquiSliderDisplay(fullId, clamped);
+      }
+
+      function wireCoquiRangeSliders(idPrefix) {
+        const pre = idPrefix || "";
+        Object.keys(COQUI_RANGE_DEFAULTS).forEach((suffix) => {
+          const id = pre + suffix;
+          const el = $(id);
+          if (!el || el.type !== "range" || el.dataset.coquiRangeWired === "1") return;
+          el.dataset.coquiRangeWired = "1";
+          const span = $(id + "Val");
+          const sync = () => {
+            if (span) span.textContent = formatCoquiSliderDisplay(id, parseFloat(el.value));
+          };
+          el.addEventListener("input", sync);
+          el.addEventListener("change", sync);
+          sync();
+        });
+      }
+
+      const ownerTtsUrlByMode = { coqui_xtts: "", chatterbox_http: "", kokoro_http: "", qwen3_tts_http: "", miso_tts_http: "" };
+      let ownerTtsUrlBoundMode = "coqui_xtts";
+
+      function ownerRefreshTtsUrlCacheFromCfg(cfg) {
+        const m = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        ownerTtsUrlByMode.coqui_xtts = (cfg.coquiXttsUrl || "").trim();
+        if (!ownerTtsUrlByMode.coqui_xtts && m === "coqui_xtts") {
+          ownerTtsUrlByMode.coqui_xtts = (cfg.xttsUrl || "").trim();
+        }
+        if (!ownerTtsUrlByMode.coqui_xtts && cfg.coquiXttsEndpointConfigured) {
+          ownerTtsUrlByMode.coqui_xtts = "";
+        }
+        ownerTtsUrlByMode.kokoro_http = (cfg.kokoroUrl || "").trim();
+        if (!ownerTtsUrlByMode.kokoro_http && m === "kokoro_http") {
+          ownerTtsUrlByMode.kokoro_http = (cfg.xttsUrl || "").trim();
+        }
+        if (!ownerTtsUrlByMode.kokoro_http && cfg.kokoroEndpointConfigured) {
+          ownerTtsUrlByMode.kokoro_http = "";
+        }
+        ownerTtsUrlByMode.chatterbox_http = (cfg.chatterboxUrl || "").trim();
+        if (!ownerTtsUrlByMode.chatterbox_http && cfg.chatterboxEndpointConfigured) {
+          ownerTtsUrlByMode.chatterbox_http = "";
+        }
+        ownerTtsUrlByMode.qwen3_tts_http = (cfg.qwen3TtsUrl || "").trim();
+        if (!ownerTtsUrlByMode.qwen3_tts_http && cfg.qwen3EndpointConfigured) {
+          ownerTtsUrlByMode.qwen3_tts_http = "";
+        }
+        ownerTtsUrlByMode.miso_tts_http = (cfg.misoTtsUrl || "").trim();
+        if (!ownerTtsUrlByMode.miso_tts_http && cfg.misoEndpointConfigured) {
+          ownerTtsUrlByMode.miso_tts_http = "";
+        }
+        const urlEl = $("owner-ttsUrl");
+        if (urlEl) {
+          const cur = ownerTtsUrlByMode[m] || "";
+          if (!cur && (cfg.coquiXttsEndpointConfigured || cfg.kokoroEndpointConfigured || cfg.chatterboxEndpointConfigured || cfg.qwen3EndpointConfigured || cfg.misoEndpointConfigured)) {
+            urlEl.placeholder = "TTS endpoint configured (URL not shown in portal)";
+          } else {
+            urlEl.placeholder = "https://…";
+          }
+        }
+      }
+
+      function ownerApplyTtsUrlForMode(mode) {
+        const urlEl = $("owner-ttsUrl");
+        if (!urlEl) return;
+        urlEl.value = ownerTtsUrlByMode[mode] || "";
+      }
+
+      function onOwnerTtsProviderModeChange() {
+        const modeEl = $("owner-ttsMode");
+        const urlEl = $("owner-ttsUrl");
+        if (urlEl && ownerTtsUrlBoundMode && Object.prototype.hasOwnProperty.call(ownerTtsUrlByMode, ownerTtsUrlBoundMode)) {
+          ownerTtsUrlByMode[ownerTtsUrlBoundMode] = urlEl.value.trim();
+        }
+        if (modeEl) {
+          ownerTtsUrlBoundMode = modeEl.value;
+          ownerApplyTtsUrlForMode(modeEl.value);
+        }
+        updateOwnerTtsProviderPanels();
+      }
+
+      function ownerRenderTtsConfig(cfg) {
+        const modeEl = $("owner-ttsMode");
+        const urlEl = $("owner-ttsUrl");
+        const presetEl = $("owner-ttsPreset");
+        const rateEl = $("owner-ttsRate");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+        const clonedVoiceLabelEl = $("owner-clonedVoiceLabel");
+
+        if (!presetEl || !rateEl) return;
+
+        ownerRefreshTtsUrlCacheFromCfg(cfg);
+        const mode = cfg.mode || cfg.ttsMode || "coqui_xtts";
+        if (modeEl) modeEl.value = mode;
+        ownerTtsUrlBoundMode = mode;
+        if (urlEl) ownerApplyTtsUrlForMode(mode);
+        const cbVarEl = $("owner-chatterboxVariant");
+        if (cbVarEl && cfg.chatterboxVariant) {
+          cbVarEl.value = cfg.chatterboxVariant;
+        }
+        presetEl.value = cfg.preset || "neutral";
+
+        rateEl.value = (typeof cfg.rate === "number" ? cfg.rate : (typeof cfg.coquiSpeed === "number" ? cfg.coquiSpeed : 0.95)).toFixed(2);
+
+        if (defaultVoiceModeEl) {
+          defaultVoiceModeEl.value = cfg.defaultVoiceMode || "preset";
+        }
+        if (clonedVoiceUrlEl) {
+          clonedVoiceUrlEl.value = cfg.clonedVoice?.speakerWavUrl || "";
+          if (!clonedVoiceUrlEl.value && (cfg.clonedVoice?.speakerWavConfigured || cfg.clonedVoiceReferenceConfigured)) {
+            clonedVoiceUrlEl.placeholder = "Reference audio configured (URL not shown in portal)";
+          } else {
+            clonedVoiceUrlEl.placeholder = "https://…";
+          }
+        }
+        if (clonedVoiceLabelEl) {
+          clonedVoiceLabelEl.value = cfg.clonedVoice?.label || cfg.clonedVoiceLabel || "";
+        }
+
+        const ownerQi = $("owner-qwen3Instruct");
+        if (ownerQi) ownerQi.value = cfg.qwen3Instruct || "";
+        const ownerQs = $("owner-qwen3Streaming");
+        if (ownerQs) ownerQs.checked = cfg.qwen3Streaming === true;
+        (function ownerFillQwen3Gen(c) {
+          const p = "owner-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          tri("qwen3DoSample", c.qwen3DoSample);
+          setQwen3SliderFromCfg(p + "qwen3Temperature", c.qwen3Temperature);
+          setQwen3SliderFromCfg(p + "qwen3TopP", c.qwen3TopP);
+          setQwen3SliderFromCfg(p + "qwen3TopK", c.qwen3TopK);
+          setQwen3SliderFromCfg(p + "qwen3RepetitionPenalty", c.qwen3RepetitionPenalty);
+          setQwen3SliderFromCfg(p + "qwen3MaxNewTokens", c.qwen3MaxNewTokens);
+          tri("qwen3NonStreamingMode", c.qwen3NonStreamingMode);
+          tri("qwen3SubtalkerDoSample", c.qwen3SubtalkerDoSample);
+          setQwen3SliderFromCfg(p + "qwen3SubtalkerTopK", c.qwen3SubtalkerTopK);
+          setQwen3SliderFromCfg(p + "qwen3SubtalkerTopP", c.qwen3SubtalkerTopP);
+          setQwen3SliderFromCfg(p + "qwen3SubtalkerTemperature", c.qwen3SubtalkerTemperature);
+        })(cfg);
+        (function ownerFillCoquiGen(c) {
+          const p = "owner-";
+          const tri = (suffix, v) => {
+            const el = $(p + suffix);
+            if (!el) return;
+            if (v === undefined || v === null) el.value = "";
+            else el.value = v ? "true" : "false";
+          };
+          setCoquiSliderFromCfg(p + "coquiTemperature", c.coquiTemperature);
+          setCoquiSliderFromCfg(p + "coquiTopP", c.coquiTopP);
+          setCoquiSliderFromCfg(p + "coquiTopK", c.coquiTopK);
+          setCoquiSliderFromCfg(p + "coquiRepetitionPenalty", c.coquiRepetitionPenalty);
+          setCoquiSliderFromCfg(p + "coquiLengthPenalty", c.coquiLengthPenalty);
+          setCoquiSliderFromCfg(p + "coquiSpeed", c.coquiSpeed);
+          tri("coquiSplitSentences", c.coquiSplitSentences);
+        })(cfg);
+
+        ownerUpdateTtsLabels();
+        updateOwnerTtsProviderPanels(cfg.voice || cfg.voiceId || "", cfg.language || "");
+        wireQwen3RangeSliders("owner-");
+        wireCoquiRangeSliders("owner-");
+      }
+
+      function validateOwnerVoiceCloning() {
+        const modeEl = $("owner-ttsMode");
+        const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+        const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+
+        if (!modeEl || (modeEl.value !== "coqui_xtts" && modeEl.value !== "chatterbox_http")) return true;
+        if (!defaultVoiceModeEl || defaultVoiceModeEl.value !== "cloned") return true;
+        if (!clonedVoiceUrlEl || clonedVoiceUrlEl.value.trim().length === 0) {
+          const st = $("voice-settings-status");
+          if (st) st.textContent = "Error: Cloned voice mode requires a reference audio URL.";
+          return false;
+        }
+        return true;
+      }
+
+      function syncOwnerVoiceFromSelector() {
+        const sel = $("voice-selector");
+        if (!sel) return;
+        const val = sel.value || "preset:default";
+        const colon = val.indexOf(":");
+        const type = colon === -1 ? "preset" : val.slice(0, colon);
+        const id = colon === -1 ? val : val.slice(colon + 1);
+        const dm = $("owner-defaultVoiceMode");
+        if (!dm) return;
+        if (type === "cloned") {
+          dm.value = "cloned";
+          const voice = voiceConfig.clonedVoices.find((v) => v.id === id);
+          if (voice) {
+            const u = $("owner-clonedVoiceUrl");
+            const l = $("owner-clonedVoiceLabel");
+            if (u) u.value = voice.speakerWavUrl;
+            if (l) l.value = voice.label || "";
+          }
+        } else {
+          dm.value = "preset";
+          if (id) voiceConfig.presetVoice = id;
+          const vIn = $("owner-ttsVoiceId");
+          if (vIn && !(vIn.value || "").trim() && id) vIn.value = id;
+        }
+        voiceConfig.activeVoiceId = val;
+        updateOwnerTtsProviderPanels();
+      }
+
+      function syncOwnerSelectorFromCloningForm() {
+        const dm = $("owner-defaultVoiceMode");
+        const sel = $("voice-selector");
+        if (!dm || !sel) return;
+        if (dm.value === "preset") {
+          const vid =
+            ($("owner-ttsVoiceId") && $("owner-ttsVoiceId").value.trim()) || voiceConfig.presetVoice || "default";
+          voiceConfig.presetVoice = vid;
+          renderVoiceSelector();
+          const want = `preset:${vid}`;
+          if ([...sel.options].some((o) => o.value === want)) {
+            sel.value = want;
+            voiceConfig.activeVoiceId = sel.value;
+          }
+        } else {
+          const url = ($("owner-clonedVoiceUrl") && $("owner-clonedVoiceUrl").value.trim()) || "";
+          renderVoiceSelector();
+          const match = voiceConfig.clonedVoices.find((v) => v.speakerWavUrl === url);
+          if (match) {
+            const want = `cloned:${match.id}`;
+            if ([...sel.options].some((o) => o.value === want)) {
+              sel.value = want;
+              voiceConfig.activeVoiceId = sel.value;
+            }
+          }
+        }
+        updateOwnerTtsProviderPanels();
+      }
+
+      async function loadVoiceConfig() {
+        try {
+          const cfg = await ownerFetch("/api/tts/config");
+
+          voiceConfig.ttsMode = cfg.ttsMode || cfg.mode || "coqui_xtts";
+          voiceConfig.presetVoice = cfg.voiceId || cfg.voice || "default";
+          voiceConfig.defaultVoiceMode = cfg.defaultVoiceMode || "preset";
+
+          if (cfg.clonedVoice && cfg.clonedVoice.speakerWavUrl) {
+            const existingIdx = voiceConfig.clonedVoices.findIndex(
+              (v) => v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
+            );
+            if (existingIdx === -1) {
+              voiceConfig.clonedVoices.push({
+                id: "cloned_" + Date.now(),
+                label: cfg.clonedVoice.label || "Custom Voice",
+                speakerWavUrl: cfg.clonedVoice.speakerWavUrl,
+              });
+            }
+          }
+
+          if (voiceConfig.defaultVoiceMode === "cloned" && voiceConfig.clonedVoices.length > 0) {
+            const activeCloned = cfg.clonedVoice?.speakerWavUrl
+              ? voiceConfig.clonedVoices.find(
+                  (v) => cfg.clonedVoice && v.speakerWavUrl === cfg.clonedVoice.speakerWavUrl
+                )
+              : null;
+            voiceConfig.activeVoiceId = activeCloned ? `cloned:${activeCloned.id}` : `preset:${voiceConfig.presetVoice}`;
+          } else {
+            voiceConfig.activeVoiceId = `preset:${voiceConfig.presetVoice}`;
+          }
+
+          ownerRenderTtsConfig(cfg);
+          const pvAfter = $("owner-ttsVoiceId");
+          if (pvAfter && pvAfter.value.trim()) {
+            voiceConfig.presetVoice = pvAfter.value.trim();
+          }
+          if (voiceConfig.defaultVoiceMode !== "cloned") {
+            voiceConfig.activeVoiceId = `preset:${voiceConfig.presetVoice}`;
+          }
+
+          renderVoiceSelector();
+          const vsel = $("voice-selector");
+          if (vsel && [...vsel.options].some((o) => o.value === voiceConfig.activeVoiceId)) {
+            vsel.value = voiceConfig.activeVoiceId;
+          }
+          renderClonedVoicesList();
+        } catch (err) {
+          console.error("Failed to load voice config:", err);
+          $("voice-selector-status").textContent = "Failed to load voice settings.";
+        }
+      }
+
+      function renderVoiceSelector() {
+        const selector = $("voice-selector");
+        if (!selector) return;
+        
+        selector.innerHTML = "";
+        
+        // Add preset voice option
+        const presetOpt = document.createElement("option");
+        presetOpt.value = `preset:${voiceConfig.presetVoice}`;
+        presetOpt.textContent = `Default Voice (Preset)`;
+        selector.appendChild(presetOpt);
+        
+        // Add cloned voice options
+        voiceConfig.clonedVoices.forEach((voice) => {
+          const opt = document.createElement("option");
+          opt.value = `cloned:${voice.id}`;
+          opt.textContent = `${voice.label} (Custom)`;
+          selector.appendChild(opt);
+        });
+        
+        // Set the active selection
+        selector.value = voiceConfig.activeVoiceId;
+        
+        // Update status
+        const statusEl = $("voice-selector-status");
+        if (
+          voiceConfig.ttsMode !== "coqui_xtts" &&
+          voiceConfig.ttsMode !== "chatterbox_http" &&
+          voiceConfig.clonedVoices.length > 0
+        ) {
+          statusEl.innerHTML = `<span style="color: var(--accent-warm);">Note: Voice cloning requires XTTS or Chatterbox. Ask your admin to enable it.</span>`;
+        } else {
+          statusEl.textContent = "";
+        }
+      }
+
+      function renderClonedVoicesList() {
+        const list = $("cloned-voices-list");
+        if (!list) return;
+        
+        list.innerHTML = "";
+        
+        if (voiceConfig.clonedVoices.length === 0) {
+          list.innerHTML = '<li class="help">No custom voices configured. Contact your administrator to add custom voices.</li>';
+          return;
+        }
+        
+        voiceConfig.clonedVoices.forEach((voice) => {
+          const li = document.createElement("li");
+          const isActive = voiceConfig.activeVoiceId === `cloned:${voice.id}`;
+          li.innerHTML = `
+            <span>
+              <strong>${escapeHtml(voice.label)}</strong>
+              ${isActive ? '<span style="color: var(--success); margin-left: 8px;">● Active</span>' : ''}
+            </span>
+          `;
+          list.appendChild(li);
+        });
+      }
+
+      // Voice management (add/remove) is handled in the admin dashboard
+      // Owner dashboard only allows selecting from available voices
+
+      async function saveVoiceSettings() {
+        const statusEl = $("voice-settings-status");
+        if (!validateOwnerVoiceCloning()) {
+          if (statusEl) statusEl.style.color = "var(--danger)";
+          return;
+        }
+        try {
+          const modeEl = $("owner-ttsMode");
+          const urlEl = $("owner-ttsUrl");
+          const presetEl = $("owner-ttsPreset");
+          const voiceEl = $("owner-ttsVoiceId");
+          const langEl = $("owner-ttsLanguage");
+          const rateEl = $("owner-ttsRate");
+          const defaultVoiceModeEl = $("owner-defaultVoiceMode");
+          const clonedVoiceUrlEl = $("owner-clonedVoiceUrl");
+          const clonedVoiceLabelEl = $("owner-clonedVoiceLabel");
+
+          const ttsMode = modeEl ? modeEl.value : "coqui_xtts";
+          const url = urlEl ? urlEl.value.trim() : "";
+
+          const voiceId = voiceEl ? voiceEl.value.trim() || undefined : undefined;
+          const language = langEl ? langEl.value.trim() || undefined : undefined;
+
+          if (voiceId) {
+            voiceConfig.presetVoice = voiceId;
+          }
+
+          const payload = {
+            ttsMode,
+            preset: presetEl ? presetEl.value : "neutral",
+            voiceId,
+            language,
+            rate: rateEl ? parseFloat(rateEl.value) : 0.95,
+            defaultVoiceMode: defaultVoiceModeEl ? defaultVoiceModeEl.value : "preset",
+          };
+
+          const clonedUrl = clonedVoiceUrlEl ? clonedVoiceUrlEl.value.trim() : "";
+          const clonedLabel = clonedVoiceLabelEl ? clonedVoiceLabelEl.value.trim() : "";
+
+          if (ttsMode === "coqui_xtts") {
+            payload.coquiXttsUrl = url || undefined;
+            if (clonedUrl) {
+              payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            }
+            const ocNum = (id) => {
+              const el = $("owner-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const ocTri = (id) => {
+              const el = $("owner-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.coquiTemperature = ocNum("coquiTemperature");
+            payload.coquiTopP = ocNum("coquiTopP");
+            payload.coquiTopK = ocNum("coquiTopK");
+            payload.coquiRepetitionPenalty = ocNum("coquiRepetitionPenalty");
+            payload.coquiLengthPenalty = ocNum("coquiLengthPenalty");
+            payload.coquiSpeed = ocNum("coquiSpeed");
+            payload.coquiSplitSentences = ocTri("coquiSplitSentences");
+          } else if (ttsMode === "chatterbox_http") {
+            payload.chatterboxUrl = url || undefined;
+            const cv = $("owner-chatterboxVariant");
+            if (cv && cv.value) payload.chatterboxVariant = cv.value;
+            if (clonedUrl) {
+              payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            }
+          } else if (ttsMode === "qwen3_tts_http") {
+            payload.qwen3TtsUrl = url || undefined;
+            const oqi = $("owner-qwen3Instruct");
+            if (oqi && oqi.value.trim()) payload.qwen3Instruct = oqi.value.trim();
+            const oqs = $("owner-qwen3Streaming");
+            if (oqs) payload.qwen3Streaming = oqs.checked;
+            const oqNum = (id) => {
+              const el = $("owner-" + id);
+              if (!el) return null;
+              const t = el.value.trim();
+              if (t === "") return null;
+              const n = Number(t);
+              return Number.isFinite(n) ? n : null;
+            };
+            const oqTri = (id) => {
+              const el = $("owner-" + id);
+              if (!el || el.value === "") return null;
+              return el.value === "true";
+            };
+            payload.qwen3DoSample = oqTri("qwen3DoSample");
+            payload.qwen3Temperature = oqNum("qwen3Temperature");
+            payload.qwen3TopP = oqNum("qwen3TopP");
+            payload.qwen3TopK = oqNum("qwen3TopK");
+            payload.qwen3RepetitionPenalty = oqNum("qwen3RepetitionPenalty");
+            payload.qwen3MaxNewTokens = oqNum("qwen3MaxNewTokens");
+            payload.qwen3NonStreamingMode = oqTri("qwen3NonStreamingMode");
+            payload.qwen3SubtalkerDoSample = oqTri("qwen3SubtalkerDoSample");
+            payload.qwen3SubtalkerTopK = oqNum("qwen3SubtalkerTopK");
+            payload.qwen3SubtalkerTopP = oqNum("qwen3SubtalkerTopP");
+            payload.qwen3SubtalkerTemperature = oqNum("qwen3SubtalkerTemperature");
+          } else if (ttsMode === "miso_tts_http") {
+            payload.misoTtsUrl = url || undefined;
+            if (clonedUrl) {
+              payload.clonedVoice = { speakerWavUrl: clonedUrl, label: clonedLabel || undefined };
+            }
+          } else {
+            payload.kokoroUrl = url || undefined;
+            payload.xttsUrl = url || undefined;
+          }
+
+          const sel = $("voice-selector");
+          if (sel) voiceConfig.activeVoiceId = sel.value;
+
+          await ownerFetch("/api/tts/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+          await loadVoiceConfig();
+
+          if (statusEl) {
+            statusEl.textContent = "Voice settings saved!";
+            statusEl.style.color = "var(--success)";
+            setTimeout(() => {
+              if (statusEl.textContent === "Voice settings saved!") statusEl.textContent = "";
+            }, 3000);
+          }
+        } catch (err) {
+          if (statusEl) {
+            statusEl.textContent = "Failed to save: " + err.message;
+            statusEl.style.color = "var(--danger)";
+          }
+        }
+      }
+
+      /* ── Telnyx Integration ─────────────────────────── */
+
+      let telnyxConfigured = false;
+      let telnyxNumbers = [];
+
+      async function checkTelnyxStatus() {
+        try {
+          // Use ownerFetch for authenticated request
+          const data = await ownerFetch("/api/admin/telnyx/status", { skipTenantHeader: true });
+          telnyxConfigured = data.configured;
+          if (telnyxConfigured) {
+            // Pre-load Telnyx numbers for lookup
+            const numData = await ownerFetch("/api/admin/telnyx/numbers", { skipTenantHeader: true });
+            telnyxNumbers = numData.numbers || [];
+          }
+        } catch {
+          telnyxConfigured = false;
+        }
+      }
+
+      function normalizePhone(num) {
+        // Strip everything except digits and leading +
+        let n = (num || "").trim();
+        if (n.startsWith("+")) return "+" + n.slice(1).replace(/\D/g, "");
+        return n.replace(/\D/g, "");
+      }
+
+      function findTelnyxNumber(phoneNumber) {
+        const normalized = normalizePhone(phoneNumber);
+        const withPlus = normalized.startsWith("+") ? normalized : "+" + normalized;
+        const withoutPlus = normalized.replace(/^\+/, "");
+        return telnyxNumbers.find((n) => {
+          const tn = normalizePhone(n.phone_number);
+          return tn === withPlus || tn === withoutPlus || tn === normalized;
+        });
+      }
+
+      async function saveAndProvisionNumber() {
+        const statusEl = $("owner-numbers-status");
+        const notFoundEl = $("number-not-found");
+        const provisionedEl = $("number-provisioned");
+        const raw = ($("owner-numbers").value || "").trim();
+
+        if (!raw) {
+          statusEl.textContent = "Please enter a phone number.";
+          return;
+        }
+
+        // Remember this as the business number for later
+        pendingBusinessNumber = raw;
+
+        statusEl.innerHTML = `<span style="color: var(--muted);">Checking number…</span>`;
+        notFoundEl.style.display = "none";
+        provisionedEl.style.display = "none";
+
+        // Re-check Telnyx numbers
+        if (telnyxConfigured) {
+          try {
+            const numData = await ownerFetch("/api/admin/telnyx/numbers", { skipTenantHeader: true });
+            telnyxNumbers = numData.numbers || [];
+          } catch {}
+        }
+
+        const match = telnyxConfigured ? findTelnyxNumber(raw) : null;
+
+        if (match) {
+          // Number found in Telnyx — auto-provision it (it's already a Telnyx number)
+          statusEl.innerHTML = `<span style="color: var(--muted);">Setting up ${escapeHtml(match.phone_number)}…</span>`;
+
+          try {
+            // Provision (assign webhook)
+            if (!match.provisioned) {
+              const provRes = await fetch("/api/admin/telnyx/provision", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Admin-Key": ownerAuthToken },
+                body: JSON.stringify({ phone_number: match.phone_number }),
+              });
+              if (!provRes.ok) {
+                const err = await provRes.json();
+                throw new Error(err.message || err.error);
+              }
+            }
+
+            // Save to tenant (no businessNumber needed since they entered their Telnyx number directly)
+            await ownerFetch("/api/admin/tenants", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: OWNER_TENANT_ID, name: "My business", numbers: [match.phone_number] }),
+            });
+
+            $("owner-numbers").value = match.phone_number;
+            statusEl.innerHTML = "";
+            showProvisionedState(match.phone_number, null);
+            refreshReadyStatus();
+          } catch (err) {
+            statusEl.innerHTML = `<span style="color: var(--danger);">Setup failed: ${escapeHtml(err.message)}</span>`;
+          }
+        } else if (telnyxConfigured) {
+          // Number NOT in Telnyx — show options to get a Telnyx number
+          statusEl.innerHTML = "";
+          notFoundEl.style.display = "block";
+          $("telnyx-available-list").innerHTML = "";
+          $("telnyx-purchase-status").textContent = "";
+
+          // Extract area code from business number and pre-fill search
+          const digits = raw.replace(/\D/g, "");
+          let areaCode = "";
+          if (digits.length === 10) {
+            areaCode = digits.substring(0, 3);
+          } else if (digits.length === 11 && digits.startsWith("1")) {
+            areaCode = digits.substring(1, 4);
+          }
+          if (areaCode) {
+            $("telnyx-area").value = areaCode;
+            // Auto-search for numbers in their area
+            searchAndShowNumbers();
+          }
+        } else {
+          // Telnyx not configured — save business number only, they'll need to set up manually
+          try {
+            await ownerFetch("/api/admin/tenants", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: OWNER_TENANT_ID, name: "My business", businessNumber: raw }),
+            });
+            statusEl.innerHTML = `<span style="color: var(--accent-warm);">Business number saved.</span> <span class="help">To complete setup, add <code>TELNYX_API_KEY</code> to enable automatic provisioning, or manually configure call forwarding.</span>`;
+          } catch (err) {
+            statusEl.innerHTML = `<span style="color: var(--danger);">Failed: ${escapeHtml(err.message)}</span>`;
+          }
+        }
+      }
+
+      async function searchAndShowNumbers() {
+        const list = $("telnyx-available-list");
+        const statusEl = $("telnyx-purchase-status");
+        const country = $("telnyx-country").value;
+        const areaCode = ($("telnyx-area").value || "").trim();
+
+        list.innerHTML = "<li class=\"help\">Searching…</li>";
+        statusEl.textContent = "";
+
+        try {
+          const params = new URLSearchParams({ country, limit: "5" });
+          if (areaCode) params.set("contains", areaCode);
+
+          const res = await fetch(`/api/admin/telnyx/available?${params.toString()}`, {
+            headers: { "X-Admin-Key": ownerAuthToken },
+          });
+          const data = await res.json();
+
+          if (!res.ok) throw new Error(data.message || data.error);
+
+          const numbers = data.numbers || [];
+          if (numbers.length === 0) {
+            list.innerHTML = "<li class=\"help\">No numbers found. Try a different area code.</li>";
+            return;
+          }
+
+          list.innerHTML = "";
+          numbers.forEach((n) => {
+            const li = document.createElement("li");
+            const rawMonthlyCost = parseFloat(n.cost_information?.monthly_cost) || 0;
+            const rawUpfrontCost = parseFloat(n.cost_information?.upfront_cost) || 0;
+            const currency = n.cost_information?.currency || "USD";
+            const displayMonthly = (rawMonthlyCost * PRICE_MARKUP).toFixed(2);
+            const region = n.region_information?.map(r => r.region_name).join(", ") || "";
+            li.innerHTML = `
+              <span>
+                <strong>${escapeHtml(n.phone_number)}</strong>
+                <span class="help">${escapeHtml(region)} $${displayMonthly}/mo</span>
+              </span>
+              <button type="button" class="secondary" style="font-size: 12px; padding: 4px 10px;">Get this number</button>
+            `;
+            li.querySelector("button").onclick = () => confirmPurchase(n.phone_number, rawMonthlyCost, rawUpfrontCost, currency);
+            list.appendChild(li);
+          });
+        } catch (err) {
+          list.innerHTML = `<li class=\"help\" style="color: var(--danger);">Search failed: ${escapeHtml(err.message)}</li>`;
+        }
+      }
+
+      const PRICE_MARKUP = 2.0; // 100% markup (2x the Telnyx cost)
+
+      function confirmPurchase(phoneNumber, monthlyCost, upfrontCost, currency) {
+        const upfront = (parseFloat(upfrontCost) || 0) * PRICE_MARKUP;
+        const monthly = (parseFloat(monthlyCost) || 0) * PRICE_MARKUP;
+        
+        let costMessage = `Monthly: $${monthly.toFixed(2)}`;
+        if (upfront > 0) {
+          costMessage = `One-time: $${upfront.toFixed(2)} + ${costMessage}`;
+        }
+
+        const confirmed = confirm(
+          `Purchase ${phoneNumber}?\n\n` +
+          `Cost: ${costMessage}\n\n` +
+          `This will be added to your account. Continue?`
+        );
+
+        if (confirmed) {
+          purchaseAndSetup(phoneNumber);
+        }
+      }
+
+      async function purchaseAndSetup(telnyxNumber) {
+        const statusEl = $("telnyx-purchase-status");
+        const businessNum = pendingBusinessNumber || "";
+
+        statusEl.innerHTML = `<span style="color: var(--muted);">Purchasing and setting up ${escapeHtml(telnyxNumber)}…</span>`;
+
+        try {
+          // Purchase
+          const res = await fetch("/api/admin/telnyx/purchase", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Admin-Key": ownerAuthToken },
+            body: JSON.stringify({ phone_number: telnyxNumber }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.message || data.error);
+
+          // Save to tenant with both business number and Telnyx number
+          await ownerFetch("/api/admin/tenants", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: OWNER_TENANT_ID,
+              name: "My business",
+              numbers: [telnyxNumber],
+              businessNumber: businessNum,
+            }),
+          });
+
+          // Keep business number in the input (that's what they entered)
+          $("owner-numbers-status").innerHTML = "";
+          statusEl.textContent = "";
+          showProvisionedState(telnyxNumber, businessNum);
+          refreshReadyStatus();
+        } catch (err) {
+          statusEl.innerHTML = `<span style="color: var(--danger);">Failed: ${escapeHtml(err.message)}</span>`;
+        }
+      }
+
+      let pendingBusinessNumber = ""; // Tracks the business number user entered
+
+      function showProvisionedState(telnyxNumber, businessNumber = null) {
+        if (!telnyxNumber) return;
+        $("number-not-found").style.display = "none";
+        $("number-provisioned").style.display = "block";
+
+        if (businessNumber && businessNumber !== telnyxNumber) {
+          // Show both numbers with forwarding instructions
+          $("provisioned-number").textContent = businessNumber;
+          $("business-number-display").textContent = businessNumber;
+          $("telnyx-number-display").textContent = telnyxNumber;
+          $("forward-to-number").textContent = telnyxNumber;
+          $("forwarding-instructions").style.display = "block";
+        } else {
+          // Direct Telnyx number, no forwarding needed
+          $("provisioned-number").textContent = telnyxNumber;
+          $("forwarding-instructions").style.display = "none";
+        }
+      }
+
+      // ── Leads ──
+      const TRIGGER_LABELS = {
+        call_ended: "Call ended",
+        after_hours_call: "After hours",
+        keyword_detected: "Keyword",
+        missed_call: "Missed call",
+        scheduled: "Scheduled",
+      };
+
+      async function loadOwnerLeads() {
+        try {
+          const data = await ownerFetch("/api/admin/leads?limit=100");
+          const leads = data.leads || [];
+          const empty = $("owner-leads-empty");
+          const table = $("owner-leads-table");
+          const body = $("owner-leads-body");
+          if (!leads.length) {
+            empty.style.display = "";
+            table.style.display = "none";
+            return;
+          }
+          empty.style.display = "none";
+          table.style.display = "";
+          body.innerHTML = leads.map(lead => {
+            const priorityColors = { urgent: "#e07070", high: "#C9A04E", normal: "var(--muted)", low: "#666" };
+            const pColor = priorityColors[lead.priority] || "var(--muted)";
+            const date = lead.createdAt ? new Date(lead.createdAt).toLocaleDateString() : "—";
+            return `
+              <tr style="border-bottom:1px solid var(--border);">
+                <td style="padding:8px;" class="help">${escapeHtml(lead.name || "—")}</td>
+                <td style="padding:8px;" class="help">${escapeHtml(lead.phone || "—")}</td>
+                <td style="padding:8px;" class="help">${escapeHtml(lead.issue || "—")}</td>
+                <td style="padding:8px;"><span style="color:${pColor};" class="help">${escapeHtml(lead.priority || "normal")}</span></td>
+                <td style="padding:8px;" class="help">${escapeHtml(date)}</td>
+              </tr>`;
+          }).join("");
+        } catch (err) {
+          console.error("loadOwnerLeads:", err);
+        }
+      }
+
+      async function loadOwnerWorkflows() {
+        try {
+          const [wfData, settings] = await Promise.all([
+            ownerFetch("/api/admin/workflows"),
+            ownerFetch("/api/admin/workflows/settings").catch(() => ({ ownerCanEdit: false })),
+          ]);
+          const workflows = wfData.workflows || [];
+          const section = $("owner-workflows-section");
+          if (!workflows.length && !settings.ownerCanEdit) {
+            section.style.display = "none";
+            return;
+          }
+          section.style.display = "";
+          const empty = $("owner-wf-empty");
+          const table = $("owner-wf-table");
+          const body = $("owner-wf-body");
+          if (!workflows.length) {
+            empty.style.display = "";
+            table.style.display = "none";
+            return;
+          }
+          empty.style.display = "none";
+          table.style.display = "";
+          body.innerHTML = workflows.map(wf => `
+            <tr style="border-bottom:1px solid var(--border);">
+              <td style="padding:8px;" class="help">${escapeHtml(wf.name)}</td>
+              <td style="padding:8px;" class="help">${escapeHtml(TRIGGER_LABELS[wf.triggerType] || wf.triggerType)}</td>
+              <td style="padding:8px;" class="help">${(wf.steps || []).length} step${(wf.steps || []).length !== 1 ? "s" : ""}</td>
+              <td style="padding:8px;" class="help">${wf.enabled ? '<span style="color:#4CAF50;">Active</span>' : '<span style="color:var(--muted);">Disabled</span>'}</td>
+            </tr>
+          `).join("");
+        } catch (err) {
+          console.error("loadOwnerWorkflows:", err);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        $("owner-pass-confirm").addEventListener("click", async () => {
+          const pass = $("owner-pass-input").value.trim();
+          if (!pass) {
+            $("owner-pass-error").textContent = "Please enter your access token.";
+            return;
+          }
+          $("owner-pass-error").textContent = "Validating...";
+          $("owner-pass-confirm").disabled = true;
+          const valid = await validateToken(pass);
+          $("owner-pass-confirm").disabled = false;
+          if (!valid) {
+            $("owner-pass-error").textContent = "Invalid access token. Please try again.";
+            return;
+          }
+          ownerAuthToken = pass;
+          ownerAuthorized = true;
+          hideOwnerModal();
+          refreshReadyStatus();
+          checkTelnyxStatus().then(() => loadOwnerData());
+        });
+        $("owner-pass-cancel").addEventListener("click", hideOwnerModal);
+        $("owner-pass-input").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") $("owner-pass-confirm").click();
+        });
+
+        $("owner-portal-pass-save").addEventListener("click", () =>
+          requireAuth(() => saveOwnerPortalPasscode())
+        );
+        $("owner-llm-save").addEventListener("click", () => requireAuth(() => saveOwnerLlmConfig()));
+        $("owner-llm-test").addEventListener("click", () => requireAuth(() => testOwnerLlmKey()));
+        $("owner-save-numbers").addEventListener("click", () => requireAuth(() => saveAndProvisionNumber()));
+        $("owner-numbers").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") requireAuth(() => saveAndProvisionNumber());
+        });
+        $("owner-numbers").addEventListener("input", () => {
+          // Hide success/error states when user edits the number
+          $("number-provisioned").style.display = "none";
+          $("number-not-found").style.display = "none";
+          $("owner-numbers-status").textContent = "";
+        });
+        $("fp-add").addEventListener("click", () => {
+          const name = ($("fp-name").value || "").trim();
+          const number = ($("fp-number").value || "").trim();
+          const role = ($("fp-role").value || "").trim();
+          if (!name) return;
+          forwardingProfilesCache.push({ id: "id_" + Date.now(), name, number, role });
+          $("fp-name").value = $("fp-number").value = $("fp-role").value = "";
+          renderForwarding();
+        });
+        $("fp-save").addEventListener("click", () => requireAuth(() => saveForwarding()));
+        $("price-add").addEventListener("click", () => {
+          const type = ($("price-type").value || "service");
+          const name = ($("price-name").value || "").trim();
+          const price = ($("price-amount").value || "").trim();
+          const desc = ($("price-desc").value || "").trim();
+          if (!name) return;
+          if (!pricingCache.items) pricingCache.items = [];
+          pricingCache.items.push({ id: "id_" + Date.now(), type, name, price, description: desc || undefined });
+          $("price-name").value = $("price-amount").value = $("price-desc").value = "";
+          renderPricing();
+        });
+        $("price-save").addEventListener("click", () => requireAuth(() => savePricing()));
+        $("bill-update-payment").addEventListener("click", () => requireAuth(() => updateOwnerPayment()));
+        $("bill-manage-billing").addEventListener("click", () => requireAuth(() => openOwnerBillingPortal()));
+        $("bill-pay-now").addEventListener("click", () => requireAuth(() => payNowOwner()));
+        $("owner-save-prompts").addEventListener("click", () => requireAuth(() => saveOwnerPrompts()));
+        $("owner-qr-add").addEventListener("click", () => addOwnerQuickReplyIntent());
+        $("owner-qr-save").addEventListener("click", () => requireAuth(() => saveOwnerQuickReplies()));
+        $("owner-qr-reload").addEventListener("click", () => requireAuth(() => loadOwnerQuickReplies()));
+        $("owner-refresh").addEventListener("click", () => requireAuth(() => loadOwnerData()));
+        
+        // Voice settings event listeners
+        $("save-voice-settings").addEventListener("click", () => requireAuth(() => saveVoiceSettings()));
+
+        const ownerTtsMode = $("owner-ttsMode");
+        if (ownerTtsMode) ownerTtsMode.addEventListener("change", onOwnerTtsProviderModeChange);
+        const ownerRate = $("owner-ttsRate");
+        if (ownerRate) {
+          ownerRate.addEventListener("input", ownerUpdateTtsLabels);
+          ownerUpdateTtsLabels();
+        }
+        const ownerDm = $("owner-defaultVoiceMode");
+        if (ownerDm) {
+          ownerDm.addEventListener("change", () => {
+            syncOwnerSelectorFromCloningForm();
+            updateOwnerTtsProviderPanels();
+          });
+        }
+        const ownerCv = $("owner-clonedVoiceUrl");
+        if (ownerCv) {
+          ownerCv.addEventListener("input", () => {
+            syncOwnerSelectorFromCloningForm();
+            updateOwnerTtsProviderPanels();
+          });
+        }
+        const vselInit = $("voice-selector");
+        if (vselInit) vselInit.addEventListener("change", syncOwnerVoiceFromSelector);
+        if ($("owner-ttsMode")) updateOwnerTtsProviderPanels();
+        wireQwen3RangeSliders("owner-");
+        wireCoquiRangeSliders("owner-");
+
+        // Telnyx event listeners
+        $("telnyx-get-number").addEventListener("click", () => searchAndShowNumbers());
+        $("telnyx-area").addEventListener("keydown", (e) => {
+          if (e.key === "Enter") searchAndShowNumbers();
+        });
+
+        refreshReadyStatus();
+        setInterval(refreshReadyStatus, 30000);
+
+        showOwnerModal();
+      });
+    </script>
+  </body>
+</html>

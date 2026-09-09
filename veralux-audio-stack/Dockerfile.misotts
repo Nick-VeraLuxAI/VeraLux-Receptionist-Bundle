@@ -1,0 +1,36 @@
+# Miso TTS 8B HTTP server (port 7011). GPU strongly recommended.
+# First start downloads roughly 30-40 GB of weights/codecs into the container cache.
+FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    libsndfile1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip wheel setuptools
+
+COPY miso_tts_server.py ./
+
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115.0" \
+    "uvicorn[standard]>=0.32.0" \
+    "gunicorn>=23.0.0" \
+    "slowapi>=0.1.9" \
+    "pydantic>=2.0" \
+    "soundfile>=0.12.0" \
+    "safetensors>=0.4.0" \
+    "miso-tts @ git+https://github.com/MisoLabsAI/MisoTTS.git"
+
+ENV MISO_TTS_DEVICE=cuda
+ENV MISO_TTS_MODEL=MisoLabs/MisoTTS
+ENV MISO_TTS_DTYPE=bfloat16
+EXPOSE 7011
+
+HEALTHCHECK --interval=30s --timeout=15s --start-period=900s --retries=5 \
+  CMD curl -sf http://127.0.0.1:7011/health || exit 1
+
+CMD ["uvicorn", "miso_tts_server:app", "--host", "0.0.0.0", "--port", "7011"]

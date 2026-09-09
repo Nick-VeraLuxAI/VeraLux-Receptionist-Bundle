@@ -40,6 +40,7 @@ These must be done before a paying SMB touches the portal. Anything left uncheck
 
 - [ ] Either (a) ship a 5-step onboarding wizard in portal (business → number → hours → greeting/services → test call) **(L) {frontend, backend}** OR (b) publish a written vendor-onboarding playbook + scripted helper script and gate the portal behind a "vendor-completed setup" flag **(M) {docs, ops}** → §8
 - [ ] Add **Test call** affordance in portal (gate the existing `/v1/webrtc/offer` browser path behind portal auth) **(S) {frontend, backend}** → §8
+- [x] Night-desk **cutover table** (not `operatorState.onboarding` JSON) gates go-live: DID, hours, playbook, on-call SMS, refuse-out-of-area, book-or-hold, test call **{backend, frontend}**
 
 ### A.5 Operability minimum
 

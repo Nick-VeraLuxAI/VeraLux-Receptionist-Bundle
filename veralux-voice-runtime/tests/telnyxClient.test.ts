@@ -29,6 +29,11 @@ test('startStreaming uses allowed stream_track values', async () => {
     assert.equal(calls.length, 1);
     const payload = calls[0].body ? (JSON.parse(calls[0].body) as Record<string, unknown>) : {};
     assert.equal(payload.stream_track, 'inbound_track');
+    assert.equal(payload.stream_codec, 'L16');
+    assert.equal(payload.stream_bidirectional_mode, 'rtp');
+    assert.equal(payload.stream_bidirectional_codec, 'L16');
+    assert.equal(payload.stream_bidirectional_sampling_rate, 16000);
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, 'media_format'), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

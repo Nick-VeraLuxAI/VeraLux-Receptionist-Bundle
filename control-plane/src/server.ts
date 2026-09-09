@@ -1,7 +1,8 @@
 import "./env";
+import "express-async-errors";
 import { startVeraluxOsReporting } from "./veraluxOsReporter";
 import express, { type Request, type Response, type NextFunction } from "express";
-import { timingSafeEqual, randomUUID } from "crypto";
+import { randomUUID } from "crypto";
 import dotenv from "dotenv";
 import { createServer, type AddressInfo } from "net";
 import path from "path";
@@ -31,12 +32,15 @@ import {
   evaluateBusinessHours,
   redactPublishedRuntimeConfig,
   redactHttpUrlToPlaceholder,
+  hasUsableApiKey,
 } from "@veralux/shared";
 import {
   assertRuntimeRedisConfigured,
   getTenantConfig,
   healthcheckRedis,
   publishTenantConfig,
+  unpublishTenantConfig,
+  unmapDid,
   closeRuntimeRedis,
 } from "./runtime/runtimePublisher";
 import {
@@ -49,9 +53,10 @@ import {
   type VoicePreset,
   type PromptConfig,
   type SafeTtsPublicConfig,
+  coerceKokoroVoiceId,
 } from "./config";
 import { getCustomerBrandingPayload } from "./customerBranding";
-import { resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
+import { applyPreviewOverrides, resolvePreviewText, synthesizeTtsPreview } from "./ttsPreview";
 import { createPreviewJob, pollPreviewJob } from "./ttsPreviewJobs";
 import { tenants, DEFAULT_TENANT_ID, type TenantContext } from "./tenants";
 import {
@@ -83,6 +88,7 @@ import {
   getTenantLimits,
   upsertTenantLimits,
   resetTenantLimitsToPlanDefaults,
+  applyPlanTierDefaultsKeepingService,
   setTenantBillingStatus,
   getTenantUsageSnapshot,
   getTenantBillingSummary,
@@ -90,6 +96,8 @@ import {
   recordTenantCallEnded,
   listCallsForTenantDb,
   getCallByIdForTenantDb,
+  findCallByVoiceControlId,
+  findOpenGreetingCall,
   upsertCallRowMerge,
   getTenantCallQualitySettings,
   updateTenantCallQualitySettings,
@@ -110,6 +118,8 @@ import {
   summarizeHistory,
   isMissedCallRow,
   normalizeHistoryForAdminUi,
+  presentAdminCall,
+  dedupeCallHistoryRows,
 } from "./callSanitizer";
 import { rateLimit } from "./rateLimit";
 import { ipRateLimit } from "./middleware/ipRateLimit";
@@ -122,6 +132,7 @@ import {
   planTierSchema,
   billingStatusSchema,
   getPlanDefaults,
+  listPlanDefaultsPayload,
   RECOMMENDED_DEFAULT_PLAN_TIER,
 } from "./planLimits";
 import { checkFeatureEntitlement, type FeatureKey } from "./featureEntitlements";
@@ -133,8 +144,26 @@ import {
   verifyOwnerPortalToken,
   changeOwnerPasscodeIfValid,
   changeOwnerPortalPasswordIfValid,
+  changeOwnerPortalEmailIfValid,
 } from "./ownerAuth";
+import {
+  timingSafeTextEqual,
+  getInstallerUsername,
+  getInstallerPassword,
+  verifyConsoleLogin,
+  describeConsoleAccount,
+  changeConsoleCredentials,
+} from "./consoleAuth";
 import { registerTenantLlmRoutes } from "./tenantLlmHandlers";
+import { registerPipelineRoutes } from "./cloud/pipelineHandlers";
+import { registerNightDeskRoutes } from "./nightDesk/handlers";
+import { startMorningDigestLoop, stopMorningDigestLoop } from "./nightDesk/digest";
+import {
+  startOncallFallbackLoop,
+  stopOncallFallbackLoop,
+} from "./nightDesk/oncallWorker";
+import { getShopPlaybookRow, upsertCutoverItem } from "./nightDesk/db";
+import { startPriceRefreshLoop, stopPriceRefreshLoop } from "./cloud/pricing/refresh";
 import {
   hashPortalPassword,
   verifyPortalPassword,
@@ -145,19 +174,22 @@ import {
 } from "./portalPassword";
 import {
   isStripeConfigured,
-  getOrCreateStripeCustomer,
+  isStripeLiveMode,
   createCheckoutSession,
   createPortalSession,
   handleStripeWebhook,
-  syncSubscriptionFromStripe,
   listStripePlans,
-  createStripePlan,
-  deleteStripePlan,
+  createStaffSubscription,
+  cancelStaffSubscription,
+  syncTenantBillingFromStripe,
+  serializeSubscriptionPayload,
+  webhookPublicUrl,
 } from "./stripe";
 import {
   initAutomationEngine,
   shutdownAutomationEngine,
   handleCallEnded,
+  handleJobCompleted,
   dryRunPipeline,
   listWorkflows,
   getWorkflow,
@@ -166,9 +198,13 @@ import {
   deleteWorkflow,
   listRuns,
   listLeads,
+  presentLead,
   deleteLead,
   getWorkflowSettings,
   updateWorkflowSettings,
+  ensureTenantWorkflows,
+  enableWorkflowTemplate,
+  galleryPayload,
   type CallEndedEvent,
 } from "./automations";
 import {
@@ -197,6 +233,17 @@ function applyAdminShellCachePolicy(res: Response): void {
   res.setHeader("Surrogate-Control", "no-store");
 }
 
+function isSpaShellPath(p: string): boolean {
+  return (
+    p === "/admin" ||
+    p === "/admin/" ||
+    (p.startsWith("/admin/") && !p.startsWith("/admin-legacy")) ||
+    p === "/portal" ||
+    p === "/portal/" ||
+    (p.startsWith("/portal/") && !p.startsWith("/portal-legacy"))
+  );
+}
+
 function noStoreAdminUiShell(req: Request, res: Response, next: NextFunction) {
   const p = req.path;
   const staticShells = new Set([
@@ -204,15 +251,17 @@ function noStoreAdminUiShell(req: Request, res: Response, next: NextFunction) {
     "/admin.html",
     "/owner.html",
     "/portal.html",
+    "/admin-legacy",
+    "/admin-legacy/",
+    "/portal-legacy",
+    "/portal-legacy/",
+    "/app/index.html",
   ]);
   if (
     staticShells.has(p) ||
-    p === "/admin" ||
-    p === "/admin/" ||
+    isSpaShellPath(p) ||
     p === "/owner" ||
-    p === "/owner/" ||
-    p === "/portal" ||
-    p === "/portal/"
+    p === "/owner/"
   ) {
     applyAdminShellCachePolicy(res);
   }
@@ -229,10 +278,18 @@ app.use(
     },
   })
 );
-/** Canonical portal URL is `/portal`; `/portal.html` redirects (must be before `express.static`). */
+/** Canonical URLs; `*.html` bookmarks redirect (must be before `express.static`). */
 app.get("/portal.html", (req, res) => {
   const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
   res.redirect(301, "/portal" + q);
+});
+app.get("/admin.html", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(301, "/admin" + q);
+});
+app.get("/owner.html", (req, res) => {
+  const q = req.url.includes("?") ? req.url.slice(req.url.indexOf("?")) : "";
+  res.redirect(301, "/owner" + q);
 });
 
 /** Public JSON for operator branding (BRAND_* env) — used by apply-branding.js on static shells. */
@@ -370,7 +427,14 @@ app.get("/oauth/callback", async (req, res) => {
 });
 
 
-app.get("/", (_req, res) => {
+app.get("/", (req, res) => {
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "")
+    .split(",")[0]
+    .trim()
+    .toLowerCase();
+  if (host.startsWith("portal.")) {
+    return res.redirect("/portal");
+  }
   return res.redirect("/admin");
 });
 
@@ -392,6 +456,7 @@ interface RequestContext {
   tenantIds?: string[];
   isSuperAdmin: boolean;
   role: "superadmin" | "tenant-admin" | "tenant-viewer";
+  ownerConsole?: boolean;
 }
 
 function parseBooleanish(
@@ -534,6 +599,44 @@ function getAdminToken(req: Request): string | undefined {
   return undefined;
 }
 
+function ownerConsoleWriteAllowed(req: Request): boolean {
+  const path = req.path;
+  const method = req.method.toUpperCase();
+  if (path.startsWith("/api/owner/")) return true;
+  if (method === "POST" && path === "/api/admin/prompts") return true;
+  if (method === "POST" && path === "/api/admin/pricing") return true;
+  if (method === "POST" && path === "/api/admin/forwarding-profiles") return true;
+  if (method === "POST" && path === "/api/admin/quick-replies/suggest") return true;
+  if (
+    (method === "PUT" || method === "POST") &&
+    /^\/api\/admin\/runtime\/tenants\/[^/]+\/quick-replies$/.test(path)
+  ) {
+    return true;
+  }
+  if (method === "POST" && path === "/api/tts/config") return true;
+  if (method === "POST" && path === "/api/tts/preview/async") return true;
+  if (method === "POST" && path === "/api/admin/stripe/portal") return true;
+  if (method === "DELETE" && /^\/api\/admin\/leads\/[^/]+$/.test(path)) {
+    return true;
+  }
+  if (
+    ["POST", "PUT", "DELETE"].includes(method) &&
+    /^\/api\/admin\/workflows(?:\/|$)/.test(path)
+  ) {
+    return true;
+  }
+  if (
+    method === "POST" &&
+    /^\/api\/admin\/approvals\/[^/]+\/decide$/.test(path)
+  ) {
+    return true;
+  }
+  if (method === "PUT" && path === "/api/admin/owned-voice") return true;
+  // The route itself enforces shop_playbooks.owner_can_edit.
+  if (method === "PUT" && path === "/api/admin/shop-playbook") return true;
+  return false;
+}
+
 function adminGuard(requiredRole: AdminRole = "viewer") {
   return async (
     req: AuthedRequest,
@@ -609,6 +712,7 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
       ctx.userId = user.id;
       ctx.idpSub = sub;
       ctx.email = principal.email;
+      ctx.ownerConsole = Boolean(principal.ownerConsole);
 
       const memberships = await listMembershipsForUser(user.id);
       if (memberships.length === 0) {
@@ -668,6 +772,14 @@ function adminGuard(requiredRole: AdminRole = "viewer") {
       ctx.tenantId = tenantIdForCtx;
       ctx.isSuperAdmin = false;
       req.ctx = ctx;
+
+      if (
+        requiredRole === "admin" &&
+        ctx.ownerConsole &&
+        !ownerConsoleWriteAllowed(req)
+      ) {
+        return res.status(403).json({ error: "owner_scope_forbidden" });
+      }
 
       if (requiredRole === "admin" && ctx.role !== "tenant-admin") {
         return res.status(403).json({ error: "admin_forbidden" });
@@ -845,6 +957,27 @@ function clearQwen3GenFields(u: Record<string, unknown>): void {
   u.qwen3Streaming = undefined;
 }
 
+/** Clear Miso-only generation fields when switching TTS mode away from miso_tts_http. */
+function clearMisoGenFields(u: Record<string, unknown>): void {
+  u.misoMaxAudioLengthMs = undefined;
+  u.misoTemperature = undefined;
+  u.misoTopK = undefined;
+}
+
+function clearMagpieGenFields(u: Record<string, unknown>): void {
+  u.magpieTemperature = undefined;
+  u.magpieCfgScale = undefined;
+  u.magpieTopK = undefined;
+  u.magpieUseCfg = undefined;
+  u.magpieApplyTn = undefined;
+}
+
+function clearMeloGenFields(u: Record<string, unknown>): void {
+  u.meloSdpRatio = undefined;
+  u.meloNoiseScale = undefined;
+  u.meloNoiseScaleW = undefined;
+}
+
 /** Clear Coqui XTTS decoding fields when switching away from coqui_xtts. */
 function clearCoquiGenFields(u: Record<string, unknown>): void {
   u.coquiTemperature = undefined;
@@ -969,6 +1102,24 @@ function adminActorRole(req: AuthedRequest): string {
   return req.ctx?.role ?? "admin";
 }
 
+function isStaffBillingActor(req: AuthedRequest): boolean {
+  if (req.ctx?.isSuperAdmin) return true;
+  if (req.ctx?.ownerConsole) return false;
+  return req.ctx?.role === "tenant-admin";
+}
+
+function requireStaffBilling(req: AuthedRequest, res: express.Response): boolean {
+  if (isStaffBillingActor(req)) return true;
+  res.status(403).json({ error: "staff_only", message: "Only VeraLux staff can create or cancel subscriptions." });
+  return false;
+}
+
+function requireSuperAdmin(req: AuthedRequest, res: express.Response): boolean {
+  if (req.ctx?.isSuperAdmin) return true;
+  res.status(403).json({ error: "superadmin_required" });
+  return false;
+}
+
 function ensureTenantAccess(
   req: AuthedRequest,
   res: express.Response,
@@ -1039,6 +1190,9 @@ function ttsDiagnosticsPayload(full: TTSConfig): Record<string, unknown> {
     coquiXttsUrl: redactHttpUrlToPlaceholder(full.coquiXttsUrl),
     chatterboxUrl: redactHttpUrlToPlaceholder(full.chatterboxUrl),
     qwen3TtsUrl: redactHttpUrlToPlaceholder(full.qwen3TtsUrl),
+    misoTtsUrl: redactHttpUrlToPlaceholder(full.misoTtsUrl),
+    magpieTtsUrl: redactHttpUrlToPlaceholder(full.magpieTtsUrl),
+    meloTtsUrl: redactHttpUrlToPlaceholder(full.meloTtsUrl),
     clonedSpeakerWavUrl: full.clonedVoice?.speakerWavUrl
       ? redactHttpUrlToPlaceholder(full.clonedVoice.speakerWavUrl)
       : undefined,
@@ -1160,21 +1314,8 @@ app.get("/ready", async (_req, res) => {
    Installer admin-auth (used by install.sh)
    ──────────────────────────────────────────────── */
 
-const INSTALLER_USERNAME = process.env.INSTALLER_USERNAME || "VeraLux";
-/** Matches docker-compose: INSTALLER_PASSWORD defaults empty; then use ADMIN_API_KEY (never a hardcoded password). */
-const INSTALLER_PASSWORD =
-  (process.env.INSTALLER_PASSWORD || "").trim() || (process.env.ADMIN_API_KEY || "").trim() || "";
-const ADMIN_CONSOLE_EMAIL = (process.env.ADMIN_CONSOLE_EMAIL || "").trim().toLowerCase();
-
 const INSTALLER_AUTH_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 20 });
 const OWNER_LOGIN_RATE_LIMIT = ipRateLimit({ windowMs: 60_000, max: 25 });
-
-function timingSafeTextEqual(a: string, b: string): boolean {
-  const left = Buffer.from(String(a), "utf8");
-  const right = Buffer.from(String(b), "utf8");
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
-}
 
 app.post("/admin-auth", INSTALLER_AUTH_RATE_LIMIT, (req, res) => {
   const { username, password } = req.body || {};
@@ -1183,8 +1324,8 @@ app.post("/admin-auth", INSTALLER_AUTH_RATE_LIMIT, (req, res) => {
     return res.status(400).json({ success: false, error: "Username and password are required" });
   }
 
-  const userOk = timingSafeTextEqual(String(username), INSTALLER_USERNAME);
-  const passOk = timingSafeTextEqual(String(password), INSTALLER_PASSWORD);
+  const userOk = timingSafeTextEqual(String(username), getInstallerUsername());
+  const passOk = timingSafeTextEqual(String(password), getInstallerPassword());
 
   if (userOk && passOk) {
     return res.json({ success: true });
@@ -1192,16 +1333,6 @@ app.post("/admin-auth", INSTALLER_AUTH_RATE_LIMIT, (req, res) => {
 
   return res.status(401).json({ success: false, error: "Invalid credentials" });
 });
-
-function installerConsoleLoginIdOk(email: string): boolean {
-  const raw = email.trim();
-  if (!raw) return false;
-  if (timingSafeTextEqual(raw, INSTALLER_USERNAME)) return true;
-  if (ADMIN_CONSOLE_EMAIL && timingSafeTextEqual(raw.toLowerCase(), ADMIN_CONSOLE_EMAIL)) {
-    return true;
-  }
-  return false;
-}
 
 /** Neural Operations Console — email/password (no API key in the browser). */
 app.post("/api/admin/login", INSTALLER_AUTH_RATE_LIMIT, async (req, res) => {
@@ -1213,30 +1344,27 @@ app.post("/api/admin/login", INSTALLER_AUTH_RATE_LIMIT, async (req, res) => {
       return res.status(400).json({ success: false, error: "email_and_password_required" });
     }
 
-    if (!INSTALLER_PASSWORD) {
-      return res.status(503).json({
-        success: false,
-        error: "console_login_not_configured",
-        message: "Set INSTALLER_PASSWORD (and optionally ADMIN_CONSOLE_EMAIL) in the control plane environment.",
-      });
-    }
-
-    const userOk = installerConsoleLoginIdOk(email);
-    const passOk = timingSafeTextEqual(password, INSTALLER_PASSWORD);
-
-    if (!userOk || !passOk) {
+    const result = await verifyConsoleLogin(email, password);
+    if (!result.ok) {
+      if (result.error === "console_login_not_configured") {
+        return res.status(503).json({
+          success: false,
+          error: "console_login_not_configured",
+          message: "Set INSTALLER_PASSWORD (and optionally ADMIN_CONSOLE_EMAIL) in the control plane environment.",
+        });
+      }
       return res.status(401).json({ success: false, error: "Invalid credentials" });
     }
 
-    const operatorEmail = email.trim();
+    const operatorEmail = result.email;
     const token = await issueInstallerConsoleJwt({ email: operatorEmail });
     void recordAudit({
       action: "console_superadmin_login",
       path: "/api/admin/login",
       status: "200",
-      details: { email: operatorEmail, role: "superadmin" },
+      details: { email: operatorEmail, role: "superadmin", source: result.source },
     });
-    return res.json({ success: true, token });
+    return res.json({ success: true, token, email: operatorEmail });
   } catch (err) {
     console.error("POST /api/admin/login error:", err);
     return res.status(500).json({ success: false, error: "login_failed" });
@@ -1534,6 +1662,82 @@ app.post("/api/owner/change-password", async (req, res) => {
   }
 });
 
+app.get("/api/owner/account", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) {
+      return res.status(401).json({ error: "invalid_or_expired_session" });
+    }
+    const [hash, cred] = await Promise.all([
+      getOwnerPasscodeHash(session.tenantId),
+      getOwnerPortalCredentialRow(session.tenantId),
+    ]);
+    return res.json({
+      email: cred?.emailNorm ?? null,
+      emailLoginSet: Boolean(cred),
+      passcodeSet: Boolean(hash),
+      passwordMinLength: PORTAL_PASSWORD_MIN_LEN,
+    });
+  } catch (err) {
+    console.error("GET /api/owner/account error:", err);
+    return res.status(500).json({ error: "account_lookup_failed" });
+  }
+});
+
+app.post("/api/owner/change-email", async (req, res) => {
+  try {
+    const raw = getAdminToken(req);
+    if (!raw) {
+      return res.status(401).json({ error: "auth_required" });
+    }
+    const session = await verifyOwnerPortalToken(raw);
+    if (!session) {
+      return res.status(401).json({ error: "invalid_or_expired_session" });
+    }
+
+    const body = req.body || {};
+    const currentPassword =
+      typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const newEmail = typeof body.newEmail === "string" ? body.newEmail : "";
+    if (!currentPassword.trim() || !newEmail.trim()) {
+      return res.status(400).json({ error: "current_password_and_email_required" });
+    }
+
+    const result = await changeOwnerPortalEmailIfValid(
+      session.tenantId,
+      currentPassword,
+      newEmail
+    );
+    if (!result.ok) {
+      if (result.error === "invalid_current") {
+        return res.status(403).json({ error: "invalid_current_password" });
+      }
+      if (result.error === "no_email_login") {
+        return res.status(400).json({ error: "no_email_login" });
+      }
+      if (result.error === "email_already_registered") {
+        return res.status(409).json({ error: "email_already_registered" });
+      }
+      return res.status(400).json({ error: "invalid_email" });
+    }
+
+    const tenant = tenants.getOrCreate(session.tenantId);
+    const token = await issueOwnerJwt({
+      tenantId: tenant.id,
+      tenantName: tenant.meta.name,
+      ownerEmail: result.email,
+    });
+    return res.json({ success: true, email: result.email, token });
+  } catch (err) {
+    console.error("POST /api/owner/change-email error:", err);
+    return res.status(500).json({ error: "change_email_failed" });
+  }
+});
+
 app.post(
   "/api/admin/tenants/:tenantId/owner-passcode/change",
   adminGuard("admin"),
@@ -1750,6 +1954,75 @@ app.post("/api/admin/auth/keys", adminGuard("admin"), async (req, res) => {
   });
 });
 
+app.get("/api/admin/account", async (req: AuthedRequest, res) => {
+  const snapshot = await describeConsoleAccount();
+  if (!req.ctx?.isSuperAdmin) {
+    return res.json({
+      canChange: false,
+      source: "identity_provider",
+      email: req.ctx?.email || null,
+      passwordMinLength: PORTAL_PASSWORD_MIN_LEN,
+    });
+  }
+  return res.json({
+    canChange: true,
+    ...snapshot,
+    sessionEmail: req.ctx?.email || snapshot.email,
+  });
+});
+
+app.post(
+  "/api/admin/account/credentials",
+  INSTALLER_AUTH_RATE_LIMIT,
+  async (req: AuthedRequest, res) => {
+    if (!requireSuperAdmin(req, res)) return;
+    const body = req.body || {};
+    const currentPassword =
+      typeof body.currentPassword === "string" ? body.currentPassword : "";
+    const email = typeof body.email === "string" ? body.email : undefined;
+    const newPassword =
+      typeof body.newPassword === "string" ? body.newPassword : undefined;
+
+    const result = await changeConsoleCredentials({
+      currentPassword,
+      email,
+      newPassword,
+    });
+    if (!result.ok) {
+      const err = result.error;
+      if (err === "invalid_current_password") {
+        return res.status(403).json({ error: err });
+      }
+      if (err === "email_already_registered") {
+        return res.status(409).json({ error: err });
+      }
+      if (err === "console_login_not_configured") {
+        return res.status(503).json({ error: err });
+      }
+      if (err === "password_too_short") {
+        return res.status(400).json({
+          error: err,
+          minLength: PORTAL_PASSWORD_MIN_LEN,
+        });
+      }
+      return res.status(400).json({ error: err });
+    }
+
+    const token = await issueInstallerConsoleJwt({ email: result.email });
+    void recordAudit({
+      action: "console_credentials_changed",
+      path: "/api/admin/account/credentials",
+      status: "200",
+      details: {
+        email: result.email,
+        passwordChanged: Boolean(newPassword),
+        emailChanged: Boolean(email),
+      },
+    });
+    return res.json({ success: true, email: result.email, token });
+  }
+);
+
 app.delete("/api/admin/auth/keys/:id", adminGuard("admin"), async (req, res) => {
   const { id } = req.params;
   if (!id) return res.status(400).json({ error: "id_required" });
@@ -1774,10 +2047,11 @@ app.get("/api/admin/config", async (req, res) => {
   if (!tenant) return;
 
   const hasKey = await secretStore.hasSecret(tenant.id, "openai_api_key");
+  const safe = tenant.config.getSafeConfig();
 
   res.json({
-    ...tenant.config.getSafeConfig(),
-    hasOpenAIApiKey: hasKey,
+    ...safe,
+    hasOpenAIApiKey: hasKey || safe.hasOpenAIApiKey,
   });
 });
 
@@ -1987,46 +2261,63 @@ app.post(
 app.get("/api/admin/subscription", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-  const sub = await getSubscription(tenant.id);
-  if (!sub) {
-    // No subscription record exists yet — tell the frontend
-    return res.json({
-      configured: false,
-      tenantId: tenant.id,
-      showBillingPortal: false,
-      adminNotes: null,
-    });
-  }
-  res.json(sub);
+  const owner = Boolean((req as AuthedRequest).ctx?.ownerConsole);
+  res.json(await serializeSubscriptionPayload(tenant.id, { owner }));
 }));
 
 app.post("/api/admin/subscription", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
 
   const {
-    planName, priceCents, currency, billingFrequency, status,
+    planName, priceCents, currency, billingFrequency, billingInterval, status,
     paymentMethodBrand, paymentMethodLast4,
     trialEndsAt, nextBillingDate, cancelledAt,
     showBillingPortal, adminNotes,
-    stripePriceId, stripeProductId,
+    stripePriceId, stripeProductId, stripeCustomerId, stripeSubscriptionId,
+    planTier, applyTierDefaults,
   } = req.body || {};
 
-  const sub = await upsertSubscription(tenant.id, {
-    planName, priceCents, currency, billingFrequency, status,
+  await upsertSubscription(tenant.id, {
+    planName, priceCents, currency,
+    billingFrequency: billingFrequency || billingInterval,
+    status,
     paymentMethodBrand, paymentMethodLast4,
     trialEndsAt, nextBillingDate, cancelledAt,
     showBillingPortal, adminNotes,
-    stripePriceId, stripeProductId,
+    stripePriceId, stripeProductId, stripeCustomerId, stripeSubscriptionId,
   });
 
-  res.json(sub);
+  const actor = (req as AuthedRequest).ctx?.idpSub || (req as AuthedRequest).ctx?.userId || "admin";
+  if (applyTierDefaults !== false && typeof planTier === "string") {
+    const parsed = planTierSchema.safeParse(planTier);
+    if (parsed.success) {
+      await applyPlanTierDefaultsKeepingService(tenant.id, parsed.data, actor);
+      await trySyncTenantRuntimeConfigForLimits(tenant.id);
+    }
+  }
+
+  void recordAudit({
+    action: "stripe.subscription.save_local",
+    path: req.path,
+    tenantId: tenant.id,
+    status: "200",
+    details: {
+      stripePriceId: stripePriceId || null,
+      hasStripeSub: Boolean(stripeSubscriptionId),
+      applyTierDefaults: applyTierDefaults !== false,
+      planTier: planTier || null,
+    },
+  });
+
+  res.json(await serializeSubscriptionPayload(tenant.id));
 }));
 
-// DELETE: remove a tenant's subscription entirely
 app.delete("/api/admin/subscription", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
 
   const existing = await getSubscription(tenant.id);
   if (!existing) {
@@ -2040,28 +2331,45 @@ app.delete("/api/admin/subscription", asyncHandler(async (req, res) => {
     client.release();
   }
 
+  void recordAudit({
+    action: "stripe.subscription.delete_local",
+    path: req.path,
+    tenantId: tenant.id,
+    status: "200",
+    details: { stripeSubscriptionId: existing.stripeSubscriptionId },
+  });
+
   res.json({ success: true });
 }));
 
-// PATCH: update only specific fields on an EXISTING subscription (won't create)
 app.patch("/api/admin/subscription", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
 
   const existing = await getSubscription(tenant.id);
-  if (!existing) {
-    return res.json({ configured: false, message: "No subscription to update" });
-  }
-
   const { showBillingPortal, adminNotes } = req.body || {};
 
-  const sub = await upsertSubscription(tenant.id, {
-    ...existing,
-    showBillingPortal: showBillingPortal !== undefined ? showBillingPortal : existing.showBillingPortal,
-    adminNotes: adminNotes !== undefined ? adminNotes : existing.adminNotes,
+  await upsertSubscription(tenant.id, {
+    ...(existing || {}),
+    showBillingPortal: showBillingPortal !== undefined ? showBillingPortal : existing?.showBillingPortal,
+    adminNotes: adminNotes !== undefined ? adminNotes : existing?.adminNotes,
+    planName: existing?.planName,
+    priceCents: existing?.priceCents,
+    status: existing?.status,
   });
 
-  res.json(sub);
+  if (showBillingPortal !== undefined) {
+    void recordAudit({
+      action: "stripe.portal.toggle",
+      path: req.path,
+      tenantId: tenant.id,
+      status: "200",
+      details: { showBillingPortal: Boolean(showBillingPortal) },
+    });
+  }
+
+  res.json(await serializeSubscriptionPayload(tenant.id));
 }));
 
 /* ────────────────────────────────────────────────
@@ -2092,115 +2400,234 @@ app.post("/api/stripe/webhook", asyncHandler(async (req, res) => {
    Stripe – Admin routes
    ──────────────────────────────────────────────── */
 
-// Check if Stripe is configured
 app.get("/api/admin/stripe/status", (req, res) => {
+  const owner = Boolean((req as AuthedRequest).ctx?.ownerConsole);
   res.json({
     configured: isStripeConfigured(),
-    publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || null,
+    liveMode: isStripeLiveMode(),
+    publishableKey: owner ? null : process.env.STRIPE_PUBLISHABLE_KEY || null,
+    webhookUrl: owner ? undefined : webhookPublicUrl(),
+    webhookPath: "/api/stripe/webhook",
   });
 });
 
-// List available plans
 app.get("/api/admin/stripe/plans", asyncHandler(async (req, res) => {
+  const tierDefaults = listPlanDefaultsPayload();
+  if (Boolean((req as AuthedRequest).ctx?.ownerConsole)) {
+    return res.json({ plans: [], source: "hidden", ...tierDefaults });
+  }
+  if (!isStripeConfigured()) {
+    return res.json({
+      plans: await listStripePlans(),
+      source: "catalog_defaults",
+      liveMode: false,
+      ...tierDefaults,
+    });
+  }
   const plans = await listStripePlans();
-  res.json({ plans });
+  res.json({
+    plans,
+    source: "stripe_catalog",
+    liveMode: isStripeLiveMode(),
+    webhookUrl: webhookPublicUrl(),
+    ...tierDefaults,
+  });
 }));
 
-// Create a new plan (admin only, creates product+price in Stripe)
+app.get("/api/admin/plan-defaults", (_req, res) => {
+  res.json(listPlanDefaultsPayload());
+});
+
 app.post("/api/admin/stripe/plans", asyncHandler(async (req, res) => {
-  const tenant = getTenantForAdmin(req as AuthedRequest, res);
-  if (!tenant) return;
-
-  if (!isStripeConfigured()) {
-    return res.status(501).json({ error: "Stripe not configured" });
-  }
-
-  const { name, priceCents, currency, billingInterval } = req.body || {};
-  if (!name || typeof priceCents !== "number") {
-    return res.status(400).json({ error: "name and priceCents required" });
-  }
-
-  const plan = await createStripePlan({ name, priceCents, currency, billingInterval });
-  res.json(plan);
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
+  return res.status(400).json({
+    error: "catalog_readonly",
+    message: "Creating Stripe products/prices is disabled. Use the live Receptionist catalog.",
+  });
 }));
 
-// Delete (deactivate) a plan
 app.delete("/api/admin/stripe/plans/:planId", asyncHandler(async (req, res) => {
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
+  return res.status(400).json({
+    error: "catalog_readonly",
+    message: "Archiving Stripe products/prices is disabled. Use the live Receptionist catalog.",
+  });
+}));
+
+app.post("/api/admin/stripe/subscribe", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
   if (!isStripeConfigured()) {
     return res.status(501).json({ error: "Stripe not configured" });
   }
 
-  const { planId } = req.params;
-  const deleted = await deleteStripePlan(planId);
-  if (!deleted) return res.status(404).json({ error: "Plan not found" });
-  res.json({ success: true });
+  const { priceId, includeSetup, confirm, confirmLive, collectionMethod, applyTierDefaults, planTier } = req.body || {};
+  if (!priceId || typeof priceId !== "string") {
+    return res.status(400).json({ error: "priceId required" });
+  }
+
+  try {
+    const result = await createStaffSubscription({
+      tenantId: tenant.id,
+      priceId,
+      includeSetup: Boolean(includeSetup),
+      confirm: confirm ?? confirmLive,
+      tenantName: tenant.meta.name,
+      collectionMethod:
+        collectionMethod === "charge_automatically" || collectionMethod === "send_invoice"
+          ? collectionMethod
+          : undefined,
+    });
+    const actor = (req as AuthedRequest).ctx?.idpSub || (req as AuthedRequest).ctx?.userId || "admin";
+    if (applyTierDefaults !== false) {
+      const parsed = planTierSchema.safeParse(planTier);
+      if (parsed.success) {
+        await applyPlanTierDefaultsKeepingService(tenant.id, parsed.data, actor);
+        await trySyncTenantRuntimeConfigForLimits(tenant.id);
+      }
+    }
+    void recordAudit({
+      action: "stripe.subscription.create",
+      path: req.path,
+      tenantId: tenant.id,
+      status: "200",
+      details: {
+        priceId,
+        includeSetup: Boolean(includeSetup),
+        created: result.created,
+        liveMode: isStripeLiveMode(),
+        applyTierDefaults: applyTierDefaults !== false,
+        planTier: planTier || null,
+      },
+    });
+    res.json({
+      ...result,
+      subscription: await serializeSubscriptionPayload(tenant.id),
+    });
+  } catch (err: any) {
+    const code = err?.code || "stripe_error";
+    const status = code === "live_confirm_required" ? 400 : code === "unknown_catalog_price" ? 400 : 400;
+    res.status(status).json({ error: code, message: err.message });
+  }
 }));
 
-// Create a checkout session for a tenant to subscribe
+app.post("/api/admin/stripe/cancel", asyncHandler(async (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
+  if (!isStripeConfigured()) {
+    return res.status(501).json({ error: "Stripe not configured" });
+  }
+  try {
+    await cancelStaffSubscription({
+      tenantId: tenant.id,
+      confirm: req.body?.confirm ?? req.body?.confirmLive,
+      atPeriodEnd: req.body?.atPeriodEnd !== false,
+    });
+    void recordAudit({
+      action: "stripe.subscription.cancel",
+      path: req.path,
+      tenantId: tenant.id,
+      status: "200",
+      details: { atPeriodEnd: req.body?.atPeriodEnd !== false, liveMode: isStripeLiveMode() },
+    });
+    res.json(await serializeSubscriptionPayload(tenant.id));
+  } catch (err: any) {
+    res.status(400).json({ error: err.code || "stripe_error", message: err.message });
+  }
+}));
+
 app.post("/api/admin/stripe/checkout", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
   if (!isStripeConfigured()) {
     return res.status(501).json({ error: "Stripe not configured" });
   }
 
-  const { priceId, successUrl, cancelUrl } = req.body || {};
+  const { priceId, successUrl, cancelUrl, includeSetup } = req.body || {};
   if (!priceId) return res.status(400).json({ error: "priceId required" });
 
   const baseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
-  const session = await createCheckoutSession({
-    tenantId: tenant.id,
-    priceId,
-    successUrl: successUrl || `${baseUrl}/portal?checkout=success`,
-    cancelUrl: cancelUrl || `${baseUrl}/portal?checkout=cancelled`,
-    tenantName: tenant.meta.name,
-  });
-
-  res.json({ url: session.url, sessionId: session.id });
+  try {
+    const session = await createCheckoutSession({
+      tenantId: tenant.id,
+      priceId,
+      successUrl: successUrl || `${baseUrl}/portal?checkout=success`,
+      cancelUrl: cancelUrl || `${baseUrl}/portal?checkout=cancelled`,
+      tenantName: tenant.meta.name,
+      includeSetup: Boolean(includeSetup),
+    });
+    res.json({ url: session.url, sessionId: session.id });
+  } catch (err: any) {
+    res.status(400).json({ error: err.code || "stripe_error", message: err.message });
+  }
 }));
 
-// Create a customer portal session (owner manages billing)
 app.post("/api/admin/stripe/portal", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-
   if (!isStripeConfigured()) {
     return res.status(501).json({ error: "Stripe not configured" });
+  }
+
+  const owner = Boolean((req as AuthedRequest).ctx?.ownerConsole);
+  const existing = await getSubscription(tenant.id);
+  if (owner && !existing?.showBillingPortal) {
+    return res.status(403).json({ error: "self_serve_disabled", message: "Self-service billing is not enabled for this account." });
+  }
+  if (owner && !existing?.stripeCustomerId) {
+    return res.status(404).json({ error: "no_stripe_customer" });
   }
 
   const { returnUrl } = req.body || {};
   const baseUrl = process.env.PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 4000}`;
+  const defaultReturn = owner ? `${baseUrl}/portal/billing` : `${baseUrl}/admin/billing`;
 
-  const session = await createPortalSession({
-    tenantId: tenant.id,
-    returnUrl: returnUrl || `${baseUrl}/portal`,
-  });
-
-  res.json({ url: session.url });
+  try {
+    const session = await createPortalSession({
+      tenantId: tenant.id,
+      returnUrl: returnUrl || defaultReturn,
+      createCustomerIfMissing: !owner,
+    });
+    if (owner) {
+      void recordAudit({
+        action: "stripe.portal.open",
+        path: req.path,
+        tenantId: tenant.id,
+        status: "200",
+        details: { actor: "owner" },
+      });
+    }
+    res.json({ url: session.url });
+  } catch (err: any) {
+    res.status(400).json({ error: err.code || "stripe_error", message: err.message });
+  }
 }));
 
-// Sync a tenant's subscription from Stripe
 app.post("/api/admin/stripe/sync", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
-
+  if (!requireStaffBilling(req as AuthedRequest, res)) return;
   if (!isStripeConfigured()) {
     return res.status(501).json({ error: "Stripe not configured" });
   }
 
-  // Get the subscription ID from DB
-  const sub = await getSubscription(tenant.id);
-  if (!sub || !(sub as any).stripeSubscriptionId) {
-    return res.status(404).json({ error: "No Stripe subscription found for this tenant" });
+  try {
+    const result = await syncTenantBillingFromStripe(tenant.id);
+    void recordAudit({
+      action: "stripe.sync",
+      path: req.path,
+      tenantId: tenant.id,
+      status: "200",
+      details: { changes: result.changes },
+    });
+    res.json({ ...result.subscription, changes: result.changes });
+  } catch (err: any) {
+    const status = err.code === "stripe_customer_deleted" ? 409 : 400;
+    res.status(status).json({ error: err.code || "stripe_error", message: err.message });
   }
-
-  await syncSubscriptionFromStripe(tenant.id, (sub as any).stripeSubscriptionId);
-  const updated = await getSubscription(tenant.id);
-  res.json(updated);
 }));
 
 /* ────────────────────────────────────────────────
@@ -2221,6 +2648,8 @@ type ExtendedTtsConfig = TTSConfig & {
   chatterboxUrl?: string;
   chatterboxVariant?: string;
   qwen3TtsUrl?: string;
+  magpieTtsUrl?: string;
+  meloTtsUrl?: string;
   qwen3Instruct?: string;
   qwen3DoSample?: boolean;
   qwen3Temperature?: number;
@@ -2234,7 +2663,64 @@ type ExtendedTtsConfig = TTSConfig & {
   qwen3SubtalkerTopP?: number;
   qwen3SubtalkerTemperature?: number;
   qwen3Streaming?: boolean;
+  misoTtsUrl?: string;
+  misoMaxAudioLengthMs?: number;
+  misoTemperature?: number;
+  misoTopK?: number;
+  magpieTemperature?: number;
+  magpieCfgScale?: number;
+  magpieTopK?: number;
+  magpieUseCfg?: boolean;
+  magpieApplyTn?: boolean;
+  meloSdpRatio?: number;
+  meloNoiseScale?: number;
+  meloNoiseScaleW?: number;
 };
+
+const QWEN3_CUSTOMVOICE_VOICES = [
+  { id: "Serena", label: "Serena — warm receptionist (best English female)" },
+  { id: "Vivian", label: "Vivian — bright slightly edgy young female" },
+  { id: "Sohee", label: "Sohee — warm emotional female" },
+  { id: "Ono_Anna", label: "Ono Anna — playful light female" },
+  { id: "Ryan", label: "Ryan — dynamic English male" },
+  { id: "Aiden", label: "Aiden — sunny American male" },
+  { id: "Uncle_Fu", label: "Uncle Fu — seasoned low male" },
+  { id: "Dylan", label: "Dylan — clear Beijing male" },
+  { id: "Eric", label: "Eric — lively Chengdu male" },
+];
+
+const MAGPIE_VOICES = [
+  { id: "Aria", label: "Aria — bright female" },
+  { id: "Jason", label: "Jason — clear male" },
+  { id: "John", label: "John — warm male" },
+  { id: "Leo", label: "Leo — deeper male" },
+  { id: "Sofia", label: "Sofia — warm receptionist female" },
+];
+
+const MELO_VOICES = [
+  { id: "EN-US", label: "EN-US — American English" },
+  { id: "EN-BR", label: "EN-BR — British English" },
+  { id: "EN-INDIA", label: "EN-INDIA — Indian English" },
+  { id: "EN-AU", label: "EN-AU — Australian English" },
+  { id: "EN-Default", label: "EN-Default — default English" },
+  { id: "ES", label: "ES — Spanish" },
+  { id: "FR", label: "FR — French" },
+  { id: "ZH", label: "ZH — Chinese" },
+  { id: "JP", label: "JP — Japanese" },
+  { id: "KR", label: "KR — Korean" },
+];
+
+const KOKORO_VOICES = [
+  { id: "af_bella", label: "af_bella — American English female" },
+  { id: "af_heart", label: "af_heart — American English female" },
+  { id: "af_nicole", label: "af_nicole — American English female" },
+  { id: "af_sarah", label: "af_sarah — American English female" },
+  { id: "af_sky", label: "af_sky — American English female" },
+  { id: "am_adam", label: "am_adam — American English male" },
+  { id: "am_michael", label: "am_michael — American English male" },
+  { id: "bf_emma", label: "bf_emma — British English female" },
+  { id: "bm_george", label: "bm_george — British English male" },
+];
 
 app.get("/api/tts/config", (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
@@ -2249,8 +2735,11 @@ app.get("/api/tts/config", (req, res) => {
     const baseCfg = tenant.config.getTtsConfig();
     const extendedCfg: ExtendedTtsConfig = {
       ...baseCfg,
-      mode: (baseCfg as any).ttsMode || "kokoro_http",
-      ttsMode: (baseCfg as any).ttsMode || "kokoro_http",
+      mode: "kokoro_http",
+      ttsMode: "kokoro_http",
+    };
+    (extendedCfg as { availableVoices?: Record<string, { id: string; label: string }[]> }).availableVoices = {
+      kokoro_http: KOKORO_VOICES,
     };
     if ((baseCfg as any).defaultVoiceMode) {
       extendedCfg.defaultVoiceMode = (baseCfg as any).defaultVoiceMode;
@@ -2265,6 +2754,9 @@ app.get("/api/tts/config", (req, res) => {
       extendedCfg.chatterboxVariant = (baseCfg as any).chatterboxVariant;
     }
     if ((baseCfg as any).qwen3TtsUrl) extendedCfg.qwen3TtsUrl = (baseCfg as any).qwen3TtsUrl;
+    if ((baseCfg as any).misoTtsUrl) extendedCfg.misoTtsUrl = (baseCfg as any).misoTtsUrl;
+    if ((baseCfg as any).magpieTtsUrl) extendedCfg.magpieTtsUrl = (baseCfg as any).magpieTtsUrl;
+    if ((baseCfg as any).meloTtsUrl) extendedCfg.meloTtsUrl = (baseCfg as any).meloTtsUrl;
     if ((baseCfg as any).qwen3Instruct) extendedCfg.qwen3Instruct = (baseCfg as any).qwen3Instruct;
     const bq = baseCfg as any;
     if (bq.qwen3DoSample !== undefined) extendedCfg.qwen3DoSample = bq.qwen3DoSample;
@@ -2281,6 +2773,17 @@ app.get("/api/tts/config", (req, res) => {
       extendedCfg.qwen3SubtalkerTemperature = bq.qwen3SubtalkerTemperature;
     }
     if (bq.qwen3Streaming !== undefined) extendedCfg.qwen3Streaming = bq.qwen3Streaming;
+    if (bq.misoMaxAudioLengthMs !== undefined) extendedCfg.misoMaxAudioLengthMs = bq.misoMaxAudioLengthMs;
+    if (bq.misoTemperature !== undefined) extendedCfg.misoTemperature = bq.misoTemperature;
+    if (bq.misoTopK !== undefined) extendedCfg.misoTopK = bq.misoTopK;
+    if (bq.magpieTemperature !== undefined) extendedCfg.magpieTemperature = bq.magpieTemperature;
+    if (bq.magpieCfgScale !== undefined) extendedCfg.magpieCfgScale = bq.magpieCfgScale;
+    if (bq.magpieTopK !== undefined) extendedCfg.magpieTopK = bq.magpieTopK;
+    if (bq.magpieUseCfg !== undefined) extendedCfg.magpieUseCfg = bq.magpieUseCfg;
+    if (bq.magpieApplyTn !== undefined) extendedCfg.magpieApplyTn = bq.magpieApplyTn;
+    if (bq.meloSdpRatio !== undefined) extendedCfg.meloSdpRatio = bq.meloSdpRatio;
+    if (bq.meloNoiseScale !== undefined) extendedCfg.meloNoiseScale = bq.meloNoiseScale;
+    if (bq.meloNoiseScaleW !== undefined) extendedCfg.meloNoiseScaleW = bq.meloNoiseScaleW;
     if (bq.coquiTemperature !== undefined) extendedCfg.coquiTemperature = bq.coquiTemperature;
     if (bq.coquiLengthPenalty !== undefined) extendedCfg.coquiLengthPenalty = bq.coquiLengthPenalty;
     if (bq.coquiRepetitionPenalty !== undefined) extendedCfg.coquiRepetitionPenalty = bq.coquiRepetitionPenalty;
@@ -2296,9 +2799,16 @@ app.get("/api/tts/config", (req, res) => {
   }
 
   const safe = tenant.config.getSafeTtsConfig();
-  const payload: SafeTtsPublicConfig & { mode: string; diagnostics?: Record<string, unknown> } = {
+  const payload: SafeTtsPublicConfig & {
+    mode: string;
+    diagnostics?: Record<string, unknown>;
+    availableVoices?: Record<string, { id: string; label: string }[]>;
+  } = {
     ...safe,
-    mode: safe.ttsMode,
+    mode: "kokoro_http",
+    availableVoices: {
+      kokoro_http: KOKORO_VOICES,
+    },
   };
   if (diagnostics) {
     payload.diagnostics = ttsDiagnosticsPayload(tenant.config.getTtsConfig());
@@ -2313,15 +2823,10 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
 
   const body = req.body as Partial<ExtendedTtsConfig> & Record<string, unknown>;
   const {
-    chatterboxVariant,
-    qwen3Instruct,
     voiceId,
     language,
     rate,
     preset,
-    ttsMode,
-    defaultVoiceMode,
-    clonedVoice,
   } = body;
 
   // Provider URL fields are infrastructure (point at internal STT/TTS hosts).
@@ -2334,6 +2839,9 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
     "kokoroUrl",
     "chatterboxUrl",
     "qwen3TtsUrl",
+    "misoTtsUrl",
+    "magpieTtsUrl",
+    "meloTtsUrl",
   ] as const;
   const clientSubmittedRawUrls = RAW_PROVIDER_URL_FIELDS.some(
     (k) => typeof (body as any)[k] === "string" && (body as any)[k].trim().length > 0
@@ -2351,9 +2859,12 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
   const kokoroUrl = isSuperAdmin ? body.kokoroUrl : undefined;
   const chatterboxUrl = isSuperAdmin ? body.chatterboxUrl : undefined;
   const qwen3TtsUrl = isSuperAdmin ? body.qwen3TtsUrl : undefined;
+  const misoTtsUrl = isSuperAdmin ? body.misoTtsUrl : undefined;
+  const magpieTtsUrl = isSuperAdmin ? body.magpieTtsUrl : undefined;
+  const meloTtsUrl = isSuperAdmin ? body.meloTtsUrl : undefined;
 
   // Determine the TTS URL based on mode (admin-supplied or undefined → keep existing)
-  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl || qwen3TtsUrl;
+  const urlCandidate = coquiXttsUrl || kokoroUrl || xttsUrl || chatterboxUrl || qwen3TtsUrl || misoTtsUrl || magpieTtsUrl || meloTtsUrl;
   let ttsUrlValue: string | undefined;
   if (typeof urlCandidate === "string" && urlCandidate.trim().length > 0) {
     const u = urlCandidate.trim();
@@ -2377,192 +2888,26 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
   const safeRate =
     safeRateRaw !== undefined ? clamp(safeRateRaw, 0.8, 1.2) : undefined;
 
-  // Validate voice cloning config
-  if (defaultVoiceMode === "cloned") {
-    const speakerUrl = clonedVoice?.speakerWavUrl;
-    if (!speakerUrl || typeof speakerUrl !== "string" || !speakerUrl.trim()) {
-      return res.status(400).json({
-        error: "cloned_voice_url_required",
-        message: "Cloned voice mode requires a speakerWavUrl to be set.",
-      });
-    }
-    try {
-      new URL(speakerUrl);
-    } catch {
-      return res.status(400).json({
-        error: "invalid_speaker_wav_url",
-        message: "speakerWavUrl must be a valid URL.",
-      });
-    }
-  }
-
   // Build the extended config object (bounded strings — avoids huge payloads / DB surprises)
   const configUpdate: any = {
     xttsUrl: ttsUrlValue,
-    voiceId: sanitizeTtsShortText(voiceId, 100),
+    voiceId: coerceKokoroVoiceId(sanitizeTtsShortText(voiceId, 100) || undefined),
     language: sanitizeTtsShortText(language, 32),
     rate: safeRate,
     preset: presetValue,
+    ttsMode: "kokoro_http",
+    kokoroUrl: ttsUrlValue,
+    chatterboxUrl: undefined,
+    chatterboxVariant: undefined,
+    qwen3TtsUrl: undefined,
+    misoTtsUrl: undefined,
+    qwen3Instruct: undefined,
+    defaultVoiceMode: "preset",
+    clonedVoice: undefined,
   };
-
-  const validChatterboxVariant = (v: unknown): v is "turbo" | "standard" | "multilingual" =>
-    v === "turbo" || v === "standard" || v === "multilingual";
-
-  // Store mode-specific fields
-  if (ttsMode === "coqui_xtts") {
-    configUpdate.ttsMode = "coqui_xtts";
-    configUpdate.coquiXttsUrl = ttsUrlValue;
-    configUpdate.chatterboxUrl = undefined;
-    configUpdate.chatterboxVariant = undefined;
-    configUpdate.qwen3TtsUrl = undefined;
-    configUpdate.qwen3Instruct = undefined;
-    clearQwen3GenFields(configUpdate);
-    if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
-      configUpdate.defaultVoiceMode = defaultVoiceMode;
-    }
-    if (clonedVoice && clonedVoice.speakerWavUrl) {
-      configUpdate.clonedVoice = {
-        speakerWavUrl: clonedVoice.speakerWavUrl.trim(),
-        label: clonedVoice.label?.trim() || undefined,
-      };
-    }
-    if ("coquiTemperature" in body) {
-      const v = body.coquiTemperature;
-      configUpdate.coquiTemperature =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
-    }
-    if ("coquiLengthPenalty" in body) {
-      const v = body.coquiLengthPenalty;
-      configUpdate.coquiLengthPenalty =
-        v === null || v === undefined ? undefined : optNumBody(v as number, -10, 10);
-    }
-    if ("coquiRepetitionPenalty" in body) {
-      const v = body.coquiRepetitionPenalty;
-      configUpdate.coquiRepetitionPenalty =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0.5, 2);
-    }
-    if ("coquiTopK" in body) {
-      const v = body.coquiTopK;
-      configUpdate.coquiTopK =
-        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
-    }
-    if ("coquiTopP" in body) {
-      const v = body.coquiTopP;
-      configUpdate.coquiTopP = v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
-    }
-    if ("coquiSpeed" in body) {
-      const v = body.coquiSpeed;
-      configUpdate.coquiSpeed = v === null || v === undefined ? undefined : optNumBody(v as number, 0.25, 4);
-    }
-    if ("coquiSplitSentences" in body) {
-      const v = body.coquiSplitSentences;
-      configUpdate.coquiSplitSentences =
-        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
-    }
-  } else if (ttsMode === "chatterbox_http") {
-    configUpdate.ttsMode = "chatterbox_http";
-    configUpdate.chatterboxUrl = ttsUrlValue;
-    configUpdate.chatterboxVariant = validChatterboxVariant(chatterboxVariant)
-      ? chatterboxVariant
-      : "turbo";
-    configUpdate.coquiXttsUrl = undefined;
-    configUpdate.kokoroUrl = undefined;
-    configUpdate.qwen3TtsUrl = undefined;
-    configUpdate.qwen3Instruct = undefined;
-    clearQwen3GenFields(configUpdate);
-    clearCoquiGenFields(configUpdate);
-    if (defaultVoiceMode && (defaultVoiceMode === "preset" || defaultVoiceMode === "cloned")) {
-      configUpdate.defaultVoiceMode = defaultVoiceMode;
-    }
-    if (clonedVoice && clonedVoice.speakerWavUrl) {
-      configUpdate.clonedVoice = {
-        speakerWavUrl: clonedVoice.speakerWavUrl.trim(),
-        label: clonedVoice.label?.trim() || undefined,
-      };
-    }
-  } else if (ttsMode === "qwen3_tts_http") {
-    configUpdate.ttsMode = "qwen3_tts_http";
-    configUpdate.qwen3TtsUrl = ttsUrlValue;
-    configUpdate.qwen3Instruct = sanitizeTtsShortText(qwen3Instruct, 500);
-    if ("qwen3DoSample" in body) {
-      const v = body.qwen3DoSample;
-      configUpdate.qwen3DoSample =
-        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
-    }
-    if ("qwen3Temperature" in body) {
-      const v = body.qwen3Temperature;
-      configUpdate.qwen3Temperature =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
-    }
-    if ("qwen3TopP" in body) {
-      const v = body.qwen3TopP;
-      configUpdate.qwen3TopP = v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
-    }
-    if ("qwen3TopK" in body) {
-      const v = body.qwen3TopK;
-      configUpdate.qwen3TopK =
-        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
-    }
-    if ("qwen3RepetitionPenalty" in body) {
-      const v = body.qwen3RepetitionPenalty;
-      configUpdate.qwen3RepetitionPenalty =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0.5, 2);
-    }
-    if ("qwen3MaxNewTokens" in body) {
-      const v = body.qwen3MaxNewTokens;
-      configUpdate.qwen3MaxNewTokens =
-        v === null || v === undefined ? undefined : optIntBody(v as number, 1, 32768);
-    }
-    if ("qwen3NonStreamingMode" in body) {
-      const v = body.qwen3NonStreamingMode;
-      configUpdate.qwen3NonStreamingMode =
-        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
-    }
-    if ("qwen3SubtalkerDoSample" in body) {
-      const v = body.qwen3SubtalkerDoSample;
-      configUpdate.qwen3SubtalkerDoSample =
-        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
-    }
-    if ("qwen3SubtalkerTopK" in body) {
-      const v = body.qwen3SubtalkerTopK;
-      configUpdate.qwen3SubtalkerTopK =
-        v === null || v === undefined ? undefined : optIntBody(v as number, 0, 1_000_000);
-    }
-    if ("qwen3SubtalkerTopP" in body) {
-      const v = body.qwen3SubtalkerTopP;
-      configUpdate.qwen3SubtalkerTopP =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 1);
-    }
-    if ("qwen3SubtalkerTemperature" in body) {
-      const v = body.qwen3SubtalkerTemperature;
-      configUpdate.qwen3SubtalkerTemperature =
-        v === null || v === undefined ? undefined : optNumBody(v as number, 0, 2);
-    }
-    if ("qwen3Streaming" in body) {
-      const v = body.qwen3Streaming;
-      configUpdate.qwen3Streaming =
-        v === null || v === undefined ? undefined : optBoolBody(v as boolean);
-    }
-    clearCoquiGenFields(configUpdate);
-    configUpdate.coquiXttsUrl = undefined;
-    configUpdate.kokoroUrl = undefined;
-    configUpdate.chatterboxUrl = undefined;
-    configUpdate.chatterboxVariant = undefined;
-    configUpdate.defaultVoiceMode = undefined;
-    configUpdate.clonedVoice = undefined;
-  } else {
-    configUpdate.ttsMode = "kokoro_http";
-    configUpdate.kokoroUrl = ttsUrlValue;
-    configUpdate.chatterboxUrl = undefined;
-    configUpdate.chatterboxVariant = undefined;
-    configUpdate.qwen3TtsUrl = undefined;
-    configUpdate.qwen3Instruct = undefined;
-    clearQwen3GenFields(configUpdate);
-    clearCoquiGenFields(configUpdate);
-    // Clear voice cloning fields for Kokoro
-    configUpdate.defaultVoiceMode = undefined;
-    configUpdate.clonedVoice = undefined;
-  }
+  clearQwen3GenFields(configUpdate);
+  clearMisoGenFields(configUpdate);
+  clearCoquiGenFields(configUpdate);
 
   const updated = tenant.config.setTtsConfig(configUpdate);
 
@@ -2611,6 +2956,9 @@ app.post("/api/tts/config", async (req: AuthedRequest, res) => {
       chatterboxUrl: configUpdate.chatterboxUrl,
       chatterboxVariant: configUpdate.chatterboxVariant,
       qwen3TtsUrl: configUpdate.qwen3TtsUrl,
+      misoTtsUrl: configUpdate.misoTtsUrl,
+      magpieTtsUrl: configUpdate.magpieTtsUrl,
+      meloTtsUrl: configUpdate.meloTtsUrl,
       qwen3Instruct: configUpdate.qwen3Instruct,
     };
     const payload: Record<string, unknown> = {
@@ -2645,7 +2993,7 @@ app.post("/api/tts/preview", async (req, res) => {
   try {
     const raw = req.body as { text?: unknown };
     const text = resolvePreviewText(raw?.text);
-    const cfg = tenant.config.getTtsConfig();
+    const cfg = applyPreviewOverrides(tenant.config.getTtsConfig(), raw);
 
     // Send headers before waiting on TTS so reverse proxies (e.g. Cloudflare) see an
     // immediate response and are less likely to return 502 while synthesis runs.
@@ -2692,7 +3040,7 @@ app.post("/api/tts/preview/async", async (req, res) => {
   try {
     const raw = req.body as { text?: unknown };
     const text = resolvePreviewText(raw?.text);
-    const cfg = tenant.config.getTtsConfig();
+    const cfg = applyPreviewOverrides(tenant.config.getTtsConfig(), raw);
     const id = await createPreviewJob(tenant.id, cfg, text);
     res.status(202).json({ id });
   } catch (err: unknown) {
@@ -2889,8 +3237,9 @@ app.get("/api/admin/health", (req, res) => {
   const safeTts = tenant.config.getSafeTtsConfig();
   const safeStt = tenant.config.getSafeSttPublic();
 
-  const hasOpenAIApiKey = Boolean(cfg.openaiApiKey || process.env.OPENAI_API_KEY);
-  const localLlmConfigured = Boolean((cfg.localUrl || "").trim());
+  const hasOpenAIApiKey =
+    hasUsableApiKey(cfg.openaiApiKey) || hasUsableApiKey(process.env.OPENAI_API_KEY);
+  const localLlmConfigured = Boolean((cfg.localUrl || process.env.LOCAL_LLM_URL || "").trim());
 
   const llmStatus =
     cfg.provider === "openai"
@@ -2906,7 +3255,7 @@ app.get("/api/admin/health", (req, res) => {
 
   for (const meta of tenants.listMetas()) {
     const t = tenants.getOrCreate(meta.id);
-    const n = t.calls.listCalls().length;
+    const n = t.calls.countLiveCalls();
     activeCallsByTenant[t.id] = n;
     activeCallsGlobal += n;
   }
@@ -2916,11 +3265,21 @@ app.get("/api/admin/health", (req, res) => {
     safeTts.coquiXttsEndpointConfigured ||
     safeTts.kokoroEndpointConfigured ||
     safeTts.chatterboxEndpointConfigured ||
-    safeTts.qwen3EndpointConfigured;
+    safeTts.qwen3EndpointConfigured ||
+    safeTts.misoEndpointConfigured ||
+    safeTts.ttsMode === "openai_tts" ||
+    safeTts.ttsMode === "elevenlabs";
+
+  const llmOk = llmStatus === "ready" || llmStatus === "configured" || llmStatus === "defaulting";
+  const sttOk = Boolean(safeStt.whisperEndpointConfigured);
+  const servicesOk = llmOk && sttOk && ttsAny;
 
   const payload: Record<string, unknown> = {
+    status: servicesOk ? "ok" : "degraded",
     server: "ok",
+    timestamp: new Date().toISOString(),
     serverUptimeSec: Math.floor(process.uptime()),
+    activeCalls: activeCallsGlobal,
     activeCallsGlobal,
     activeCallsByTenant,
     llm: {
@@ -2947,6 +3306,9 @@ app.get("/api/admin/health", (req, res) => {
       coquiXttsEndpointConfigured: safeTts.coquiXttsEndpointConfigured,
       chatterboxEndpointConfigured: safeTts.chatterboxEndpointConfigured,
       qwen3EndpointConfigured: safeTts.qwen3EndpointConfigured,
+      misoEndpointConfigured: safeTts.misoEndpointConfigured,
+      openaiTtsConfigured: safeTts.openaiTtsConfigured,
+      elevenlabsConfigured: safeTts.elevenlabsConfigured,
     },
   };
 
@@ -2973,7 +3335,9 @@ app.get(
     if (!(await requireTenantFeature(req, res, tenant.id, "advancedAnalytics"))) return;
     res.setHeader("Cache-Control", "no-store, private");
     res.setHeader("Pragma", "no-cache");
-    const payload = await getCallAnalyticsPayloadForTenant(tenant.id);
+    const daysRaw = Number(req.query.days);
+    const days = Number.isFinite(daysRaw) ? Math.min(90, Math.max(1, Math.round(daysRaw))) : 30;
+    const payload = await getCallAnalyticsPayloadForTenant(tenant.id, days);
     res.json(payload);
   }),
 );
@@ -3021,16 +3385,37 @@ app.get(
     if (!tenant) return;
     res.setHeader("Cache-Control", "no-store, private");
     res.setHeader("Pragma", "no-cache");
-    const rows = await listCallsForTenantDb(tenant.id, 100);
-    const calls = rows.map((row) => ({
-      id: row.id,
-      tenantId: row.tenant_id,
-      callerId: row.caller_id,
-      stage: row.stage,
-      lead: row.lead,
-      history: normalizeHistoryForAdminUi(row.history),
-    }));
-    res.json({ calls });
+    const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 200);
+    const filter = typeof req.query.filter === "string" ? req.query.filter : "all";
+    const fetchLimit = Math.min(200, Math.max(limit * 2, limit));
+    const rows = dedupeCallHistoryRows(await listCallsForTenantDb(tenant.id, fetchLimit)).slice(0, limit);
+    const limits = await getTenantLimits(tenant.id);
+    const presented = await Promise.all(
+      rows.map(async (row) => {
+        const lead =
+          row.lead && typeof row.lead === "object"
+            ? (row.lead as Record<string, unknown>)
+            : {};
+        const callControlId =
+          typeof lead.voiceCallControlId === "string" ? lead.voiceCallControlId.trim() : "";
+        let quality: Record<string, unknown> | null = null;
+        if (callControlId) {
+          const got = await getCallQualitySummaryForCall(tenant.id, callControlId);
+          if (got?.summary && typeof got.summary === "object") {
+            quality = got.summary as Record<string, unknown>;
+          }
+        }
+        return presentAdminCall(row, quality, { includeRecording: Boolean(limits.callRecording) });
+      }),
+    );
+    const missed = presented.filter((call) => call.missed).length;
+    const calls = filter === "missed" ? presented.filter((call) => call.missed) : presented;
+    res.json({
+      calls,
+      tenantId: tenant.id,
+      limit,
+      counts: { total: presented.length, missed },
+    });
   }),
 );
 
@@ -3087,9 +3472,23 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, r
       return res.status(403).json({ error: "tenant_billing_suspended" });
     }
     const callerId = callState?.callerId || undefined;
-    const call = tenant.calls.createCall(callerId);
+    const call = tenant.calls.createCall(callerId, callId);
     tenant.analytics.recordNewCall();
     await recordTenantCallStarted(tenantId);
+    await upsertCallRowMerge({
+      id: call.id,
+      tenant_id: tenantId,
+      caller_id: callerId ?? null,
+      stage: call.stage,
+      lead: call.lead,
+      history: [],
+    });
+    await upsertCutoverItem(
+      tenantId,
+      "did_inbound",
+      true,
+      "Verified by a runtime inbound call start",
+    );
     return res.json({ status: "ok", callId: call.id });
   }
 
@@ -3115,46 +3514,54 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, r
       callControlId: ccLog,
     });
 
-    const endingCall = tenant.calls.getCall(callId);
+    const endingCall = callId ? tenant.calls.getCall(callId) : undefined;
+    let persistId = endingCall?.id;
+    if (!persistId && callId) {
+      persistId = (await findCallByVoiceControlId(tenantId, callId))?.id;
+    }
+    if (!persistId && (callState?.callerId || endingCall?.callerId)) {
+      persistId = (await findOpenGreetingCall(
+        tenantId,
+        String(callState?.callerId || endingCall?.callerId || ""),
+      ))?.id;
+    }
     const historyForDb = Array.isArray(callState?.history)
       ? (callState!.history as unknown[])
       : endingCall
         ? (endingCall.history as unknown[])
         : [];
+    const durationMsForStore =
+      endingCall?.createdAt != null ? Math.max(0, Date.now() - endingCall.createdAt) : undefined;
+    const mergedLeadForEnd = {
+      ...(typeof endingCall?.lead === "object" && endingCall.lead
+        ? (endingCall.lead as Record<string, unknown>)
+        : {}),
+      ...(typeof callState?.lead === "object" && callState.lead
+        ? callState.lead
+        : {}),
+      voiceCallControlId: callId,
+      ...(durationMsForStore != null ? { durationMs: durationMsForStore } : {}),
+    };
 
     try {
-      if (endingCall) {
-        const mergedLead = {
-          ...(typeof endingCall.lead === "object" && endingCall.lead
-            ? (endingCall.lead as Record<string, unknown>)
-            : {}),
-          ...(typeof callState?.lead === "object" && callState.lead
-            ? callState.lead
-            : {}),
-          voiceCallControlId: callId,
-        };
+      if (persistId) {
         await upsertCallRowMerge({
-          id: endingCall.id,
+          id: persistId,
           tenant_id: tenantId,
-          caller_id: callState?.callerId ?? endingCall.callerId ?? null,
+          caller_id: callState?.callerId ?? endingCall?.callerId ?? null,
           stage: "end",
-          lead: mergedLead,
+          lead: mergedLeadForEnd,
           history: historyForDb,
         });
-        tenant.calls.deleteCall(callId);
+        if (callId) tenant.calls.deleteCall(callId);
+        else tenant.calls.deleteCall(persistId);
       } else {
-        const mergedLead = {
-          ...(typeof callState?.lead === "object" && callState.lead
-            ? callState.lead
-            : {}),
-          voiceCallControlId: callId,
-        };
         await upsertCallRowMerge({
           id: randomUUID(),
           tenant_id: tenantId,
           caller_id: callState?.callerId ?? null,
           stage: "end",
-          lead: mergedLead,
+          lead: mergedLeadForEnd,
           history: historyForDb,
         });
       }
@@ -3192,12 +3599,10 @@ app.post("/api/runtime/calls", adminGuard("admin"), async (req: AuthedRequest, r
       durationMs,
       turns: (historyForDb as any) ?? [],
       transcript: (req.body as { transcript?: string }).transcript,
-      lead: (endingCall?.lead as any) ?? callState?.lead ?? {},
+      lead: mergedLeadForEnd,
       timestamp: new Date().toISOString(),
     };
-    handleCallEnded(workflowEvent).catch(err => {
-      console.error("[runtime/calls] Workflow event bus error:", err);
-    });
+    await handleCallEnded(workflowEvent);
 
     return res.json({ status: "ok", ended: true });
   }
@@ -3224,7 +3629,10 @@ app.post(
     if (summary === undefined || summary === null || typeof summary !== "object") {
       return res.status(400).json({ error: "summary_required" });
     }
-    await upsertCallQualitySummary({ tenantId, callControlId, summary });
+    const stored = await upsertCallQualitySummary({ tenantId, callControlId, summary });
+    if (!stored) {
+      return res.status(400).json({ error: "invalid_call_control_id" });
+    }
     void recordAudit({
       action: "call_quality_summary_upserted",
       path: req.path,
@@ -3295,6 +3703,7 @@ app.get(
     res.json({
       passcodeSet: Boolean(hash),
       emailLoginSet: Boolean(cred),
+      email: cred?.emailNorm ?? null,
     });
   })
 );
@@ -3337,10 +3746,24 @@ app.patch(
       settingArea: "business_hours",
       actorRole: adminActorRole(req),
     });
+    await upsertCutoverItem(
+      tenantId,
+      "hours_published",
+      false,
+      "Publish pending",
+    );
     const publish = await autoPublishTenantRuntimeAfterSave(tenantId, {
       settingArea: "business_hours",
       actorRole: adminActorRole(req),
     });
+    if (publish.published) {
+      await upsertCutoverItem(
+        tenantId,
+        "hours_published",
+        true,
+        "Automatically verified after runtime publish",
+      );
+    }
     res.json({
       businessHours: parsed.data,
       openNow: ev.isOpen,
@@ -3377,6 +3800,12 @@ app.post(
     const ctx = tenants.mergeOperatorState(tenantId, {
       testCall: { completedAt: new Date().toISOString(), completedBy: String(who) },
     });
+    await upsertCutoverItem(
+      tenantId,
+      "test_call",
+      true,
+      "Marked complete by installer",
+    );
     res.json({ operatorState: ctx.operatorState });
   }),
 );
@@ -3407,6 +3836,10 @@ app.patch("/api/owner/business-hours", async (req, res) => {
       return res.status(400).json({ error: "invalid_business_hours", details: parsed.error.issues });
     }
     const tenantId = session.tenantId;
+    const playbookRow = await getShopPlaybookRow(tenantId);
+    if (!playbookRow?.ownerCanEdit) {
+      return res.status(403).json({ error: "owner_rules_read_only" });
+    }
     logger.info("tenant_settings_save_attempt", {
       event: "tenant_settings_save_attempt",
       tenantId,
@@ -3421,10 +3854,24 @@ app.patch("/api/owner/business-hours", async (req, res) => {
       settingArea: "business_hours",
       actorRole: "owner_portal",
     });
+    await upsertCutoverItem(
+      tenantId,
+      "hours_published",
+      false,
+      "Publish pending",
+    );
     const publish = await autoPublishTenantRuntimeAfterSave(tenantId, {
       settingArea: "business_hours",
       actorRole: "owner_portal",
     });
+    if (publish.published) {
+      await upsertCutoverItem(
+        tenantId,
+        "hours_published",
+        true,
+        "Automatically verified after owner save and runtime publish",
+      );
+    }
     res.json({
       businessHours: parsed.data,
       openNow: ev.isOpen,
@@ -3451,16 +3898,40 @@ app.get("/api/owner/calls", async (req, res) => {
     res.setHeader("Pragma", "no-cache");
     const lim = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const filter = typeof req.query.filter === "string" ? req.query.filter : "all";
-    const rows = await listCallsForTenantDb(session.tenantId, lim);
-    const mapped = rows.map((row) => ({
-      id: row.id,
-      callerDisplay: maskCallerId(row.caller_id),
-      stage: row.stage || "unknown",
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      transcriptSummary: summarizeHistory(row.history),
-      missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
-    }));
+    const rows = dedupeCallHistoryRows(
+      await listCallsForTenantDb(session.tenantId, Math.min(200, Math.max(lim * 2, lim))),
+    ).slice(0, lim);
+    const limits = await getTenantLimits(session.tenantId);
+    const mapped = rows.map((row) => {
+      const lead =
+        row.lead && typeof row.lead === "object"
+          ? (row.lead as Record<string, any>)
+          : {};
+      return {
+        id: row.id,
+        callerDisplay: maskCallerId(row.caller_id),
+        stage: row.stage || "unknown",
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        transcriptSummary: summarizeHistory(row.history),
+        missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
+        completion:
+          typeof lead.completion === "string" ? lead.completion : null,
+        existingCustomer:
+          typeof lead.existingCustomer === "string"
+            ? lead.existingCustomer
+            : null,
+        openJobs: Array.isArray(lead.openJobs) ? lead.openJobs : [],
+        membership:
+          typeof lead.membership === "string" ? lead.membership : null,
+        warranty: typeof lead.warranty === "string" ? lead.warranty : null,
+        recordingUrl:
+          limits.callRecording &&
+          typeof (lead.recordingUrl || lead.recording_url) === "string"
+            ? lead.recordingUrl || lead.recording_url
+            : null,
+      };
+    });
     const calls = filter === "missed" ? mapped.filter((c) => c.missed) : mapped;
     res.json({ calls });
   } catch (err) {
@@ -3482,6 +3953,11 @@ app.get("/api/owner/calls/:callId", async (req, res) => {
     const row = await getCallByIdForTenantDb(session.tenantId, callId);
     if (!row) return res.status(404).json({ error: "call_not_found" });
     const cqRow = await getTenantCallQualitySettings(session.tenantId).catch(() => null);
+    const limits = await getTenantLimits(session.tenantId);
+    const ownerLead =
+      row.lead && typeof row.lead === "object"
+        ? (row.lead as Record<string, any>)
+        : {};
     const voiceCc =
       row.lead && typeof (row.lead as any).voiceCallControlId === "string"
         ? String((row.lead as any).voiceCallControlId).trim()
@@ -3501,6 +3977,30 @@ app.get("/api/owner/calls/:callId", async (req, res) => {
       updatedAt: row.updated_at,
       transcriptSummary: summarizeHistory(row.history),
       missed: isMissedCallRow({ stage: row.stage, lead: row.lead }),
+      completion:
+        typeof ownerLead.completion === "string"
+          ? ownerLead.completion
+          : null,
+      existingCustomer:
+        typeof ownerLead.existingCustomer === "string"
+          ? ownerLead.existingCustomer
+          : null,
+      openJobs: Array.isArray(ownerLead.openJobs)
+        ? ownerLead.openJobs
+        : [],
+      membership:
+        typeof ownerLead.membership === "string"
+          ? ownerLead.membership
+          : null,
+      warranty:
+        typeof ownerLead.warranty === "string"
+          ? ownerLead.warranty
+          : null,
+      recordingUrl:
+        limits.callRecording &&
+        typeof (ownerLead.recordingUrl || ownerLead.recording_url) === "string"
+          ? ownerLead.recordingUrl || ownerLead.recording_url
+          : null,
       transcriptsDisabled: cqRow ? !cqRow.transcript_storage_enabled : false,
       callQuality: clientQuality,
     });
@@ -3552,6 +4052,12 @@ app.post("/api/owner/operator-test-call/complete", async (req, res) => {
     const ctx = tenants.mergeOperatorState(session.tenantId, {
       testCall: { completedAt: new Date().toISOString(), completedBy: "owner-portal" },
     });
+    await upsertCutoverItem(
+      session.tenantId,
+      "test_call",
+      true,
+      "Marked complete in owner portal",
+    );
     res.json({ operatorState: ctx.operatorState });
   } catch (err) {
     console.error("POST /api/owner/operator-test-call/complete error:", err);
@@ -3705,11 +4211,19 @@ app.get(
     }
     if (!ensureTenantAccess(req, res, tenantId)) return;
     const usage = await getTenantUsageSnapshot(tenantId);
+    const liveNow = tenants.getOrCreate(tenantId).calls.countLiveCalls();
+    const concurrentNow = Math.max(usage.activeCalls, liveNow);
+    const phoneNumbers = tenants.getOrCreate(tenantId).meta.numbers?.length ?? 0;
     const limits = await getTenantLimits(tenantId);
     const overageMinutes = Math.max(0, usage.monthlyBillableMinutes - limits.includedMonthlyMinutes);
     res.json({
       tenantId,
-      usage,
+      usage: {
+        ...usage,
+        activeCalls: concurrentNow,
+        concurrentCallsNow: concurrentNow,
+        phoneNumbers,
+      },
       overageMinutes,
       hardCapRemainingMinutes: Math.max(0, limits.maxMonthlyMinutesHardCap - usage.monthlyBillableMinutes),
       includedMinutesRemaining: Math.max(0, limits.includedMonthlyMinutes - usage.monthlyBillableMinutes),
@@ -3943,8 +4457,62 @@ app.post("/api/admin/tenants", adminGuard("admin"), async (req: AuthedRequest, r
     businessNumber: typeof businessNumber === "string" ? businessNumber : undefined,
   });
 
+  try {
+    await ensureTenantWorkflows(tenantId);
+  } catch (err) {
+    console.warn("[tenants] default workflow seed failed", tenantId, err);
+  }
+
   res.json(updated.meta);
 });
+
+app.delete(
+  "/api/admin/tenants/:tenantId",
+  adminGuard("admin"),
+  asyncHandler(async (req: AuthedRequest, res) => {
+    if (!(req.ctx?.isSuperAdmin ?? false)) {
+      return res.status(403).json({ error: "superadmin_required" });
+    }
+    const tenantId = req.params.tenantId?.trim();
+    if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
+
+    const result = await tenants.deleteTenant(tenantId);
+    if (!result.deleted) {
+      const status = result.error === "tenant_not_found" ? 404 : 400;
+      return res.status(status).json({
+        error: result.error,
+        message:
+          result.error === "default_tenant_protected"
+            ? "The default tenant cannot be deleted."
+            : undefined,
+      });
+    }
+
+    if (ENABLE_RUNTIME_ADMIN) {
+      for (const n of result.numbers) {
+        try {
+          await unmapDid(n);
+        } catch (err) {
+          console.warn("[tenants] unmapDid after delete failed", n, err);
+        }
+      }
+      try {
+        await unpublishTenantConfig(tenantId);
+      } catch (err) {
+        console.warn("[tenants] unpublish after delete failed", tenantId, err);
+      }
+    }
+
+    void recordAudit({
+      action: "tenant_deleted",
+      path: req.path,
+      tenantId,
+      status: "200",
+      details: { tenantId, numbers: result.numbers },
+    });
+    res.json({ status: "ok", deleted: tenantId });
+  }),
+);
 
 /* ────────────────────────────────────────────────
    Admin – Telnyx phone number management
@@ -3970,6 +4538,17 @@ function requireSuperAdminCtx(
   res.status(403).json({ error: "carrier_admin_required" });
   return false;
 }
+
+registerPipelineRoutes(app, {
+  adminGuard,
+  requireSuperAdmin: (req, res) => requireSuperAdminCtx(req as AuthedRequest, res),
+  ensureTenantAccess,
+});
+
+registerNightDeskRoutes(app, {
+  adminGuard,
+  ensureTenantAccess,
+});
 
 // Check Telnyx configuration status
 app.get("/api/admin/telnyx/status", adminGuard("admin"), (req: AuthedRequest, res) => {
@@ -4019,7 +4598,12 @@ app.get("/api/admin/telnyx/available", adminGuard("admin"), async (req: AuthedRe
       limit,
       features: ["voice"],
     });
-    res.json({ numbers });
+    // `numbers` keeps the raw Telnyx records for the legacy owner portal.
+    // `available` is the shape the Numbers workflow already reads.
+    res.json({
+      numbers,
+      available: numbers.map((number) => telnyx.presentAvailableNumber(number)),
+    });
   } catch (err: any) {
     console.error("[telnyx] searchAvailableNumbers error:", err);
     res.status(500).json({ error: "telnyx_api_error", message: err.message });
@@ -4449,7 +5033,12 @@ app.get("/api/admin/runtime/health", async (_req, res) => {
   try {
     const health = await healthcheckRedis();
     const status = health.ok ? 200 : 503;
-    return res.status(status).json(health);
+    return res.status(status).json({
+      ...health,
+      status: health.ok ? "ok" : "degraded",
+      redis: { connected: health.ok, latencyMs: health.latencyMs },
+      checkedAt: new Date().toISOString(),
+    });
   } catch (err) {
     console.error("GET /api/admin/runtime/health error:", err);
     return res.status(500).json({ error: "runtime_health_failed" });
@@ -4624,13 +5213,78 @@ const adminAuthToken = "";
    Admin – Workflow Automation Engine
    ──────────────────────────────────────────────── */
 
+function isOwnerConsoleActor(req: AuthedRequest): boolean {
+  return Boolean(req.ctx?.ownerConsole && !req.ctx?.isSuperAdmin);
+}
+
+function tenantWorkflowTimezone(tenantId: string): string {
+  const ctx = tenants.get(tenantId);
+  const hours = ctx?.businessHours;
+  if (hours && typeof hours === "object" && typeof (hours as { timezone?: unknown }).timezone === "string") {
+    return String((hours as { timezone: string }).timezone);
+  }
+  return "America/Los_Angeles";
+}
+
+async function assertOwnerWorkflowWrite(
+  req: AuthedRequest,
+  res: express.Response,
+  tenantId: string,
+  existing?: { adminLocked?: boolean } | null,
+): Promise<boolean> {
+  if (!isOwnerConsoleActor(req)) return true;
+  const settings = await getWorkflowSettings(tenantId);
+  if (!settings.ownerCanEdit) {
+    res.status(403).json({ error: "owner_edit_disabled" });
+    return false;
+  }
+  if (existing?.adminLocked) {
+    res.status(403).json({ error: "workflow_locked" });
+    return false;
+  }
+  return true;
+}
+
 // List workflows for the current tenant
 app.get("/api/admin/workflows", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
   if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
-  const workflows = await listWorkflows(tenant.id);
+  const workflows = await ensureTenantWorkflows(tenant.id);
   res.json({ workflows });
+}));
+
+app.get("/api/admin/workflow-templates", asyncHandler(async (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
+  const workflows = await listWorkflows(tenant.id);
+  res.json(galleryPayload(workflows));
+}));
+
+app.post("/api/admin/workflows/from-template", asyncHandler(async (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+  if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
+  if (!(await assertOwnerWorkflowWrite(req as AuthedRequest, res, tenant.id))) return;
+  const templateId = String(req.body?.templateId || "").trim();
+  if (!templateId) return res.status(400).json({ error: "templateId is required" });
+  try {
+    const result = await enableWorkflowTemplate({
+      tenantId: tenant.id,
+      templateId,
+      enabled: req.body?.enabled !== undefined ? !!req.body.enabled : true,
+      config: req.body?.config && typeof req.body.config === "object" ? req.body.config : {},
+      createdBy: isOwnerConsoleActor(req as AuthedRequest) ? "owner" : "admin",
+      adminLocked: isOwnerConsoleActor(req as AuthedRequest) ? false : req.body?.adminLocked ?? true,
+    });
+    res.status(result.created ? 201 : 200).json(result);
+  } catch (err: any) {
+    if (String(err?.message || "").startsWith("unknown_workflow_template")) {
+      return res.status(400).json({ error: "unknown_workflow_template", templateId });
+    }
+    throw err;
+  }
 }));
 
 // Create a workflow
@@ -4638,11 +5292,12 @@ app.post("/api/admin/workflows", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
   if (!(await requireTenantFeature(req as AuthedRequest, res, tenant.id, "customWorkflows"))) return;
-  const { name, triggerType, triggerConfig, steps, adminLocked } = req.body || {};
+  if (!(await assertOwnerWorkflowWrite(req as AuthedRequest, res, tenant.id))) return;
+  const { name, triggerType, triggerConfig, steps, adminLocked, enabled, templateId } = req.body || {};
   if (!name || !triggerType) {
     return res.status(400).json({ error: "name and triggerType are required" });
   }
-  const createdBy = (req as any).adminRole === "admin" ? "admin" : "owner";
+  const createdBy = isOwnerConsoleActor(req as AuthedRequest) ? "owner" : "admin";
   const wf = await createWorkflow({
     tenantId: tenant.id,
     name,
@@ -4650,7 +5305,9 @@ app.post("/api/admin/workflows", asyncHandler(async (req, res) => {
     triggerConfig: triggerConfig || {},
     steps: steps || [],
     createdBy,
-    adminLocked: adminLocked ?? false,
+    adminLocked: createdBy === "owner" ? false : adminLocked ?? false,
+    enabled: enabled ?? true,
+    templateId: templateId || null,
   });
   res.status(201).json(wf);
 }));
@@ -4665,9 +5322,12 @@ app.put("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
   if (!existing || existing.tenantId !== tenant.id) {
     return res.status(404).json({ error: "Workflow not found" });
   }
-  const { name, enabled, triggerType, triggerConfig, steps, adminLocked } = req.body || {};
+  if (!(await assertOwnerWorkflowWrite(req as AuthedRequest, res, tenant.id, existing))) return;
+  const { name, enabled, triggerType, triggerConfig, steps, adminLocked, templateId } = req.body || {};
   const updated = await updateWorkflow(id, {
-    name, enabled, triggerType, triggerConfig, steps, adminLocked,
+    name, enabled, triggerType, triggerConfig, steps,
+    adminLocked: isOwnerConsoleActor(req as AuthedRequest) ? existing.adminLocked : adminLocked,
+    templateId,
   });
   res.json(updated);
 }));
@@ -4682,6 +5342,7 @@ app.delete("/api/admin/workflows/:id", asyncHandler(async (req, res) => {
   if (!existing || existing.tenantId !== tenant.id) {
     return res.status(404).json({ error: "Workflow not found" });
   }
+  if (!(await assertOwnerWorkflowWrite(req as AuthedRequest, res, tenant.id, existing))) return;
   await deleteWorkflow(id);
   res.json({ success: true });
 }));
@@ -4704,16 +5365,40 @@ app.post("/api/admin/workflows/:id/test", asyncHandler(async (req, res) => {
     durationMs: req.body?.durationMs || 120000,
     turns: req.body?.turns || [
       { role: "assistant", content: "Hello, thank you for calling. How can I help you today?" },
-      { role: "user", content: "I need to schedule an appointment for next week." },
+      { role: "user", content: "I need to schedule an appointment for next week. This is an emergency, I smell gas." },
       { role: "assistant", content: "I'd be happy to help you schedule an appointment. What day works best for you?" },
     ],
     transcript: req.body?.transcript ||
-      "Assistant: Hello, thank you for calling. How can I help you today?\nUser: I need to schedule an appointment for next week.\nAssistant: I'd be happy to help you schedule an appointment. What day works best for you?",
+      "Assistant: Hello, thank you for calling. How can I help you today?\nUser: I need to schedule an appointment for next week. This is an emergency, I smell gas.\nAssistant: I'd be happy to help you schedule an appointment. What day works best for you?",
     lead: req.body?.lead || { name: "Test User", phone: "+15555555555" },
     timestamp: new Date().toISOString(),
+    completion: req.body?.completion,
+    stormMode: req.body?.stormMode,
+    qa: req.body?.qa,
+    jobStatus: req.body?.jobStatus,
+    membershipNames: req.body?.membershipNames,
   };
   const result = await dryRunPipeline(workflow, sampleEvent);
-  res.json(result);
+  res.json({
+    ...result,
+    run: { startedAt: new Date().toISOString(), status: "dry_run" },
+  });
+}));
+
+app.post("/api/admin/jobs/complete", asyncHandler(async (req, res) => {
+  const tenant = getTenantForAdmin(req as AuthedRequest, res);
+  if (!tenant) return;
+  const callId = String(req.body?.callId || "").trim();
+  if (!callId) return res.status(400).json({ error: "callId is required" });
+  await handleJobCompleted({
+    tenantId: tenant.id,
+    callId,
+    callerId: req.body?.callerId,
+    reviewUrl: req.body?.reviewUrl,
+    lead: req.body?.lead,
+    transcript: req.body?.transcript,
+  });
+  res.json({ ok: true, trigger: "job_completed" });
 }));
 
 // Workflow execution history
@@ -4721,8 +5406,16 @@ app.get("/api/admin/workflow-runs", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
   const limit = parseInt(req.query.limit as string) || 50;
-  const runs = await listRuns(tenant.id, limit);
-  res.json({ runs });
+  const today = req.query.today !== "0" && req.query.today !== "false";
+  const runs = await listRuns(tenant.id, limit, {
+    today,
+    timezone: tenantWorkflowTimezone(tenant.id),
+  });
+  res.json({
+    runs,
+    today: true,
+    timezone: tenantWorkflowTimezone(tenant.id),
+  });
 }));
 
 // List leads
@@ -4730,7 +5423,7 @@ app.get("/api/admin/leads", asyncHandler(async (req, res) => {
   const tenant = getTenantForAdmin(req as AuthedRequest, res);
   if (!tenant) return;
   const limit = parseInt(req.query.limit as string) || 100;
-  const leads = await listLeads(tenant.id, limit);
+  const leads = (await listLeads(tenant.id, limit)).map(presentLead);
   res.json({ leads });
 }));
 
@@ -4786,22 +5479,44 @@ app.get("/api/telnyx/audio/:id.wav", (_req, res) =>
 );
 
 /* ────────────────────────────────────────────────
-   Admin UI shell
+   Admin / portal UI shells (React SPA + legacy HTML)
    ──────────────────────────────────────────────── */
 
-app.get("/admin", (_req, res) => {
-  applyAdminShellCachePolicy(res);
-  res.sendFile(path.join(__dirname, "..", "public", "admin.html"));
-});
+const PUBLIC_DIR = path.join(__dirname, "..", "public");
+const SPA_INDEX = path.join(PUBLIC_DIR, "app", "index.html");
 
-app.get("/owner", (_req, res) => {
+function sendSpaIndex(res: Response) {
   applyAdminShellCachePolicy(res);
-  res.sendFile(path.join(__dirname, "..", "public", "owner.html"));
-});
+  if (!fs.existsSync(SPA_INDEX)) {
+    return res
+      .status(503)
+      .type("text")
+      .send(
+        "VeraLux console is not built. Run npm run build:web, or use /admin-legacy and /portal-legacy.",
+      );
+  }
+  return res.sendFile(SPA_INDEX);
+}
 
-app.get("/portal", (req, res) => {
+function sendLegacyHtml(res: Response, file: string) {
   applyAdminShellCachePolicy(res);
-  res.sendFile(path.join(__dirname, "..", "public", "portal.html"));
+  return res.sendFile(path.join(PUBLIC_DIR, "legacy", file));
+}
+
+app.get("/admin-legacy", (_req, res) => sendLegacyHtml(res, "admin.html"));
+app.get("/portal-legacy", (_req, res) => sendLegacyHtml(res, "portal.html"));
+app.get("/owner", (_req, res) => sendLegacyHtml(res, "owner.html"));
+app.get("/owner/", (_req, res) => sendLegacyHtml(res, "owner.html"));
+
+app.get("/admin", (_req, res) => sendSpaIndex(res));
+app.get("/portal", (_req, res) => sendSpaIndex(res));
+app.get(/^\/admin\/.*/, (req, res, next) => {
+  if (req.path.startsWith("/admin-legacy")) return next();
+  return sendSpaIndex(res);
+});
+app.get(/^\/portal\/.*/, (req, res, next) => {
+  if (req.path.startsWith("/portal-legacy")) return next();
+  return sendSpaIndex(res);
 });
 
 /* ────────────────────────────────────────────────
@@ -4831,11 +5546,35 @@ async function start() {
     process.exit(1);
   }
 
+  if (ENABLE_RUNTIME_ADMIN) {
+    for (const tenant of tenants.listMetas()) {
+      const published = await trySyncTenantRuntimeConfigForLimits(tenant.id);
+      if (!published) {
+        logger.warn("startup_tenant_runtime_publish_failed", {
+          tenantId: tenant.id,
+        });
+      }
+    }
+  }
+
   // Initialize workflow automation engine
   try {
     initAutomationEngine();
   } catch (err) {
     console.error("[startup] Failed to init automation engine (non-fatal):", err);
+  }
+
+  try {
+    startPriceRefreshLoop();
+  } catch (err) {
+    console.error("[startup] Failed to start price refresh (non-fatal):", err);
+  }
+
+  try {
+    startMorningDigestLoop();
+    startOncallFallbackLoop();
+  } catch (err) {
+    console.error("[startup] Failed to start night-desk workers (non-fatal):", err);
   }
 
   // ✅ PROD guardrails (fail fast)
@@ -4863,10 +5602,16 @@ async function start() {
   }
 
   const preferredPort = parsePreferredPort(process.env.PORT, 4000);
+  const profile = (process.env.DEPLOYMENT_PROFILE || "").toLowerCase();
+  const bindExactPort =
+    process.env.CLOUD_BIND_EXACT_PORT === "1" ||
+    profile === "cloud-api" ||
+    profile === "cloud-hosted" ||
+    Boolean(process.env.RENDER || process.env.RAILWAY_ENVIRONMENT || process.env.AWS_EXECUTION_ENV);
 
   try {
-    const port = await findAvailablePort(preferredPort);
-    httpServer = app.listen(port, () => {
+    const port = bindExactPort ? preferredPort : await findAvailablePort(preferredPort);
+    httpServer = app.listen(port, "0.0.0.0", () => {
       const productLabel =
         process.env.PRODUCT_DISPLAY_NAME?.trim() || "VeraLux Receptionist";
       console.log(
@@ -4892,6 +5637,9 @@ function shutdown(signal: string) {
     httpServer?.close(async () => {
       try {
         shutdownAutomationEngine();
+        stopPriceRefreshLoop();
+        stopMorningDigestLoop();
+        stopOncallFallbackLoop();
         await closePool();
         if (ENABLE_RUNTIME_ADMIN) await closeRuntimeRedis();
         if (ADMIN_RATE_USE_REDIS) await closeRateLimitRedis();

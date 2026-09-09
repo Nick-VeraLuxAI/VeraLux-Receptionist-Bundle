@@ -1,0 +1,31 @@
+# VeraLux cloud-api blueprint (paid plans only — voice cannot use free spin-down).
+# Prefer prebuilt images via REGISTRY/VERSION. Health: control /health, runtime /health/live.
+services:
+  - type: web
+    name: veralux-control
+    runtime: image
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DEPLOYMENT_PROFILE
+        value: cloud-api
+      - key: CLOUD_BIND_EXACT_PORT
+        value: "1"
+      - key: HEALTH_VOICE_DEPENDENCIES
+        value: configured
+  - type: web
+    name: veralux-runtime
+    runtime: image
+    plan: starter
+    healthCheckPath: /health/live
+    envVars:
+      - key: DEPLOYMENT_PROFILE
+        value: cloud-api
+      - key: HEALTH_VOICE_DEPENDENCIES
+        value: configured
+
+databases:
+  - name: veralux-postgres
+    plan: starter
+
+# Key Value (Redis) is created via the Render API / dashboard; Blueprint KV support varies by account.

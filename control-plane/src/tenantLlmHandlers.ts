@@ -3,8 +3,12 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 import {
   TENANT_LLM_OPENAI_SECRET_KEY,
+  TENANT_LLM_PROVIDERS,
+  TENANT_LLM_PROVIDER_META,
+  isTenantLlmProvider,
   runtimeTenantLlmRoutingSchema,
   type RuntimeTenantLlmRouting,
+  type TenantLlmProvider,
 } from "@veralux/shared";
 import { secretStore } from "./secretStore";
 import type { TenantContext } from "./tenants";
@@ -24,11 +28,21 @@ export function publicLlmSummaryFromTenant(ctx: TenantContext): Record<string, u
   const portal = readPortal(ctx.operatorState);
   const rawPortal = (ctx.operatorState.llmPortal as Record<string, unknown> | undefined) ?? {};
   const mode = portal?.mode ?? "platform_default";
+  const configured = portal?.mode === "tenant_api_key" && Boolean(portal.tenantApiKeyConfigured);
+  const envProvider = (process.env.LLM_PROVIDER || "").toLowerCase();
   return {
-    configured: portal?.mode === "tenant_api_key" && Boolean(portal.tenantApiKeyConfigured),
+    configured,
     mode,
     provider: portal?.tenantProvider ?? null,
     model: portal?.tenantModel ?? null,
+    tenantProvider: portal?.tenantProvider ?? null,
+    tenantModel: portal?.tenantModel ?? null,
+    hasApiKey: configured,
+    platformProvider: envProvider === "openai" ? "openai" : "local",
+    platformModel:
+      process.env.LOCAL_LLM_MODEL ||
+      process.env.OPENAI_MODEL ||
+      (envProvider === "openai" ? "gpt-4o-mini" : "Qwen3.5-27B-GPTQ-Int4"),
     fingerprint: typeof rawPortal.apiKeyFingerprint === "string" ? rawPortal.apiKeyFingerprint : null,
     lastTestedAt: typeof rawPortal.lastTestedAt === "string" ? rawPortal.lastTestedAt : null,
     lastStatus: typeof rawPortal.lastStatus === "string" ? rawPortal.lastStatus : null,
@@ -38,7 +52,7 @@ export function publicLlmSummaryFromTenant(ctx: TenantContext): Record<string, u
 
 const postBodySchema = z.object({
   mode: z.enum(["platform_default", "tenant_api_key"]),
-  tenantProvider: z.enum(["openai"]).optional(),
+  tenantProvider: z.enum(TENANT_LLM_PROVIDERS).optional(),
   tenantModel: z.string().min(1).max(128).optional(),
   tenantKeyErrorPolicy: z.enum(["platform_default", "fail"]).optional(),
   apiKey: z.string().min(8).max(512).optional(),
@@ -98,7 +112,13 @@ export async function applyTenantLlmPortalPatch(
     ...prev,
     mode: b.mode,
     tenantProvider: b.mode === "tenant_api_key" ? b.tenantProvider ?? "openai" : undefined,
-    tenantModel: b.mode === "tenant_api_key" ? b.tenantModel?.trim() || "gpt-4o-mini" : undefined,
+    tenantModel:
+      b.mode === "tenant_api_key"
+        ? b.tenantModel?.trim() ||
+          (isTenantLlmProvider(b.tenantProvider)
+            ? TENANT_LLM_PROVIDER_META[b.tenantProvider].defaultModel
+            : TENANT_LLM_PROVIDER_META.openai.defaultModel)
+        : undefined,
     tenantApiKeyConfigured: b.mode === "tenant_api_key" ? (b.removeApiKey ? false : hasSecretAfter) : false,
     tenantKeyErrorPolicy:
       b.tenantKeyErrorPolicy === "fail"
@@ -121,24 +141,53 @@ export async function applyTenantLlmPortalPatch(
   return { summary: publicLlmSummaryFromTenant(nextCtx), portal };
 }
 
-export async function testTenantOpenAiKey(apiKey: string, _model: string): Promise<{ ok: boolean; status: string }> {
+export async function testTenantLlmKey(
+  apiKey: string,
+  provider: TenantLlmProvider,
+  model?: string,
+): Promise<{ ok: boolean; status: string; model?: string }> {
+  const meta = TENANT_LLM_PROVIDER_META[provider];
+  const resolvedModel = model?.trim() || meta.defaultModel;
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 12_000);
   try {
-    const res = await fetch("https://api.openai.com/v1/models", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${apiKey.trim()}` },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      return { ok: false, status: `http_${res.status}` };
+    let httpRes: globalThis.Response;
+    if (meta.api === "anthropic") {
+      httpRes = await fetch(`${meta.baseUrl.replace(/\/$/, "")}/v1/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey.trim(),
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: resolvedModel,
+          max_tokens: 1,
+          messages: [{ role: "user", content: "ping" }],
+        }),
+        signal: controller.signal,
+      });
+    } else {
+      httpRes = await fetch(`${meta.baseUrl.replace(/\/$/, "")}/models`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey.trim()}` },
+        signal: controller.signal,
+      });
     }
-    return { ok: true, status: "ok" };
+    if (!httpRes.ok) {
+      return { ok: false, status: `http_${httpRes.status}`, model: resolvedModel };
+    }
+    return { ok: true, status: "ok", model: resolvedModel };
   } catch {
-    return { ok: false, status: "network_error" };
+    return { ok: false, status: "network_error", model: resolvedModel };
   } finally {
     clearTimeout(t);
   }
+}
+
+/** @deprecated use testTenantLlmKey */
+export async function testTenantOpenAiKey(apiKey: string, model: string): Promise<{ ok: boolean; status: string }> {
+  return testTenantLlmKey(apiKey, "openai", model);
 }
 
 export type TenantLlmRouteDeps = {
@@ -268,9 +317,17 @@ export function registerTenantLlmRoutes(
       if (!raw) return res.status(401).json({ error: "auth_required" });
       const session = await verifyOwnerPortalToken(raw);
       if (!session) return res.status(401).json({ error: "invalid_or_expired_session" });
-      const body = z.object({ apiKey: z.string().min(8), model: z.string().min(1).max(128).optional() }).safeParse(req.body ?? {});
+      const body = z
+        .object({
+          apiKey: z.string().min(8),
+          model: z.string().min(1).max(128).optional(),
+          tenantProvider: z.enum(TENANT_LLM_PROVIDERS).optional(),
+          provider: z.enum(TENANT_LLM_PROVIDERS).optional(),
+        })
+        .safeParse(req.body ?? {});
       if (!body.success) return res.status(400).json({ error: "invalid_body" });
-      const r = await testTenantOpenAiKey(body.data.apiKey, body.data.model?.trim() || "gpt-4o-mini");
+      const provider = body.data.tenantProvider || body.data.provider || "openai";
+      const r = await testTenantLlmKey(body.data.apiKey, provider, body.data.model);
       const portal = (tenantsGetOrCreate(session.tenantId).operatorState.llmPortal as Record<string, unknown> | undefined) ?? {};
       mergeOperatorState(session.tenantId, {
         llmPortal: {
@@ -280,7 +337,7 @@ export function registerTenantLlmRoutes(
         },
       });
       await afterMutation(session.tenantId);
-      res.json({ ok: r.ok, status: r.status });
+      res.json({ ok: r.ok, status: r.status, model: r.model });
     } catch (e) {
       console.error("POST /api/owner/llm-config/test", e);
       res.status(500).json({ error: "llm_test_failed" });
@@ -295,9 +352,17 @@ export function registerTenantLlmRoutes(
         const tenantId = req.params.tenantId?.trim();
         if (!tenantId) return res.status(400).json({ error: "tenant_id_required" });
         if (!ensureTenantAccess(req, res, tenantId)) return;
-        const body = z.object({ apiKey: z.string().min(8), model: z.string().min(1).max(128).optional() }).safeParse(req.body ?? {});
+        const body = z
+          .object({
+            apiKey: z.string().min(8),
+            model: z.string().min(1).max(128).optional(),
+            tenantProvider: z.enum(TENANT_LLM_PROVIDERS).optional(),
+            provider: z.enum(TENANT_LLM_PROVIDERS).optional(),
+          })
+          .safeParse(req.body ?? {});
         if (!body.success) return res.status(400).json({ error: "invalid_body" });
-        const r = await testTenantOpenAiKey(body.data.apiKey, body.data.model?.trim() || "gpt-4o-mini");
+        const provider = body.data.tenantProvider || body.data.provider || "openai";
+        const r = await testTenantLlmKey(body.data.apiKey, provider, body.data.model);
         const portal = (tenantsGetOrCreate(tenantId).operatorState.llmPortal as Record<string, unknown> | undefined) ?? {};
         mergeOperatorState(tenantId, {
           llmPortal: {
@@ -307,7 +372,7 @@ export function registerTenantLlmRoutes(
           },
         });
         await afterMutation(tenantId);
-        res.json({ ok: r.ok, status: r.status });
+        res.json({ ok: r.ok, status: r.status, model: r.model });
       } catch (e) {
         console.error("POST /api/admin/tenants/:tenantId/llm-config/test", e);
         res.status(500).json({ error: "llm_test_failed" });

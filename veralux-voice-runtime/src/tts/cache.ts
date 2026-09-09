@@ -88,6 +88,50 @@ export function buildTtsCacheDescriptor(
       ...gen,
     };
   }
+  if (config.mode === 'miso_tts_http') {
+    return {
+      s: CACHE_SCHEMA,
+      m: 'miso_tts_http',
+      t: text,
+      u: request.misoTtsUrl ?? config.misoTtsUrl,
+      spk: request.voice ?? config.speaker ?? null,
+      sw: request.speakerWavUrl ?? config.speakerWavUrl ?? null,
+      st: request.speakerText ?? config.speakerText ?? null,
+      aml: request.misoMaxAudioLengthMs ?? config.misoMaxAudioLengthMs ?? null,
+      temp: request.misoTemperature ?? config.misoTemperature ?? null,
+      tk: request.misoTopK ?? config.misoTopK ?? null,
+    };
+  }
+  if (config.mode === 'magpie_tts_http') {
+    return {
+      s: CACHE_SCHEMA,
+      m: 'magpie_tts_http',
+      t: text,
+      u: request.magpieTtsUrl ?? config.magpieTtsUrl,
+      spk: request.voice ?? config.speaker ?? null,
+      l: request.language ?? config.language ?? null,
+      r: request.rate ?? config.rate ?? null,
+      temp: request.magpieTemperature ?? config.magpieTemperature ?? null,
+      cfg: request.magpieCfgScale ?? config.magpieCfgScale ?? null,
+      tk: request.magpieTopK ?? config.magpieTopK ?? null,
+      uc: request.magpieUseCfg ?? config.magpieUseCfg ?? null,
+      tn: request.magpieApplyTn ?? config.magpieApplyTn ?? null,
+    };
+  }
+  if (config.mode === 'melo_tts_http') {
+    return {
+      s: CACHE_SCHEMA,
+      m: 'melo_tts_http',
+      t: text,
+      u: request.meloTtsUrl ?? config.meloTtsUrl,
+      spk: request.voice ?? config.speaker ?? null,
+      l: request.language ?? config.language ?? null,
+      r: request.rate ?? config.rate ?? null,
+      sdp: request.meloSdpRatio ?? config.meloSdpRatio ?? null,
+      ns: request.meloNoiseScale ?? config.meloNoiseScale ?? null,
+      nsw: request.meloNoiseScaleW ?? config.meloNoiseScaleW ?? null,
+    };
+  }
   const kokoro = config.mode === 'kokoro_http' ? config : undefined;
   return {
     s: CACHE_SCHEMA,

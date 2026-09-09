@@ -1,0 +1,68 @@
+services:
+  runtime:
+    environment:
+      - TTS_MODE=kokoro_http
+      - KOKORO_URL=http://kokoro:7001/tts
+      - KOKORO_VOICE_ID=af_bella
+      - PLATFORM_LLM_PROVIDER=nemotron
+      - LLM_PROVIDER=local
+      - OPENAI_MODEL=Qwen3.5-27B-GPTQ-Int4
+      - OPENAI_BASE_URL=http://nemotron-nano-faithful-8082:8082/v1
+      - TELNYX_VERIFY_SIGNATURES=true
+      - TELNYX_STREAM_CODEC=L16
+      - TELNYX_STREAM_BIDIRECTIONAL_MODE=rtp
+      - TELNYX_STREAM_BIDIRECTIONAL_CODEC=L16
+      - TELNYX_STREAM_BIDIRECTIONAL_SAMPLING_RATE=16000
+      # One 16 kHz playback copy for Telnyx + AEC. Kokoro synths 24 kHz.
+      - PLAYBACK_PSTN_SAMPLE_RATE=16000
+      - BRAIN_STREAMING_ENABLED=true
+      - BRAIN_TIMEOUT_MS=20000
+    volumes:
+      - ./patches/llmProviderResolve.js:/app/veralux-voice-runtime/dist/ai/llmProviderResolve.js:ro
+      - ./patches/brainClient.js:/app/veralux-voice-runtime/dist/ai/brainClient.js:ro
+      - ./patches/callSession.js:/app/veralux-voice-runtime/dist/calls/callSession.js:ro
+      - ./patches/qwen3Tts.js:/app/veralux-voice-runtime/dist/tts/qwen3Tts.js:ro
+      - ./patches/magpieTts.js:/app/veralux-voice-runtime/dist/tts/magpieTts.js:ro
+      - ./patches/meloTts.js:/app/veralux-voice-runtime/dist/tts/meloTts.js:ro
+      - ./patches/ttsIndex.js:/app/veralux-voice-runtime/dist/tts/index.js:ro
+      - ./patches/ttsCache.js:/app/veralux-voice-runtime/dist/tts/cache.js:ro
+      - ./patches/kokoroStream.js:/app/veralux-voice-runtime/dist/tts/kokoroStream.js:ro
+      - ./patches/kokoroStreamPlay.js:/app/veralux-voice-runtime/dist/tts/kokoroStreamPlay.js:ro
+      - ./shared/dist:/app/shared/dist:ro
+      - ./patches/chunkedSTT.js:/app/veralux-voice-runtime/dist/stt/chunkedSTT.js:ro
+      - ./patches/audioInvariantReport.js:/app/veralux-voice-runtime/dist/observability/audioInvariantReport.js:ro
+      - ./patches/callQualitySummary.js:/app/veralux-voice-runtime/dist/observability/callQualitySummary.js:ro
+      - ./patches/mediaIngest.js:/app/veralux-voice-runtime/dist/media/mediaIngest.js:ro
+      - ./patches/talkerBoard.js:/app/veralux-voice-runtime/dist/calls/talkerBoard.js:ro
+      - ./patches/demoShopDtmf.js:/app/veralux-voice-runtime/dist/calls/demoShopDtmf.js:ro
+      - ./patches/sessionManager.js:/app/veralux-voice-runtime/dist/calls/sessionManager.js:ro
+      - ./patches/telnyxWebhook.js:/app/veralux-voice-runtime/dist/routes/telnyxWebhook.js:ro
+      - ./patches/telnyxClient.js:/app/veralux-voice-runtime/dist/telnyx/telnyxClient.js:ro
+      - ./patches/mediaStreamUrl.js:/app/veralux-voice-runtime/dist/telnyx/mediaStreamUrl.js:ro
+      - ./patches/streamCodec.js:/app/veralux-voice-runtime/dist/telnyx/streamCodec.js:ro
+      - ./patches/streamStartGuard.js:/app/veralux-voice-runtime/dist/telnyx/streamStartGuard.js:ro
+      - ./patches/bidirectionalRtp.js:/app/veralux-voice-runtime/dist/media/bidirectionalRtp.js:ro
+      - ./patches/mediaWsBridge.js:/app/veralux-voice-runtime/dist/media/mediaWsBridge.js:ro
+      - ./patches/codecDecode.js:/app/veralux-voice-runtime/dist/audio/codecDecode.js:ro
+      - ./patches/pstnTelnyxTransport.js:/app/veralux-voice-runtime/dist/transport/pstnTelnyxTransport.js:ro
+      - ./patches/server.js:/app/veralux-voice-runtime/dist/server.js:ro
+      - ./patches/env.js:/app/veralux-voice-runtime/dist/env.js:ro
+  control:
+    environment:
+      - LLM_PROVIDER=local
+      - LOCAL_LLM_URL=http://nemotron-nano-faithful-8082:8082/v1/chat/completions
+      - OPENAI_MODEL=Qwen3.5-27B-GPTQ-Int4
+      - PLATFORM_LLM_PROVIDER=nemotron
+      - KOKORO_URL=http://kokoro:7001/tts
+      - KOKORO_VOICE_ID=af_bella
+      - TTS_MODE=kokoro_http
+    volumes:
+      - ./shared/dist:/app/shared/dist:ro
+  kokoro-gpu:
+    environment:
+      - ONNX_PROVIDER=CUDAExecutionProvider
+      - KOKORO_DEVICE=cuda
+      - KOKORO_DEFAULT_VOICE=af_bella
+      - KOKORO_WARMUP=true
+    volumes:
+      - ./veralux-audio-stack/kokoro_server.py:/app/kokoro_server.py:ro

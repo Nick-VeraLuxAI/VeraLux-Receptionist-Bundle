@@ -4,6 +4,7 @@ import path from "path";
 import { normalizeE164 } from "./runtime/runtimeContract";
 import { syncRedisDidMapAfterTenantNumbersChange } from "./didMappingSync";
 import { getPlanDefaults, RECOMMENDED_DEFAULT_PLAN_TIER, type TenantLimits } from "./planLimits";
+import { sanitizeCallControlId } from "./utils/validation";
 
 const DEFAULT_DATABASE_URL =
   process.env.DATABASE_URL ||
@@ -241,6 +242,16 @@ export async function fetchTenantsFromDb(): Promise<{
   }
 }
 
+export async function deleteTenantRow(tenantId: string): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const r = await client.query("delete from tenants where id = $1", [tenantId]);
+    return (r.rowCount ?? 0) > 0;
+  } finally {
+    client.release();
+  }
+}
+
 export async function upsertTenant(meta: {
   id: string;
   name: string;
@@ -457,12 +468,82 @@ export async function listCallsForTenantDb(
       select id, tenant_id, caller_id, stage, lead, history, created_at, updated_at
       from calls
       where tenant_id = $1
-      order by updated_at desc
+      order by created_at desc nulls last, updated_at desc, id desc
       limit $2
       `,
       [tenantId, lim],
     );
     return r.rows as any[];
+  } finally {
+    client.release();
+  }
+}
+
+export async function findCallByVoiceControlId(
+  tenantId: string,
+  callControlId: string,
+): Promise<{
+  id: string;
+  tenant_id: string;
+  caller_id: string | null;
+  stage: string | null;
+  lead: unknown;
+  history: unknown;
+  created_at: string;
+  updated_at: string;
+} | null> {
+  const cc = String(callControlId || "").trim();
+  if (!cc) return null;
+  const client = await pool.connect();
+  try {
+    const r = await client.query(
+      `
+      select id, tenant_id, caller_id, stage, lead, history, created_at, updated_at
+      from calls
+      where tenant_id = $1
+        and lead->>'voiceCallControlId' = $2
+      order by updated_at desc
+      limit 1
+      `,
+      [tenantId, cc],
+    );
+    return (r.rows[0] as any) ?? null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findOpenGreetingCall(
+  tenantId: string,
+  callerId: string,
+): Promise<{
+  id: string;
+  tenant_id: string;
+  caller_id: string | null;
+  stage: string | null;
+  lead: unknown;
+  history: unknown;
+  created_at: string;
+  updated_at: string;
+} | null> {
+  const caller = String(callerId || "").trim();
+  if (!caller) return null;
+  const client = await pool.connect();
+  try {
+    const r = await client.query(
+      `
+      select id, tenant_id, caller_id, stage, lead, history, created_at, updated_at
+      from calls
+      where tenant_id = $1
+        and caller_id = $2
+        and lower(coalesce(stage, '')) not in ('end', 'ended', 'closed', 'completed', 'missed')
+        and created_at > now() - interval '2 hours'
+      order by created_at desc
+      limit 1
+      `,
+      [tenantId, caller],
+    );
+    return (r.rows[0] as any) ?? null;
   } finally {
     client.release();
   }
@@ -903,6 +984,52 @@ export async function getOwnerPortalCredentialRow(tenantId: string): Promise<{
   }
 }
 
+export async function getConsoleCredentialRow(): Promise<{
+  emailNorm: string;
+  passwordHash: string;
+  updatedAt: string | null;
+} | null> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query<{
+      email_norm: string;
+      password_hash: string;
+      updated_at: Date | null;
+    }>(
+      "SELECT email_norm, password_hash, updated_at FROM console_credentials WHERE id = 'console'"
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+    return {
+      emailNorm: row.email_norm,
+      passwordHash: row.password_hash,
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    };
+  } finally {
+    client.release();
+  }
+}
+
+export async function upsertConsoleCredentials(params: {
+  emailNorm: string;
+  passwordHash: string;
+}): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query(
+      `INSERT INTO console_credentials (id, email_norm, password_hash, updated_at)
+       VALUES ('console', $1, $2, now())
+       ON CONFLICT (id) DO UPDATE
+         SET email_norm = excluded.email_norm,
+             password_hash = excluded.password_hash,
+             updated_at = now()`,
+      [params.emailNorm, params.passwordHash]
+    );
+  } finally {
+    client.release();
+  }
+}
+
 export async function upsertOwnerPortalCredentials(params: {
   tenantId: string;
   emailNorm: string;
@@ -956,6 +1083,8 @@ export interface TenantSubscription {
   paymentMethodLast4: string | null;
   trialEndsAt: string | null;
   nextBillingDate: string | null;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
   cancelledAt: string | null;
   showBillingPortal: boolean;
   adminNotes: string | null;
@@ -965,6 +1094,13 @@ export interface TenantSubscription {
   stripeProductId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+function isoOrNull(value: unknown): string | null {
+  if (!value) return null;
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
 }
 
 function rowToSubscription(row: any): TenantSubscription {
@@ -977,17 +1113,19 @@ function rowToSubscription(row: any): TenantSubscription {
     status: row.status,
     paymentMethodBrand: row.payment_method_brand,
     paymentMethodLast4: row.payment_method_last4,
-    trialEndsAt: row.trial_ends_at?.toISOString() ?? null,
-    nextBillingDate: row.next_billing_date?.toISOString() ?? null,
-    cancelledAt: row.cancelled_at?.toISOString() ?? null,
+    trialEndsAt: isoOrNull(row.trial_ends_at),
+    nextBillingDate: isoOrNull(row.next_billing_date),
+    currentPeriodStart: isoOrNull(row.current_period_start),
+    currentPeriodEnd: isoOrNull(row.current_period_end ?? row.next_billing_date),
+    cancelledAt: isoOrNull(row.cancelled_at),
     showBillingPortal: row.show_billing_portal,
     adminNotes: row.admin_notes,
     stripeCustomerId: row.stripe_customer_id ?? null,
     stripeSubscriptionId: row.stripe_subscription_id ?? null,
     stripePriceId: row.stripe_price_id ?? null,
     stripeProductId: row.stripe_product_id ?? null,
-    createdAt: row.created_at?.toISOString(),
-    updatedAt: row.updated_at?.toISOString(),
+    createdAt: isoOrNull(row.created_at) || "",
+    updatedAt: isoOrNull(row.updated_at) || "",
   };
 }
 
@@ -1014,10 +1152,10 @@ export async function upsertSubscription(
       `INSERT INTO tenant_subscriptions (
         tenant_id, plan_name, price_cents, currency, billing_frequency,
         status, payment_method_brand, payment_method_last4,
-        trial_ends_at, next_billing_date, cancelled_at,
+        trial_ends_at, next_billing_date, current_period_start, current_period_end, cancelled_at,
         show_billing_portal, admin_notes,
-        stripe_price_id, stripe_product_id, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now())
+        stripe_customer_id, stripe_subscription_id, stripe_price_id, stripe_product_id, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now())
       ON CONFLICT (tenant_id) DO UPDATE SET
         plan_name = COALESCE($2, tenant_subscriptions.plan_name),
         price_cents = COALESCE($3, tenant_subscriptions.price_cents),
@@ -1028,11 +1166,15 @@ export async function upsertSubscription(
         payment_method_last4 = COALESCE($8, tenant_subscriptions.payment_method_last4),
         trial_ends_at = COALESCE($9, tenant_subscriptions.trial_ends_at),
         next_billing_date = COALESCE($10, tenant_subscriptions.next_billing_date),
-        cancelled_at = $11,
-        show_billing_portal = COALESCE($12, tenant_subscriptions.show_billing_portal),
-        admin_notes = COALESCE($13, tenant_subscriptions.admin_notes),
-        stripe_price_id = COALESCE($14, tenant_subscriptions.stripe_price_id),
-        stripe_product_id = COALESCE($15, tenant_subscriptions.stripe_product_id),
+        current_period_start = COALESCE($11, tenant_subscriptions.current_period_start),
+        current_period_end = COALESCE($12, tenant_subscriptions.current_period_end),
+        cancelled_at = $13,
+        show_billing_portal = COALESCE($14, tenant_subscriptions.show_billing_portal),
+        admin_notes = COALESCE($15, tenant_subscriptions.admin_notes),
+        stripe_customer_id = COALESCE($16, tenant_subscriptions.stripe_customer_id),
+        stripe_subscription_id = COALESCE($17, tenant_subscriptions.stripe_subscription_id),
+        stripe_price_id = COALESCE($18, tenant_subscriptions.stripe_price_id),
+        stripe_product_id = COALESCE($19, tenant_subscriptions.stripe_product_id),
         updated_at = now()
       RETURNING *`,
       [
@@ -1045,15 +1187,95 @@ export async function upsertSubscription(
         data.paymentMethodBrand ?? null,
         data.paymentMethodLast4 ?? null,
         data.trialEndsAt ?? null,
-        data.nextBillingDate ?? null,
+        data.nextBillingDate ?? data.currentPeriodEnd ?? null,
+        data.currentPeriodStart ?? null,
+        data.currentPeriodEnd ?? data.nextBillingDate ?? null,
         data.cancelledAt ?? null,
         data.showBillingPortal ?? true,
         data.adminNotes ?? null,
+        data.stripeCustomerId ?? null,
+        data.stripeSubscriptionId ?? null,
         data.stripePriceId ?? null,
         data.stripeProductId ?? null,
       ]
     );
     return rowToSubscription(res.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
+export async function persistStripeBilling(
+  tenantId: string,
+  data: Partial<Omit<TenantSubscription, "tenantId" | "createdAt" | "updatedAt">>,
+): Promise<TenantSubscription> {
+  return upsertSubscription(tenantId, data);
+}
+
+export async function findTenantIdByStripeCustomer(customerId: string): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      "SELECT tenant_id FROM tenant_subscriptions WHERE stripe_customer_id = $1 LIMIT 1",
+      [customerId],
+    );
+    return res.rows[0]?.tenant_id ?? null;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findTenantIdByStripeSubscription(subscriptionId: string): Promise<string | null> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      "SELECT tenant_id FROM tenant_subscriptions WHERE stripe_subscription_id = $1 LIMIT 1",
+      [subscriptionId],
+    );
+    return res.rows[0]?.tenant_id ?? null;
+  } finally {
+    client.release();
+  }
+}
+
+/** Returns true when this event id was newly claimed (not seen before). */
+export async function claimStripeWebhookEvent(params: {
+  eventId: string;
+  eventType: string;
+  tenantId?: string | null;
+}): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(
+      `INSERT INTO stripe_webhook_events (event_id, event_type, tenant_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`,
+      [params.eventId, params.eventType, params.tenantId ?? null],
+    );
+    return Boolean(res.rows[0]);
+  } finally {
+    client.release();
+  }
+}
+
+export async function releaseStripeWebhookEvent(eventId: string): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("DELETE FROM stripe_webhook_events WHERE event_id = $1", [eventId]);
+  } finally {
+    client.release();
+  }
+}
+
+export async function attachStripeWebhookTenant(eventId: string, tenantId: string | null): Promise<void> {
+  if (!tenantId) return;
+  const client = await pool.connect();
+  try {
+    await client.query(
+      "UPDATE stripe_webhook_events SET tenant_id = $2 WHERE event_id = $1",
+      [eventId, tenantId],
+    );
   } finally {
     client.release();
   }
@@ -1230,6 +1452,17 @@ export async function resetTenantLimitsToPlanDefaults(
   return upsertTenantLimits(tenantId, defaults, updatedBy);
 }
 
+/** Apply tier defaults without flipping staff-controlled Service / billingStatus. */
+export async function applyPlanTierDefaultsKeepingService(
+  tenantId: string,
+  planTier: TenantLimits["planTier"],
+  updatedBy: string | null,
+): Promise<TenantLimits> {
+  const current = await getTenantLimits(tenantId);
+  const defaults = getPlanDefaults(planTier);
+  return upsertTenantLimits(tenantId, { ...defaults, billingStatus: current.billingStatus }, updatedBy);
+}
+
 export async function setTenantBillingStatus(
   tenantId: string,
   billingStatus: TenantLimits["billingStatus"],
@@ -1319,7 +1552,13 @@ export async function getTenantUsageSnapshot(tenantId: string, at = new Date()):
         "SELECT calls_count, billable_minutes, fallback_usage_count FROM tenant_usage_monthly WHERE tenant_id = $1 AND usage_month = $2",
         [tenantId, month],
       ),
-      client.query("SELECT COUNT(*)::int AS n FROM calls WHERE tenant_id = $1 AND COALESCE(stage, '') <> 'end'", [tenantId]),
+      client.query(
+        `SELECT COUNT(*)::int AS n FROM calls
+         WHERE tenant_id = $1
+           AND lower(COALESCE(stage, '')) NOT IN ('end', 'ended', 'closed', 'completed', 'missed')
+           AND updated_at > now() - interval '30 minutes'`,
+        [tenantId],
+      ),
     ]);
     return {
       tenantId,
@@ -1586,20 +1825,13 @@ export async function expireStaleRawAudioDiagnostics(): Promise<{ tenantsUpdated
   }
 }
 
-function assertSafeCallControlId(id: string): string | null {
-  const t = id.trim();
-  if (!t || t.length > 256) return null;
-  if (!/^[\w.-]+$/.test(t)) return null;
-  return t;
-}
-
 export async function upsertCallQualitySummary(params: {
   tenantId: string;
   callControlId: string;
   summary: unknown;
-}): Promise<void> {
-  const cc = assertSafeCallControlId(params.callControlId);
-  if (!cc) return;
+}): Promise<boolean> {
+  const cc = sanitizeCallControlId(params.callControlId);
+  if (!cc) return false;
   const client = await pool.connect();
   try {
     await client.query(
@@ -1612,6 +1844,7 @@ export async function upsertCallQualitySummary(params: {
     `,
       [params.tenantId, cc, JSON.stringify(params.summary)]
     );
+    return true;
   } finally {
     client.release();
   }
@@ -1621,7 +1854,7 @@ export async function getCallQualitySummaryForCall(
   tenantId: string,
   callControlId: string
 ): Promise<{ summary: unknown; updatedAt: string } | null> {
-  const cc = assertSafeCallControlId(callControlId);
+  const cc = sanitizeCallControlId(callControlId);
   if (!cc) return null;
   const client = await pool.connect();
   try {

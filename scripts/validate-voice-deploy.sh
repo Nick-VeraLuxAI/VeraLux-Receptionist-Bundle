@@ -54,10 +54,10 @@ elif command -v nvidia-smi &>/dev/null; then
 fi
 
 case "$tts_mode" in
-  coqui_xtts|kokoro_http|qwen3_tts_http|chatterbox_http) ;;
+  coqui_xtts|kokoro_http|qwen3_tts_http|chatterbox_http|miso_tts_http) ;;
   *)
     echo -e "${RED}[validate-voice-deploy]${NC} Invalid TTS_MODE='$tts_mode'." >&2
-    echo "  Must be one of: coqui_xtts, kokoro_http, qwen3_tts_http, chatterbox_http" >&2
+    echo "  Must be one of: coqui_xtts, kokoro_http, qwen3_tts_http, chatterbox_http, miso_tts_http" >&2
     exit 1
     ;;
 esac

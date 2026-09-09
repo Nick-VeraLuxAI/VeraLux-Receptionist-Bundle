@@ -10,6 +10,8 @@
  */
 import { z, type RefinementCtx } from "zod";
 import { businessHoursSchema } from "./businessHours";
+import { shopPlaybookRuntimeSchema } from "./shopPlaybook";
+import { intakeProfileSchema } from "./callBoard";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -83,7 +85,7 @@ const llmContextSchema = z.object({
 
 export type RuntimeLLMContext = z.infer<typeof llmContextSchema>;
 
-/** DB / secret-store key for tenant-owned OpenAI API key (control plane only). */
+/** DB / secret-store key for tenant-owned LLM API key (any BYOK provider). */
 export const TENANT_LLM_OPENAI_SECRET_KEY = "llm_openai_api_key" as const;
 
 /**
@@ -92,7 +94,7 @@ export const TENANT_LLM_OPENAI_SECRET_KEY = "llm_openai_api_key" as const;
  */
 export const runtimeTenantLlmRoutingSchema = z.object({
   mode: z.enum(["platform_default", "tenant_api_key"]),
-  tenantProvider: z.enum(["openai"]).optional(),
+  tenantProvider: z.enum(["openai", "anthropic", "google", "groq", "xai"]).optional(),
   tenantModel: z.string().min(1).max(128).optional(),
   /** True when an encrypted tenant secret exists for {@link TENANT_LLM_OPENAI_SECRET_KEY}. */
   tenantApiKeyConfigured: z.boolean().optional(),
@@ -214,12 +216,98 @@ const ttsQwen3Schema = z.object({
 
 export type RuntimeTtsQwen3 = z.infer<typeof ttsQwen3Schema>;
 
+/** Miso TTS 8B HTTP server (veralux-audio-stack/miso_tts_server.py). */
+const ttsMisoSchema = z.object({
+  mode: z.literal("miso_tts_http"),
+  misoTtsUrl: z.string().min(1),
+  /** Miso speaker id as a string in portal/runtime config; HTTP server parses it as an integer. */
+  speaker: z.string().min(1).optional(),
+  /** Alias used by shared runtime call paths; same value as speaker for Miso. */
+  voice: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+  /** Optional reference audio + transcript for Miso context/voice continuation. */
+  speakerWavUrl: z.string().min(1).optional(),
+  speakerText: z.string().min(1).optional(),
+  clonedVoice: clonedVoiceSchema.optional(),
+  defaultVoiceMode: voiceModeSchema.optional(),
+  /** Miso generate() kwargs. */
+  misoMaxAudioLengthMs: z.number().int().min(500).max(90_000).optional(),
+  misoTemperature: z.number().min(0).max(2).optional(),
+  misoTopK: z.number().int().min(1).max(1000).optional(),
+});
+
+export type RuntimeTtsMiso = z.infer<typeof ttsMisoSchema>;
+
+/** NVIDIA Magpie 357M HTTP server (veralux-audio-stack/magpie_tts_server.py). */
+const ttsMagpieSchema = z.object({
+  mode: z.literal("magpie_tts_http"),
+  magpieTtsUrl: z.string().min(1),
+  speaker: z.string().min(1).optional(),
+  voice: z.string().min(1).optional(),
+  language: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+  /** Portal speaking speed; applied as WAV rate (Magpie has no native speed). */
+  rate: z.number().min(0.8).max(1.2).optional(),
+  magpieTemperature: z.number().min(0.05).max(1.5).optional(),
+  magpieCfgScale: z.number().min(0.5).max(5).optional(),
+  magpieTopK: z.number().int().min(1).max(200).optional(),
+  magpieUseCfg: z.boolean().optional(),
+  magpieApplyTn: z.boolean().optional(),
+});
+
+export type RuntimeTtsMagpie = z.infer<typeof ttsMagpieSchema>;
+
+/** MeloTTS HTTP server (veralux-audio-stack/melo_tts_server.py). */
+const ttsMeloSchema = z.object({
+  mode: z.literal("melo_tts_http"),
+  meloTtsUrl: z.string().min(1),
+  speaker: z.string().min(1).optional(),
+  voice: z.string().min(1).optional(),
+  language: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+  /** Native MeloTTS speed (same meaning as the portal rate slider). */
+  rate: z.number().min(0.8).max(1.2).optional(),
+  meloSdpRatio: z.number().min(0).max(1).optional(),
+  meloNoiseScale: z.number().min(0).max(2).optional(),
+  meloNoiseScaleW: z.number().min(0).max(2).optional(),
+});
+
+export type RuntimeTtsMelo = z.infer<typeof ttsMeloSchema>;
+
+const ttsOpenAiSchema = z.object({
+  mode: z.literal("openai_tts"),
+  voice: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+});
+
+export type RuntimeTtsOpenAi = z.infer<typeof ttsOpenAiSchema>;
+
+const ttsElevenLabsSchema = z.object({
+  mode: z.literal("elevenlabs"),
+  voice: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  format: z.string().min(1).optional(),
+  sampleRate: z.number().int().positive().optional(),
+});
+
+export type RuntimeTtsElevenLabs = z.infer<typeof ttsElevenLabsSchema>;
+
 /** Combined TTS schema (discriminated union of all modes). */
 const ttsSchema = z.discriminatedUnion("mode", [
   ttsKokoroSchema,
   ttsCoquiXttsSchema,
   ttsChatterboxSchema,
   ttsQwen3Schema,
+  ttsMisoSchema,
+  ttsMagpieSchema,
+  ttsMeloSchema,
+  ttsOpenAiSchema,
+  ttsElevenLabsSchema,
 ]);
 
 export type RuntimeTtsConfig = z.infer<typeof ttsSchema>;
@@ -296,7 +384,7 @@ const usageFeatureFlagsSchema = z.object({
 
 const usagePlanLimitsSchema = z.object({
   planName: z.string().min(1),
-  planTier: z.enum(["starter", "professional", "premium", "enterprise"]),
+  planTier: z.enum(["starter", "professional", "pilot", "premium", "enterprise"]),
   billingStatus: z.enum(["trial", "active", "past_due", "suspended", "canceled"]),
   overageMode: z.enum(["allow_and_bill", "throttle", "hard_stop"]),
   monthlyMinuteOverageRateCents: z.number().int().min(0),
@@ -359,16 +447,19 @@ const runtimeTenantConfigBaseSchema = z
     dids: z.array(didSchema).min(1),
     webhookSecretRef: z.string().min(1).optional(),
     webhookSecret: z.string().min(1).optional(),
+    /** Per-tenant Telnyx account Ed25519 webhook verification key. */
+    telnyxPublicKey: z.string().min(16).optional(),
     caps: z.object({
       maxConcurrentCallsTenant: z.number().int().positive(),
       maxCallsPerMinuteTenant: z.number().int().positive(),
       maxConcurrentCallsGlobal: z.number().int().positive().optional(),
     }),
     stt: z.object({
-      mode: z.enum(["whisper_http", "disabled", "http_wav_json"]),
+      mode: z.enum(["whisper_http", "disabled", "http_wav_json", "openai_whisper", "deepgram"]),
       whisperUrl: z.string().min(1).optional(),
       chunkMs: z.number().int().positive(),
       language: z.string().min(1).optional(),
+      model: z.string().min(1).optional(),
       config: z
         .object({
           url: z.string().min(1).optional(),
@@ -387,6 +478,10 @@ const runtimeTenantConfigBaseSchema = z
     callForwarding: callForwardingSchema.optional(),
     // Transfer profiles for LLM routing
     transferProfiles: z.array(transferProfileSchema).optional(),
+    /** Published shop law. Runtime evaluator wins over the model. */
+    shopPlaybook: shopPlaybookRuntimeSchema.optional(),
+    /** Day/night intake: demo (calendar) vs trades (FSM). Defaults from tenant id at publish. */
+    intakeProfile: intakeProfileSchema.optional(),
     /**
      * Freeform context for the assistant (pricing, products, hours, policies, etc.).
      * Keys are section names, values are the text.

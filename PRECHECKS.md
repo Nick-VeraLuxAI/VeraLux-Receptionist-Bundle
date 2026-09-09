@@ -19,8 +19,8 @@ After containers are up, **readiness** (what “healthy” means for traffic) is
 | **Tunnel hint** | If runtime URL is localhost and neither Cloudflare nor ngrok token is set → **warn**. |
 | **`TELNYX_PHONE_NUMBER`** | Empty → **warn** (DIDs may live in DB only). |
 | **`SECRET_ENCRYPTION_KEY` length** | When `SECRET_MANAGER=db` (default), fails if the value is shorter than **32 UTF-8 bytes** (matches control plane `secretStore.ts`). |
-| **`TTS_MODE`** | Must be one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`. |
-| **`HF_TOKEN`** | **Fail** if `TTS_MODE` is `chatterbox_http` or `qwen3_tts_http` and token missing/short. |
+| **`TTS_MODE`** | Must be one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`, `miso_tts_http`. |
+| **`HF_TOKEN`** | **Fail** if `TTS_MODE` is `chatterbox_http`, `qwen3_tts_http`, or `miso_tts_http` and token missing/short. |
 | **Voice / GPU** | Runs **`scripts/validate-voice-deploy.sh`** (e.g. Chatterbox requires GPU). |
 | **GPU notice** | Info when no NVIDIA GPU (CPU profile). |
 | **Ports** | Best-effort: `ss` or `lsof` for `CONTROL_PORT` / `RUNTIME_PORT` (warn if something listens and it may not be this stack). |

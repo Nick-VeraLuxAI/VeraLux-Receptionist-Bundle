@@ -312,10 +312,10 @@ if [[ "$LOCAL_LLM_STACK" != 1 ]]; then
   fi
 fi
 
-if [[ "${TTS_MODE}" == "chatterbox_http" ]]; then
+if [[ "${TTS_MODE}" == "chatterbox_http" || "${TTS_MODE}" == "miso_tts_http" ]]; then
   hflen="$(grep '^HF_TOKEN=' "$EFFECTIVE_ENV" | tail -1 | cut -d= -f2- | wc -c | tr -d ' ')"
   if [[ "${hflen:-0}" -lt 12 ]]; then
-    echo "[warn] HF_TOKEN is unset or short; Chatterbox may fail if model downloads require Hugging Face auth."
+    echo "[warn] HF_TOKEN is unset or short; ${TTS_MODE} may fail if model downloads require Hugging Face auth."
   fi
 fi
 
@@ -342,6 +342,7 @@ if [[ "$PROFILE" == gpu ]]; then
     kokoro_http) AUDIO_SVC+=(kokoro-gpu) ;;
     coqui_xtts) AUDIO_SVC+=(xtts-gpu) ;;
     qwen3_tts_http) AUDIO_SVC+=(qwen3-tts-gpu) ;;
+    miso_tts_http) AUDIO_SVC+=(miso-tts-gpu) ;;
     *)
       echo "[error] Unsupported TTS_MODE for gpu profile start: ${TTS_MODE}"
       exit 1
@@ -352,6 +353,8 @@ else
   case "$TTS_MODE" in
     kokoro_http) AUDIO_SVC+=(kokoro-cpu) ;;
     coqui_xtts) AUDIO_SVC+=(xtts-cpu) ;;
+    qwen3_tts_http) AUDIO_SVC+=(qwen3-tts-cpu) ;;
+    miso_tts_http) AUDIO_SVC+=(miso-tts-cpu) ;;
     *)
       echo "[error] Unsupported TTS_MODE for cpu profile start: ${TTS_MODE}"
       exit 1

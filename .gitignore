@@ -14,6 +14,10 @@ __pycache__/
 **/.env.internal
 .env.development
 **/.env.development
+.env.bak*
+*.bak
+*.bak-*
+*.bak.*
 
 # Cloudflare tunnel credentials
 cloudflared/credentials.json
@@ -22,6 +26,7 @@ cloudflared/credentials.json
 dist/
 build/
 *.tsbuildinfo
+control-plane/public/app/
 
 # Installer binary cache
 .bin/

@@ -8,6 +8,8 @@ test('normalizePlatformLlmKind: brain aliases', () => {
   assert.equal(normalizePlatformLlmKind('local'), 'brain_local');
   assert.equal(normalizePlatformLlmKind('brain_http'), 'brain_http');
   assert.equal(normalizePlatformLlmKind('openai'), 'openai');
+  assert.equal(normalizePlatformLlmKind('nemotron'), 'nemotron');
+  assert.equal(normalizePlatformLlmKind('onprem'), 'nemotron');
 });
 
 test('isDisallowedPlaceholderApiKey', () => {

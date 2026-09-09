@@ -18,7 +18,7 @@ If a pattern appears here, it is **not** covered by **`DEPLOYMENT_CONTRACT.md`**
 
 4. **Replacing `./up` / `./deploy.sh up` with raw `docker compose up -d`** as the standard operating procedure — audio services require `--profile gpu` or `--profile cpu` under the same rules as `deploy.sh detect_audio_profile`. Manual compose invocations that omit those profiles are unsupported for voice.
 
-5. **Relying on default `docker compose up` with no profiles** when `TTS_MODE` is one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, or `chatterbox_http` — Whisper/XTTS/Kokoro/Qwen will not start; voice will fail.
+5. **Relying on default `docker compose up` with no profiles** when `TTS_MODE` is one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`, or `miso_tts_http` — Whisper/XTTS/Kokoro/Qwen/Miso will not start; voice will fail.
 
 ---
 
@@ -26,7 +26,7 @@ If a pattern appears here, it is **not** covered by **`DEPLOYMENT_CONTRACT.md`**
 
 6. **`TTS_MODE=chatterbox_http` on a host where `./deploy.sh` selects `--profile cpu`** — there is no `chatterbox-cpu` service in `docker-compose.yml`; only `chatterbox-gpu` exists.
 
-7. **Any `TTS_MODE` value not handled by `deploy.sh` `detect_audio_profile`** for a deployment that must perform STT/TTS — if `TTS_MODE` is not one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`, the script passes **no** audio profile; no Whisper/TTS containers start.
+7. **Any `TTS_MODE` value not handled by `deploy.sh` `detect_audio_profile`** for a deployment that must perform STT/TTS — if `TTS_MODE` is not one of `coqui_xtts`, `kokoro_http`, `qwen3_tts_http`, `chatterbox_http`, `miso_tts_http`, the script passes **no** audio profile; no Whisper/TTS containers start.
 
 8. **Expecting Chatterbox or Qwen3 images to start without acceptable Hugging Face access** when those services need gated models — failures occur inside containers; not a supported “air-gapped Chatterbox/Qwen without prep” scenario unless you provide images and assets that do not need downloads.
 

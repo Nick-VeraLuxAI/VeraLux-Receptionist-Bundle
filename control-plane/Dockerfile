@@ -3,6 +3,21 @@
 # Build: docker compose build control
 # Run with docker-compose (app + db + redis).
 
+FROM node:20-bookworm-slim AS web-builder
+WORKDIR /web
+COPY web/package.json web/package-lock.json web/.npmrc ./
+RUN npm ci
+COPY web/public ./public
+COPY web/src ./src
+COPY web/plugins ./plugins
+COPY web/craco.config.js web/tailwind.config.js web/postcss.config.js web/jsconfig.json web/components.json ./
+ENV PUBLIC_URL=/app
+ENV REACT_APP_CONTROL_PLANE_URL=
+ENV DISABLE_ESLINT_PLUGIN=true
+ENV GENERATE_SOURCEMAP=false
+ENV CI=false
+RUN npm run build
+
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -26,14 +41,16 @@ COPY control-plane/migrations control-plane/migrations/
 COPY control-plane/scripts control-plane/scripts/
 COPY control-plane/public control-plane/public/
 
-# Substitute __ADMIN_UI_BUILD_STAMP__ in admin.html (and CSS query param) for deploy parity checks.
+# Substitute __ADMIN_UI_BUILD_STAMP__ in legacy admin.html (and CSS query param) for deploy parity checks.
 # Pass a changing value each release (e.g. git short SHA via ./deploy.sh build). If empty, `date`
 # is used — but Docker may cache that RUN until COPY public/ changes, so the UI stamp can look stale.
 # Override: docker compose build --build-arg ADMIN_UI_BUILD_STAMP=$(git rev-parse --short HEAD) control
 ARG ADMIN_UI_BUILD_STAMP=
 RUN if [ -n "$ADMIN_UI_BUILD_STAMP" ]; then STAMP="$ADMIN_UI_BUILD_STAMP"; else STAMP="$(date -u +%Y%m%d-%H%M%S)UTC"; fi && \
-  sed -i "s|__ADMIN_UI_BUILD_STAMP__|${STAMP}|g" control-plane/public/admin.html && \
-  grep -Fq "$STAMP" control-plane/public/admin.html
+  sed -i "s|__ADMIN_UI_BUILD_STAMP__|${STAMP}|g" control-plane/public/legacy/admin.html && \
+  grep -Fq "$STAMP" control-plane/public/legacy/admin.html
+
+COPY --from=web-builder /web/build control-plane/public/app/
 
 WORKDIR /app/control-plane
 RUN npm run build

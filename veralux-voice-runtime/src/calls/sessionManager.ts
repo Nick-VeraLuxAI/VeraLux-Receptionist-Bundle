@@ -27,6 +27,8 @@ import {
 import { buildCallQualitySummaryPayload } from '../observability/callQualitySummary';
 import { mergeCallQualityDefaults } from '../observability/callQualityPolicy';
 import { reportCallQualitySummary } from '../controlPlane';
+import { releaseTenantTelnyxCredential } from '../telnyx/tenantCredentials';
+import { bindMediaWsBridge } from '../media/mediaWsBridge';
 
 const DEFAULT_IDLE_TTL_MINUTES = 10;
 const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
@@ -49,6 +51,8 @@ export interface SessionLogContext {
 
 export interface MediaConnection {
   close: (code?: number, reason?: string) => void;
+  send?: (data: string | Buffer, cb?: (err?: Error) => void) => void;
+  readyState?: number;
 }
 
 export class SessionManager {
@@ -57,6 +61,7 @@ export class SessionManager {
   private readonly sweepTimer: NodeJS.Timeout;
   private readonly queues = new Map<CallSessionId, QueueState>();
   private readonly mediaConnections = new Map<CallSessionId, Set<MediaConnection>>();
+  private readonly mediaWaiters = new Map<CallSessionId, Array<() => void>>();
   private readonly transports = new Map<CallSessionId, TransportSession>();
   private readonly capacityRelease: (params: ReleaseParams) => Promise<void>;
   private readonly inactiveCalls = new Map<CallSessionId, number>();
@@ -74,6 +79,11 @@ export class SessionManager {
     const idleMinutes = options.idleTtlMinutes ?? DEFAULT_IDLE_TTL_MINUTES;
     this.idleTtlMs = Math.max(idleMinutes, 1) * 60_000;
     this.capacityRelease = options.capacityRelease ?? release;
+
+    bindMediaWsBridge(
+      (callControlId, json) => this.sendOnMediaWs(callControlId, json),
+      (callControlId, timeoutMs) => this.waitForMediaConnection(callControlId, timeoutMs),
+    );
 
     const sweepInterval = options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
     this.sweepTimer = setInterval(() => this.sweepIdleSessions(), sweepInterval);
@@ -257,6 +267,35 @@ export class SessionManager {
     session.onTelnyxPlaybackEnded(meta);
   }
 
+  public onDtmfReceived(
+    callControlId: string,
+    digit: string,
+    context: SessionLogContext = {},
+  ): void {
+    this.enqueue(callControlId, {
+      name: 'dtmf',
+      run: () => {
+        const session = this.sessions.get(callControlId) as CallSession & {
+          onDemoShopDtmf?: (raw: string) => Promise<void> | void;
+        };
+        if (!session || typeof session.onDemoShopDtmf !== 'function') return;
+        return session.onDemoShopDtmf(digit);
+      },
+    });
+    if (context.requestId) {
+      log.info(
+        {
+          event: 'call_session_dtmf',
+          marker: 'VERA_DEMO_SHOP_DTMF_20260907',
+          call_control_id: callControlId,
+          requestId: context.requestId,
+          tenant_id: context.tenantId,
+        },
+        'queued dtmf digit',
+      );
+    }
+  }
+
   public onPlaybackEnded(callControlId: CallSessionId, context: SessionLogContext = {}): void {
     const session = this.sessions.get(callControlId);
     if (!session) {
@@ -368,6 +407,30 @@ export class SessionManager {
     session.notifyIngestFailure(reason);
   }
 
+  public onTransferAnswered(
+    callControlId: CallSessionId,
+    context: SessionLogContext = {},
+  ): void {
+    const session = this.sessions.get(callControlId);
+    if (!session) return;
+    session.onTransferAnswered();
+    this.teardown(callControlId, 'transfer_answered', context);
+  }
+
+  public onTransferFailed(
+    callControlId: CallSessionId,
+    reason?: string,
+  ): void {
+    const session = this.sessions.get(callControlId);
+    if (!session) return;
+    void session.onTransferFailed(reason).catch((error) => {
+      log.error(
+        { err: error, call_control_id: callControlId },
+        'failed to resume caller after transfer failure',
+      );
+    });
+  }
+
   public onHangup(callControlId: CallSessionId, reason?: string, context: SessionLogContext = {}): void {
     this.capacityHoldCallIds.delete(callControlId);
     const session = this.sessions.get(callControlId);
@@ -418,6 +481,7 @@ export class SessionManager {
     clearTelnyxCodecSession({ call_control_id: callControlId });
     releaseFarEndBuffer(callControlId);
     releaseAecProcessor(callControlId);
+    releaseTenantTelnyxCredential(callControlId);
     this.pendingMediaWsConnectedAt.delete(callControlId);
 
     const session = this.sessions.get(callControlId);
@@ -430,9 +494,11 @@ export class SessionManager {
       const transport = this.transports.get(callControlId);
       if (transport) {
         this.transports.delete(callControlId);
-        void Promise.resolve(transport.stop(reason)).catch((error) => {
-          log.warn({ err: error, call_control_id: callControlId }, 'transport stop failed');
-        });
+        if (reason !== 'transfer_answered') {
+          void Promise.resolve(transport.stop(reason)).catch((error) => {
+            log.warn({ err: error, call_control_id: callControlId }, 'transport stop failed');
+          });
+        }
       }
 
       if (context.tenantId) {
@@ -453,9 +519,11 @@ export class SessionManager {
     const transport = this.transports.get(callControlId);
     if (transport) {
       this.transports.delete(callControlId);
-      void Promise.resolve(transport.stop(reason)).catch((error) => {
-        log.warn({ err: error, call_control_id: callControlId }, 'transport stop failed');
-      });
+      if (reason !== 'transfer_answered') {
+        void Promise.resolve(transport.stop(reason)).catch((error) => {
+          log.warn({ err: error, call_control_id: callControlId }, 'transport stop failed');
+        });
+      }
     }
 
     this.closeMediaConnections(callControlId, reason ?? 'teardown');
@@ -565,21 +633,20 @@ export class SessionManager {
       'call transcript',
     );
 
-    // Report call end to control plane (workflow automation engine)
-    if (transcript.turns.length > 0) {
-      void reportCallEnd({
-        tenantId: transcript.tenantId ?? session.tenantId ?? 'unknown',
-        callId: transcript.callControlId,
-        callerId: transcript.from,
-        durationMs: transcript.durationMs,
-        turns: transcript.turns.map(t => ({
-          role: t.role,
-          content: t.content,
-          timestamp: t.timestamp,
-        })),
-        transcript: transcript.turns.map(t => `${t.role}: ${t.content}`).join('\n'),
-      });
-    }
+    // Every hangup reaches the completion pipeline, including zero-turn calls.
+    void reportCallEnd({
+      tenantId: transcript.tenantId ?? session.tenantId ?? 'unknown',
+      callId: transcript.callControlId,
+      callerId: transcript.from,
+      durationMs: transcript.durationMs,
+      turns: transcript.turns.map(t => ({
+        role: t.role,
+        content: t.content,
+        timestamp: t.timestamp,
+      })),
+      transcript: transcript.turns.map(t => `${t.role}: ${t.content}`).join('\n'),
+      lead: typeof session.getNightDeskLead === 'function' ? session.getNightDeskLead() : undefined,
+    });
 
     if (env.CALL_TRANSCRIPT_DIR && transcript.turns.length > 0) {
       const dir = env.CALL_TRANSCRIPT_DIR.trim();
@@ -710,6 +777,61 @@ export class SessionManager {
     const connections = this.mediaConnections.get(callControlId) ?? new Set<MediaConnection>();
     connections.add(connection);
     this.mediaConnections.set(callControlId, connections);
+    const waiters = this.mediaWaiters.get(callControlId);
+    if (waiters && waiters.length > 0) {
+      this.mediaWaiters.delete(callControlId);
+      for (const waiter of waiters) waiter();
+    }
+  }
+
+  public sendOnMediaWs(callControlId: CallSessionId, json: string): boolean {
+    const connections = this.mediaConnections.get(callControlId);
+    if (!connections || connections.size === 0) return false;
+    let sent = false;
+    for (const connection of connections) {
+      if (connection.readyState !== undefined && connection.readyState !== 1) continue;
+      if (typeof connection.send !== 'function') continue;
+      try {
+        connection.send(json);
+        sent = true;
+      } catch (error) {
+        log.warn(
+          { err: error, event: 'media_ws_send_failed', call_control_id: callControlId },
+          'media ws send failed',
+        );
+      }
+    }
+    return sent;
+  }
+
+  public async waitForMediaConnection(callControlId: CallSessionId, timeoutMs: number): Promise<boolean> {
+    if (this.hasOpenMediaConnection(callControlId)) {
+      return true;
+    }
+    return new Promise((resolve) => {
+      const waiters = this.mediaWaiters.get(callControlId) ?? [];
+      const timer = setTimeout(() => {
+        const remaining = (this.mediaWaiters.get(callControlId) ?? []).filter((w) => w !== onReady);
+        if (remaining.length > 0) this.mediaWaiters.set(callControlId, remaining);
+        else this.mediaWaiters.delete(callControlId);
+        resolve(this.hasOpenMediaConnection(callControlId));
+      }, timeoutMs);
+      const onReady = (): void => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      waiters.push(onReady);
+      this.mediaWaiters.set(callControlId, waiters);
+    });
+  }
+
+  private hasOpenMediaConnection(callControlId: CallSessionId): boolean {
+    const connections = this.mediaConnections.get(callControlId);
+    if (!connections) return false;
+    for (const connection of connections) {
+      if (connection.readyState === undefined || connection.readyState === 1) return true;
+    }
+    return false;
   }
 
   public unregisterMediaConnection(callControlId: CallSessionId, connection: MediaConnection): void {

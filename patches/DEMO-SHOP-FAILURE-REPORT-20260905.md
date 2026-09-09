@@ -1,8 +1,8 @@
 # Demo Shop failure report (2026-09-05)
 
-## Status: bot ships frozen — Nick fixing in Cursor
+## Status: LISTENFINAL shipped on mount — await Nick dial
 
-**Effective immediately:** no further Demo Shop hot-mount / bot code ships until Nick explicitly asks.  
+**Shipped 2026-09-05 ~3:35pm PT:** `VERA_DEMO_SHOP_LISTENFINAL_20260905` on `patches/chunkedSTT.js` + `patches/callSession.js`.  
 Outbound held. Speex AEC stays ON. Encode/decode alignment untouched.
 
 This report is the handoff for manual Cursor work on `VeraLux-Receptionist-Bundle`.
@@ -46,7 +46,7 @@ This report is the handoff for manual Cursor work on `VeraLux-Receptionist-Bundl
 | False barge / speakerphone echo scrap | v3:50OV6H9b… | SPEAKERPHONE |
 | Empty Nemotron content → “problem responding” | v3:yVCll2X… | THINKOFF + STREAMTTS |
 | Tue 12:30 spoken → Mon 09:00 written; fake on-file | v3:RcqF-_5… | BOOKTRUTH + DATECONFIRM |
-| Post-greeting silence (this report) | v3:A9wrcoPg… | **open — Nick Cursor** |
+| Post-greeting silence (this report) | v3:A9wrcoPg… | **LISTENFINAL — shipped mount, await dial** |
 
 ---
 
@@ -68,6 +68,8 @@ This report is the handoff for manual Cursor work on `VeraLux-Receptionist-Bundl
 - `VERA_DEMO_SHOP_STREAMTTS_20260905`
 - `VERA_DEMO_SHOP_BOOKTRUTH_20260905`
 - `VERA_DEMO_SHOP_DATECONFIRM_20260905`
+- `VERA_DEMO_SHOP_LISTENFINAL_20260905`
+- `VERA_DEMO_SHOP_CONTACTCLOCK_20260905`
 
 Also: book-helper HHMM + PT/confirm refuse (interim mount, not a VERA_ marker).
 
@@ -104,7 +106,7 @@ Compose overlay: `docker-compose.demo-tts.yml` + `~/.config/veralux/voice-runtim
 ## Suggested Cursor entry points
 
 1. **`veralux-voice-runtime/src/stt/chunkedSTT.ts` / `patches/chunkedSTT.js`**  
-   Whisper abort / `whisper_result_discarded_aborted` on `speech_start` during in-flight final — **primary cause of post-greeting silence** on v3:A9wrcoPg…. Prefer complete-or-queue the final instead of discard-to-silence.
+   Whisper abort / `whisper_result_discarded_aborted` on `speech_start` during in-flight final — **shipped LISTENFINAL:** complete-or-queue the listening-state final instead of discard-to-silence.
 
 2. **SPEAKERPHONE silent-empty** (`patches/chunkedSTT.js` + `callSession` unclear path)  
    Empty finals stay silent (no “didn't catch that”). Good for echo scrap; compounds dead air when a real turn was already discarded.
@@ -129,7 +131,7 @@ Living ledger: `patches/DEMO-SHOP-FIX-LEDGER.md`
 1. Dial Demo Shop PSTN (outbound still held — inbound only).
 2. Hear greeting.
 3. Immediately say: “I'd like to schedule a demo” (keep talking / overlap slightly if reproducing abort).
-4. Expect **fail today:** long silence; optional “Hello?” still silence or late name-ask after hangup.
+4. Expect **LISTENFINAL:** assistant answers after first final (log `stt_abort_final_ignored_listening`, no `whisper_result_discarded_aborted` on that turn).
 5. **Pass criteria when fixed:** assistant answers within ~1–2s after first final (no discard-to-silence); if empty, either recover or one clear re-ask — not 14s+ dead air.
 6. Full clean-proof (separate): Tue/Mon slot with am/pm → spoken **concrete date** (DATECONFIRM) → name+phone/email → midcall book → `eventId` + ISO matches spoken clock (BOOKTRUTH).
 
@@ -137,6 +139,5 @@ Living ledger: `patches/DEMO-SHOP-FIX-LEDGER.md`
 
 ## Process
 
-- **No bot ship** until Nick asks.
-- Nick owns the Whisper-abort / silence fix in Cursor against this report + ledger.
+- LISTENFINAL is on the runtime mounts. Recreate/reload runtime so Node picks up bind-mount JS.
 - Outbound unlock remains Nick/Vera call after feel-pass.

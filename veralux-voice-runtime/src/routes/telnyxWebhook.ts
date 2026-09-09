@@ -13,6 +13,8 @@ import { storeWav } from '../storage/audioStore';
 import { normalizeE164, resolveTenantId } from '../tenants/tenantResolver';
 import { loadTenantConfig, getWebhookSecret } from '../tenants/tenantConfig';
 import { TelnyxClient } from '../telnyx/telnyxClient';
+import { buildMediaStreamUrl } from '../telnyx/mediaStreamUrl';
+import { claimStreamingStart, releaseStreamingStart } from '../telnyx/streamStartGuard';
 import {
   extractTelnyxEventMetaFromPayload,
   extractTelnyxEventMetaFromRawBody,
@@ -26,6 +28,16 @@ import {
 import { TelnyxWebhookPayload } from '../telnyx/types';
 import { synthesizeSpeech } from '../tts';
 import type { RuntimeTenantConfig } from '../tenants/tenantConfig';
+import {
+  bindTenantTelnyxCredential,
+  releaseTenantTelnyxCredential,
+} from '../telnyx/tenantCredentials';
+import {
+  reportCallRecording,
+  reportCallStart,
+  reportOncallDrillOutcome,
+  reportOncallOutcome,
+} from '../controlPlane';
 
 type RequestWithRawBody = Request & { rawBody?: Buffer; id?: string };
 
@@ -109,6 +121,10 @@ function logTtsBytesReady(
 export function createTelnyxWebhookRouter(sessionManager: SessionManager): Router {
   const router = Router();
   const streamingStarted = new Set<string>();
+  const recordingEnabledCalls = new Set<string>();
+  const recordingStartedCalls = new Set<string>();
+  const recordingTenantByCall = new Map<string, string>();
+  const drillSpokenCalls = new Set<string>();
   const tenantDebugEnabled = (): boolean => {
     const value = process.env.TENANT_DEBUG;
     if (!value) {
@@ -126,23 +142,12 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     return normalized === '1' || normalized === 'true' || normalized === 'yes';
   };
 
-  function buildMediaStreamUrl(callControlId: string): string {
-    const trimmedBase = env.PUBLIC_BASE_URL.replace(/\/$/, '');
-    let wsBase = trimmedBase;
-    if (trimmedBase.startsWith('https://')) {
-      wsBase = `wss://${trimmedBase.slice('https://'.length)}`;
-    } else if (trimmedBase.startsWith('http://')) {
-      wsBase = `ws://${trimmedBase.slice('http://'.length)}`;
-    } else if (!trimmedBase.startsWith('ws://') && !trimmedBase.startsWith('wss://')) {
-      wsBase = `wss://${trimmedBase}`;
-    }
-    return `${wsBase}/v1/telnyx/media/${callControlId}?token=${encodeURIComponent(
-      env.MEDIA_STREAM_TOKEN,
-    )}`;
-  }
-
   async function startStreamingOnce(callControlId: string, tenantId?: string, requestId?: string): Promise<void> {
     if (streamingStarted.has(callControlId)) {
+      return;
+    }
+    if (!claimStreamingStart(callControlId)) {
+      streamingStarted.add(callControlId);
       return;
     }
 
@@ -160,6 +165,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
       requestId,
     });
     if (shouldSkipTelnyxAction('streaming_start', callControlId, tenantId, requestId)) {
+      releaseStreamingStart(callControlId);
       return;
     }
 
@@ -168,6 +174,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
       await telnyx.startStreaming(callControlId, streamUrl);
     } catch (error) {
       streamingStarted.delete(callControlId);
+      releaseStreamingStart(callControlId);
       throw error;
     }
   }
@@ -186,12 +193,20 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
         return 'session_created';
       case 'call.answered':
         return 'session_answered';
+      case 'call.bridged':
+        return 'transfer_bridged';
       case 'call.playback.started':
         return 'playback_started';
       case 'call.playback.ended':
         return 'playback_ended';
+      case 'call.dtmf.received':
+        return 'dtmf_received';
       case 'streaming.stopped':
         return 'streaming_stopped';
+      case 'call.recording.saved':
+        return 'recording_saved';
+      case 'call.recording.error':
+        return 'recording_failed';
       case 'call.hangup':
       case 'call.ended':
         return 'session_torn_down';
@@ -202,6 +217,78 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
 
   function getString(value: unknown): string | undefined {
     return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+  }
+
+  function decodeOncallTransferState(
+    payload?: Record<string, unknown>,
+  ): {
+    tenantId: string;
+    callId: string;
+    pageId?: string;
+  } | null {
+    const raw = getString(payload?.client_state);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(raw, 'base64').toString('utf8'),
+      ) as {
+        kind?: unknown;
+        tenantId?: unknown;
+        callId?: unknown;
+        pageId?: unknown;
+      };
+      if (
+        parsed.kind !== 'veralux_oncall_transfer' ||
+        typeof parsed.tenantId !== 'string' ||
+        typeof parsed.callId !== 'string'
+      ) {
+        return null;
+      }
+      return {
+        tenantId: parsed.tenantId,
+        callId: parsed.callId,
+        pageId:
+          typeof parsed.pageId === 'string' ? parsed.pageId : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function decodeOncallDrillState(
+    payload?: Record<string, unknown>,
+  ): {
+    tenantId: string;
+    drillId: string;
+    startedAt: number;
+  } | null {
+    const raw = getString(payload?.client_state);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(
+        Buffer.from(raw, 'base64').toString('utf8'),
+      ) as {
+        kind?: unknown;
+        tenantId?: unknown;
+        drillId?: unknown;
+        startedAt?: unknown;
+      };
+      if (
+        parsed.kind !== 'veralux_oncall_drill' ||
+        typeof parsed.tenantId !== 'string' ||
+        typeof parsed.drillId !== 'string' ||
+        typeof parsed.startedAt !== 'number'
+      ) {
+        return null;
+      }
+      return {
+        tenantId: parsed.tenantId,
+        drillId: parsed.drillId,
+        startedAt: parsed.startedAt,
+      };
+    } catch {
+      return null;
+    }
   }
 
   function getToNumber(payload?: Record<string, unknown>): string | undefined {
@@ -489,6 +576,10 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     }
 
     sessionManager.evictPlaceholderSessionWithoutTenant(callControlId);
+    if (tenantConfig.usageLimits?.features.callRecording) {
+      recordingEnabledCalls.add(callControlId);
+      recordingTenantByCall.set(callControlId, tenantId);
+    }
     sessionManager.createSession(
       {
         callControlId,
@@ -500,12 +591,36 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
       },
       { requestId },
     );
+    void reportCallStart({ tenantId, callId: callControlId, callerId: from });
     const transport = sessionManager.getTransport(callControlId);
     if (transport?.mode === 'pstn') {
       try {
         await transport.start();
         if (pstnAlreadyAnswered && !streamingStarted.has(callControlId)) {
           await startStreamingOnce(callControlId, tenantId, requestId);
+        }
+        if (
+          pstnAlreadyAnswered &&
+          recordingEnabledCalls.has(callControlId) &&
+          !recordingStartedCalls.has(callControlId)
+        ) {
+          const telnyx = new TelnyxClient({
+            call_control_id: callControlId,
+            tenant_id: tenantId,
+            requestId,
+          });
+          await telnyx.startRecording(
+            callControlId,
+            Buffer.from(
+              JSON.stringify({
+                kind: 'veralux_call_recording',
+                tenantId,
+                tenant_id: tenantId,
+                callId: callControlId,
+              }),
+            ).toString('base64'),
+          );
+          recordingStartedCalls.add(callControlId);
         }
       } catch (error) {
         log.warn(
@@ -534,6 +649,106 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     }
 
     try {
+      const drillState = decodeOncallDrillState(payload);
+      if (drillState) {
+        if (eventType === 'call.answered' || eventType === 'call.bridged') {
+          if (!drillSpokenCalls.has(callControlId)) {
+            await bindTenantTelnyxCredential(
+              callControlId,
+              drillState.tenantId,
+            );
+            const telnyx = new TelnyxClient({
+              call_control_id: callControlId,
+              tenant_id: drillState.tenantId,
+              requestId,
+            });
+            await telnyx
+              .speakText(
+                callControlId,
+                'This is a VeraLux on-call drill. Your page path is working.',
+              )
+              .catch((error) =>
+                log.warn(
+                  {
+                    err: error,
+                    call_control_id: callControlId,
+                    tenant_id: drillState.tenantId,
+                  },
+                  'on-call drill speech failed',
+                ),
+              );
+            drillSpokenCalls.add(callControlId);
+          }
+          await reportOncallDrillOutcome({
+            tenantId: drillState.tenantId,
+            drillId: drillState.drillId,
+            callControlId,
+            status: 'answered',
+            latencyMs: Math.max(0, Date.now() - drillState.startedAt),
+          });
+          return;
+        }
+        if (eventType === 'call.hangup' || eventType === 'call.ended') {
+          await reportOncallDrillOutcome({
+            tenantId: drillState.tenantId,
+            drillId: drillState.drillId,
+            callControlId,
+            status: 'failed',
+            latencyMs: Math.max(0, Date.now() - drillState.startedAt),
+            reason:
+              getString(payload?.hangup_cause) ||
+              getString(payload?.sip_hangup_cause) ||
+              'drill_call_ended',
+          });
+          drillSpokenCalls.delete(callControlId);
+          releaseTenantTelnyxCredential(callControlId);
+          return;
+        }
+        // Outbound drill initiation is not an inbound receptionist call.
+        if (eventType === 'call.initiated') return;
+      }
+
+      const transferState = decodeOncallTransferState(payload);
+      if (transferState) {
+        if (eventType === 'call.initiated') {
+          await reportOncallOutcome({
+            tenantId: transferState.tenantId,
+            callId: transferState.callId,
+            transferCallControlId: callControlId,
+            status: 'initiated',
+          });
+          return;
+        }
+        if (eventType === 'call.answered' || eventType === 'call.bridged') {
+          await reportOncallOutcome({
+            tenantId: transferState.tenantId,
+            callId: transferState.callId,
+            transferCallControlId: callControlId,
+            status: 'answered',
+          });
+          sessionManager.onTransferAnswered(transferState.callId, {
+            requestId,
+            tenantId: transferState.tenantId,
+          });
+          return;
+        }
+        if (eventType === 'call.hangup' || eventType === 'call.ended') {
+          const reason =
+            getString(payload?.hangup_cause) ||
+            getString(payload?.sip_hangup_cause) ||
+            'transfer_failed';
+          await reportOncallOutcome({
+            tenantId: transferState.tenantId,
+            callId: transferState.callId,
+            transferCallControlId: callControlId,
+            status: 'failed',
+            reason,
+          });
+          sessionManager.onTransferFailed(transferState.callId, reason);
+          return;
+        }
+      }
+
       switch (eventType) {
         case 'call.initiated': {
           const debugEnabled = tenantDebugEnabled();
@@ -620,6 +835,7 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
             return;
           }
 
+          await bindTenantTelnyxCredential(callControlId, tenantId);
           const tenantConfig = await loadTenantConfig(tenantId);
           if (!tenantConfig) {
             log.warn(
@@ -839,6 +1055,28 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
             }
             await startStreamingOnce(callControlId, fallbackTenantId, requestId);
           }
+          if (
+            recordingEnabledCalls.has(callControlId) &&
+            !recordingStartedCalls.has(callControlId)
+          ) {
+            const telnyx = new TelnyxClient({
+              call_control_id: callControlId,
+              tenant_id: fallbackTenantId,
+              requestId,
+            });
+            await telnyx.startRecording(
+              callControlId,
+              Buffer.from(
+                JSON.stringify({
+                  kind: 'veralux_call_recording',
+                  tenantId: fallbackTenantId,
+                  tenant_id: fallbackTenantId,
+                  callId: callControlId,
+                }),
+              ).toString('base64'),
+            );
+            recordingStartedCalls.add(callControlId);
+          }
 
           break;
         }
@@ -877,7 +1115,17 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
           }
           break;
         }
-
+        case 'call.dtmf.received': {
+          const digit =
+            getString(payload?.digit) ||
+            getString(payload?.dtmf) ||
+            (typeof payload?.digit === 'number' ? String(payload.digit) : undefined);
+          sessionManager.onDtmfReceived(callControlId, digit || '', {
+            requestId,
+            tenantId: fallbackTenantId,
+          });
+          break;
+        }
         case 'streaming.stopped': {
           log.warn(
             { event: 'streaming_stopped', call_control_id: callControlId, requestId, tenant_id: fallbackTenantId },
@@ -885,6 +1133,63 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
           );
           sessionManager.onMediaStreamingStopped(callControlId, { requestId, tenantId: fallbackTenantId });
           streamingStarted.delete(callControlId);
+          break;
+        }
+
+        case 'call.recording.saved': {
+          let recordingState:
+            | { tenantId?: string; callId?: string }
+            | undefined;
+          try {
+            recordingState = JSON.parse(
+              Buffer.from(
+                getString(payload?.client_state) || '',
+                'base64',
+              ).toString('utf8'),
+            ) as { tenantId?: string; callId?: string };
+          } catch {
+            recordingState = undefined;
+          }
+          const tenantId =
+            recordingState?.tenantId ||
+            fallbackTenantId ||
+            recordingTenantByCall.get(callControlId);
+          const urls =
+            payload?.recording_urls &&
+            typeof payload.recording_urls === 'object'
+              ? (payload.recording_urls as Record<string, unknown>)
+              : {};
+          const recordingUrl =
+            getString(urls.mp3) ||
+            getString(urls.wav) ||
+            getString(payload?.recording_url);
+          if (tenantId && recordingUrl) {
+            await reportCallRecording({
+              tenantId,
+              callId: recordingState?.callId || callControlId,
+              recordingUrl,
+            });
+          }
+          recordingEnabledCalls.delete(callControlId);
+          recordingStartedCalls.delete(callControlId);
+          recordingTenantByCall.delete(callControlId);
+          break;
+        }
+
+        case 'call.recording.error': {
+          log.warn(
+            {
+              event: 'telnyx_recording_error',
+              call_control_id: callControlId,
+              tenant_id:
+                fallbackTenantId || recordingTenantByCall.get(callControlId),
+              error_detail: getString(payload?.error_detail),
+            },
+            'Telnyx call recording failed',
+          );
+          recordingEnabledCalls.delete(callControlId);
+          recordingStartedCalls.delete(callControlId);
+          recordingTenantByCall.delete(callControlId);
           break;
         }
 
@@ -972,22 +1277,43 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
     const scheme = signatureEd25519 ? 'ed25519' : signatureHmac ? 'hmac-sha256' : undefined;
 
     const rawMeta = extractTelnyxEventMetaFromRawBody(rawBody);
+    let verificationTenantId = rawMeta.tenantId;
+    if (!verificationTenantId && rawBody.length > 0) {
+      try {
+        const unsignedEnvelope = JSON.parse(rawBody.toString("utf8")) as {
+          data?: { payload?: Record<string, unknown> };
+        };
+        const to = getToNumber(unsignedEnvelope.data?.payload);
+        if (to) verificationTenantId = await resolveTenantId(to) || undefined;
+      } catch {
+        // Signature verification below remains authoritative.
+      }
+    }
 
     // Per-tenant webhook verification: if tenant_id is in the payload (from client_state),
     // load tenant config and use its webhook secret for verification.
     let tenantSecret: string | null = null;
-    if (rawMeta.tenantId) {
+    let tenantPublicKey: string | null = null;
+    if (verificationTenantId) {
       try {
-        const tenantConfig = await loadTenantConfig(rawMeta.tenantId);
+        const tenantConfig = await loadTenantConfig(verificationTenantId);
         if (tenantConfig) {
           tenantSecret = getWebhookSecret(tenantConfig);
+          tenantPublicKey = tenantConfig.telnyxPublicKey || null;
         }
       } catch (error) {
-        log.warn({ err: error, tenant_id: rawMeta.tenantId, requestId }, 'failed to load tenant config for signature verification');
+        log.warn({ err: error, tenant_id: verificationTenantId, requestId }, 'failed to load tenant config for signature verification');
       }
     }
 
-    const signatureCheck = verifyTelnyxSignature({ rawBody, signature, timestamp, scheme, tenantSecret });
+    const signatureCheck = verifyTelnyxSignature({
+      rawBody,
+      signature,
+      timestamp,
+      scheme,
+      tenantSecret,
+      tenantPublicKey,
+    });
 
     if (signatureCheck.skipped) {
       log.warn({ requestId, event_type: rawMeta.eventType }, 'telnyx signature check skipped (dev)');
@@ -1076,7 +1402,15 @@ export function createTelnyxWebhookRouter(sessionManager: SessionManager): Route
 
     const actionTaken = determineAction(eventType, callControlId);
     if (callControlId) {
-      const requiresActive = eventType !== 'call.hangup' && eventType !== 'call.ended';
+      const transferState = decodeOncallTransferState(payloadObj);
+      const drillState = decodeOncallDrillState(payloadObj);
+      const requiresActive =
+        !transferState &&
+        !drillState &&
+        eventType !== 'call.recording.saved' &&
+        eventType !== 'call.recording.error' &&
+        eventType !== 'call.hangup' &&
+        eventType !== 'call.ended';
       const taskName = `telnyx_webhook_${eventType ?? 'unknown'}`;
       sessionManager.enqueue(callControlId, {
         name: taskName,

@@ -5,6 +5,8 @@ import type { STTMode } from './types';
 
 import { DisabledSttProvider } from './providers/disabled';
 import { WhisperHttpProvider } from './providers/whisperHttp';
+import { OpenAiWhisperProvider } from './providers/openaiWhisper';
+import { DeepgramProvider } from './providers/deepgram';
 // If you still have this provider, you can leave the import out for now.
 // import { HttpWavJsonProvider } from './providers/httpWavJson';
 
@@ -38,9 +40,9 @@ function wrapProvider(id: ChunkedProviderId, provider: CoreSttProvider): Chunked
 const providers: Record<STTMode, ChunkedSttProvider> = {
   disabled: wrapProvider('http_pcm16', new DisabledSttProvider()),
   whisper_http: wrapProvider('http_pcm16', new WhisperHttpProvider()),
-
-  // Back-compat mode: still uses WhisperHttpProvider (PCM16LE in, WAV out if provider wraps)
   http_wav_json: wrapProvider('http_pcm16', new WhisperHttpProvider()),
+  openai_whisper: wrapProvider('http_pcm16', new OpenAiWhisperProvider()),
+  deepgram: wrapProvider('http_pcm16', new DeepgramProvider()),
   // If/when you truly want this mode again, only do it after ChunkedSTT can emit real WAV bytes:
   // http_wav_json: wrapProvider('http_wav_json', new HttpWavJsonProvider()),
 };

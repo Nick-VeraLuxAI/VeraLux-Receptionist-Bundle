@@ -80,6 +80,6 @@ process.on('unhandledRejection', (reason) => {
   log.error({ reason }, 'unhandled rejection');
 });
 
-server.listen(env.PORT, () => {
-  log.info({ port: env.PORT }, 'server listening');
+server.listen(env.PORT, '0.0.0.0', () => {
+  log.info({ port: env.PORT, bind: '0.0.0.0' }, 'server listening');
 });

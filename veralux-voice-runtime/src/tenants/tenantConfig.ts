@@ -22,6 +22,9 @@ export {
   type RuntimeTtsCoquiXtts,
   type RuntimeTtsChatterbox,
   type RuntimeTtsQwen3,
+  type RuntimeTtsMiso,
+  type RuntimeTtsMagpie,
+  type RuntimeTtsMelo,
   type RuntimeClonedVoice,
   type RuntimeVoiceMode,
   type RuntimeForwardingProfile,
@@ -34,6 +37,7 @@ export {
 
 import type { RuntimeTenantConfig } from '@veralux/shared';
 import { RuntimeTenantConfigSchema } from '@veralux/shared';
+import { forceKokoroTenantConfig } from '../tts/forceKokoro';
 
 // ── Voice mode helpers ──────────────────────────────────────────────────────
 
@@ -57,7 +61,11 @@ export function getEffectiveSpeakerWavUrl(
   if (!ttsConfig) {
     return undefined;
   }
-  if (ttsConfig.mode !== 'coqui_xtts' && ttsConfig.mode !== 'chatterbox_http') {
+  if (
+    ttsConfig.mode !== 'coqui_xtts' &&
+    ttsConfig.mode !== 'chatterbox_http' &&
+    ttsConfig.mode !== 'miso_tts_http'
+  ) {
     return undefined;
   }
 
@@ -144,5 +152,5 @@ export async function loadTenantConfig(
     return null;
   }
 
-  return result.data;
+  return forceKokoroTenantConfig(result.data);
 }

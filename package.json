@@ -16,7 +16,10 @@
   ],
   "scripts": {
     "build:shared": "npm run build -w @veralux/shared",
-    "build:control": "npm run build:shared && npm run build -w control-plane",
+    "dev:web": "npm --prefix web start",
+    "build:web": "npm --prefix web run build && node scripts/copy-web-build.js",
+    "test:web": "CI=true npm --prefix web test",
+    "build:control": "npm run build:shared && npm run build:web && npm run build -w control-plane",
     "build:runtime": "npm run build:shared && npm run build -w veralux-voice-runtime",
     "build": "npm run build:shared && npm run build -w control-plane && npm run build -w veralux-voice-runtime",
     "dev:control": "npm run build:shared && npm run dev:server -w control-plane",

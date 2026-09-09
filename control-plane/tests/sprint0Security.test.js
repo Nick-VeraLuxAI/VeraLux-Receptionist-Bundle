@@ -181,3 +181,38 @@ test("tenant A and tenant B prompts are isolated in their published configs", ()
     else delete process.env.TELNYX_WEBHOOK_SECRET;
   }
 });
+
+test("buildTenantRuntimeConfig maps forwarding lines to executable transferProfiles and prices", () => {
+  const prevSecret = process.env.TELNYX_WEBHOOK_SECRET;
+  process.env.TELNYX_WEBHOOK_SECRET = "whsec_test_sprint0";
+  try {
+    const tenant = baseTenantContext({ id: "xfer" });
+    tenant.forwardingProfiles = [{ id: "f1", name: "Nick", number: "+15095550100", role: "on-call emergency" }];
+    tenant.pricing = { items: [{ id: "p1", name: "Drain", price: "189", description: "clear" }], notes: "No invented prices" };
+    const cfg = buildTenantRuntimeConfig(tenant, null, null, null);
+    const parsed = parseRuntimeTenantConfig(cfg);
+    assert.ok(parsed.transferProfiles?.some((p) => p.destination === "+15095550100"));
+    assert.ok(parsed.assistantContext?.pricing?.includes("Drain"));
+    assert.ok(parsed.shopPlaybook);
+  } finally {
+    if (prevSecret !== undefined) process.env.TELNYX_WEBHOOK_SECRET = prevSecret;
+    else delete process.env.TELNYX_WEBHOOK_SECRET;
+  }
+});
+
+test("buildTenantRuntimeConfig injects oncall from playbook E.164 without forwarding UI", () => {
+  const prevSecret = process.env.TELNYX_WEBHOOK_SECRET;
+  process.env.TELNYX_WEBHOOK_SECRET = "whsec_test_sprint0";
+  try {
+    const tenant = baseTenantContext({ id: "oncall-only" });
+    tenant.shopPlaybook = { onCallE164: "+15095550222", onCallTimeoutSecs: 80 };
+    const parsed = parseRuntimeTenantConfig(buildTenantRuntimeConfig(tenant, null, null, null));
+    const oncall = parsed.transferProfiles?.find((p) => p.id === "oncall");
+    assert.ok(oncall);
+    assert.equal(oncall.destination, "+15095550222");
+    assert.equal(oncall.timeoutSecs, 80);
+  } finally {
+    if (prevSecret !== undefined) process.env.TELNYX_WEBHOOK_SECRET = prevSecret;
+    else delete process.env.TELNYX_WEBHOOK_SECRET;
+  }
+});

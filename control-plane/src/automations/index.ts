@@ -3,12 +3,18 @@
  * Exports all public APIs and initializes the engine.
  */
 
-export { handleCallEnded, handleScheduledTrigger } from "./eventBus";
-export { matchAndEnqueue } from "./matcher";
+export { handleCallEnded, handleScheduledTrigger, handleJobCompleted, qaLooksRisky } from "./eventBus";
+export { matchAndEnqueue, evaluateConditions } from "./matcher";
 export { executePipeline, dryRunPipeline } from "./pipeline";
 export { enqueueJob, onJob, startPolling, stopPolling } from "./jobQueue";
 export { startScheduler, stopScheduler } from "./scheduler";
 export { actionHandlers } from "./actions";
+export {
+  ensureTenantWorkflows,
+  enableWorkflowTemplate,
+  galleryPayload,
+  adoptDemoShopWorkflows,
+} from "./templates";
 export * from "./types";
 export * from "./db";
 

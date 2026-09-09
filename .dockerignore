@@ -1,0 +1,9 @@
+.git
+**/.git
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+web/build
+web/coverage
+**/.DS_Store

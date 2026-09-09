@@ -105,6 +105,7 @@ CHATTERBOX_URL="$(read_kv CHATTERBOX_URL)"
 KOKORO_URL="$(read_kv KOKORO_URL)"
 COQUI_XTTS_URL="$(read_kv COQUI_XTTS_URL)"
 QWEN3_TTS_URL="$(read_kv QWEN3_TTS_URL)"
+MISO_TTS_URL="$(read_kv MISO_TTS_URL)"
 HEALTH_VOICE="$(read_kv HEALTH_VOICE_DEPENDENCIES)"
 DEPLOYMENT_PROFILE_ENV="$(read_kv DEPLOYMENT_PROFILE)"
 
@@ -131,6 +132,11 @@ case "$PROFILE" in
     if [[ "$tm" == "chatterbox_http" ]]; then
       if [[ "$CHATTERBOX_URL" == *chatterbox:* ]] || [[ "$CHATTERBOX_URL" == *localhost* ]] || [[ "$CHATTERBOX_URL" == *127.0.0.1* ]]; then
         warn "cloud-api: CHATTERBOX_URL looks like a local Docker hostname — use an external HTTPS endpoint for cloud-api"
+      fi
+    fi
+    if [[ "$tm" == "miso_tts_http" ]]; then
+      if [[ "$MISO_TTS_URL" == *miso-tts:* ]] || [[ "$MISO_TTS_URL" == *localhost* ]] || [[ "$MISO_TTS_URL" == *127.0.0.1* ]]; then
+        warn "cloud-api: MISO_TTS_URL looks like a local Docker hostname — use an external HTTPS endpoint for cloud-api"
       fi
     fi
     if [[ "$LLM_PROVIDER" == "openai" || -n "${OPENAI_API_KEY:-}" ]]; then

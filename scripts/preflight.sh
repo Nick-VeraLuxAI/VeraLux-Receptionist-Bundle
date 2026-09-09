@@ -328,16 +328,16 @@ fi
 TTS="$(read_kv TTS_MODE)"
 [[ -z "$TTS" ]] && TTS="coqui_xtts"
 case "$TTS" in
-  coqui_xtts|kokoro_http|qwen3_tts_http|chatterbox_http) ;;
+  coqui_xtts|kokoro_http|qwen3_tts_http|chatterbox_http|miso_tts_http) ;;
   *)
-    fail "Invalid TTS_MODE='$TTS' (must be coqui_xtts, kokoro_http, qwen3_tts_http, chatterbox_http)"
+    fail "Invalid TTS_MODE='$TTS' (must be coqui_xtts, kokoro_http, qwen3_tts_http, chatterbox_http, miso_tts_http)"
     remediation "Fix TTS_MODE in .env or .env.internal."
     ;;
 esac
 
 if [[ "$PREFLIGHT_CI" != "1" ]]; then
   hf="$(read_kv HF_TOKEN)"
-  if [[ "$TTS" == "chatterbox_http" || "$TTS" == "qwen3_tts_http" ]]; then
+  if [[ "$TTS" == "chatterbox_http" || "$TTS" == "qwen3_tts_http" || "$TTS" == "miso_tts_http" ]]; then
     if [[ -z "$hf" ]] || [[ ${#hf} -lt 8 ]]; then
       fail "TTS_MODE=$TTS requires HF_TOKEN (Hugging Face read token for gated models)"
       remediation "Create a token at https://huggingface.co/settings/tokens and set HF_TOKEN in .env"

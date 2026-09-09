@@ -74,7 +74,9 @@ export type AssistantReplySource =
   | 'brain_http_stream'
   | 'brain_local_default'
   | 'openai_direct'
+  | 'anthropic_direct'
   | 'quick_reply'
+  | 'call_board'
   | 'fallback_error';
 
 /** When the brain wants to transfer the call, it can return this in the reply. */
@@ -297,6 +299,105 @@ async function generateOpenAiDirectReply(
   }
 }
 
+async function generateAnthropicDirectReply(
+  input: AssistantReplyInput,
+  plan: Extract<LlmExecutionPlan, { route: 'anthropic_direct' }>,
+): Promise<AssistantReplyResult> {
+  const sysParts: string[] = [];
+  const p = sanitizePrompts(input.prompts);
+  if (p?.systemPreamble) sysParts.push(p.systemPreamble);
+  if (p?.policyPrompt) sysParts.push(p.policyPrompt);
+  if (p?.voicePrompt) sysParts.push(p.voicePrompt);
+  if (p?.schemaHint) sysParts.push(p.schemaHint);
+  if (input.assistantContext && Object.keys(input.assistantContext).length > 0) {
+    sysParts.push(
+      'Business context:\n' +
+        Object.entries(input.assistantContext)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n'),
+    );
+  }
+  const system = sysParts.join('\n\n').trim() || 'You are a helpful professional phone receptionist. Keep replies concise for voice.';
+  const messages: { role: 'user' | 'assistant'; content: string }[] = [
+    ...input.history
+      .map((t) => ({
+        role: (t.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user',
+        content: t.content,
+      }))
+      .filter((m) => m.content.trim()),
+    { role: 'user', content: input.transcript },
+  ];
+  if (messages[0]?.role === 'assistant') {
+    messages.unshift({ role: 'user', content: 'Hello' });
+  }
+  const url = 'https://api.anthropic.com/v1/messages';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), env.BRAIN_TIMEOUT_MS);
+  try {
+    await input.forensics?.recordLlmRequestPayload({
+      route: 'anthropic_direct',
+      tenantId: input.tenantId,
+      callControlId: input.callControlId,
+      model: plan.model,
+      history_turns: input.history.length,
+    });
+    const response = await withCircuitBreaker({
+      key: 'anthropic_direct',
+      failureThreshold: 3,
+      openMs: 20_000,
+      onOpen: () => incProviderCircuitOpen('openai_direct'),
+      action: () =>
+        fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': plan.apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: plan.model,
+            max_tokens: 512,
+            system,
+            messages,
+          }),
+          signal: controller.signal,
+        }),
+    });
+    if (!response.ok) {
+      const body = await readResponseText(response);
+      const preview = body.length > 500 ? `${body.slice(0, 500)}...` : body;
+      throw new Error(`anthropic reply failed ${response.status}: ${preview}`);
+    }
+    const data = (await response.json()) as { content?: { type?: string; text?: string }[] };
+    const text = (data.content || [])
+      .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text as string)
+      .join('')
+      .trim();
+    if (!text) {
+      throw new Error('anthropic reply missing text');
+    }
+    const result: AssistantReplyResult = { text, source: 'anthropic_direct' };
+    await input.forensics?.recordLlmResponse({ text: result.text, source: result.source });
+    return result;
+  } catch (error) {
+    log.error(
+      {
+        err: error,
+        event: 'anthropic_reply_failed',
+        call_control_id: input.callControlId,
+        tenant_id: input.tenantId,
+      },
+      'anthropic direct reply failed',
+    );
+    const fb = { text: ASSISTANT_VOICE_LLM_ERROR_FALLBACK, source: 'fallback_error' as const };
+    await input.forensics?.recordLlmResponse(fb);
+    return fb;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function readSseStream(
   response: Response,
   onEvent: (event: { event: string; data: string }) => boolean | void,
@@ -410,6 +511,10 @@ export async function generateAssistantReply(
 
   if (plan.route === 'openai_direct') {
     return generateOpenAiDirectReply(input, plan);
+  }
+
+  if (plan.route === 'anthropic_direct') {
+    return generateAnthropicDirectReply(input, plan);
   }
 
   const url = buildBrainUrl(plan.baseUrl);

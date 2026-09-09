@@ -1,6 +1,7 @@
 /**
- * Split assistant text into smaller chunks so Qwen3-TTS can return the first WAV sooner
- * (lower time-to-first-audio) when tenant `qwen3Streaming` is enabled.
+ * Split assistant text into smaller chunks so Qwen3-TTS / Magpie / Kokoro can return the first
+ * WAV sooner (lower time-to-first-audio). Qwen uses this when tenant `qwen3Streaming` is enabled;
+ * Magpie and Kokoro always use it because a full-utterance WAV waits for the whole line.
  * This is not model-level streaming; it is multiple HTTP /tts calls in sequence.
  *
  * Voice consistency: each chunk is an independent synthesis. Stochastic decoding (`do_sample`)
@@ -10,6 +11,31 @@
  */
 
 const MAX_SINGLE_CHUNK_CHARS = 140;
+const MIN_CHUNK_CHARS = 24;
+
+function mergeShortChunks(chunks: string[]): string[] {
+  if (chunks.length <= 1) {
+    return chunks;
+  }
+  const out: string[] = [];
+  for (const raw of chunks) {
+    const t = raw.trim();
+    if (!t) {
+      continue;
+    }
+    const last = out[out.length - 1];
+    if (
+      last &&
+      (last.length < MIN_CHUNK_CHARS || t.length < MIN_CHUNK_CHARS) &&
+      last.length + 1 + t.length <= MAX_SINGLE_CHUNK_CHARS
+    ) {
+      out[out.length - 1] = `${last} ${t}`;
+    } else {
+      out.push(t);
+    }
+  }
+  return out.length ? out : chunks;
+}
 
 function splitLongSentence(s: string): string[] {
   const t = s.trim();
@@ -58,5 +84,6 @@ export function splitQwenStreamingChunks(text: string): string[] {
   for (const s of sentences) {
     expanded.push(...splitLongSentence(s));
   }
-  return expanded.length ? expanded : [t];
+  const merged = mergeShortChunks(expanded);
+  return merged.length ? merged : [t];
 }

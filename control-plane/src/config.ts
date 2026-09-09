@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 dotenv.config();
+import { hasUsableApiKey, ONPREM_NEMOTRON_CHAT_URL, ONPREM_NEMOTRON_MODEL } from "@veralux/shared";
 
 export type LLMProvider = "local" | "openai";
 
@@ -10,25 +11,26 @@ export interface LLMRuntimeConfig {
   openaiApiKey?: string;
 }
 
-const DEFAULT_LOCAL_URL = "http://127.0.0.1:8080/completion";
+const DEFAULT_LOCAL_URL = process.env.LOCAL_LLM_URL || ONPREM_NEMOTRON_CHAT_URL;
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+const DEFAULT_ONPREM_MODEL = process.env.LOCAL_LLM_MODEL || process.env.OPENAI_MODEL || ONPREM_NEMOTRON_MODEL;
+
+function defaultLlmProvider(): LLMProvider {
+  return (process.env.LLM_PROVIDER || "").toLowerCase() === "openai" ? "openai" : "local";
+}
 
 // STT defaults (env → fallback)
 const DEFAULT_WHISPER_URL =
   process.env.WHISPER_URL || "http://127.0.0.1:9000/transcribe";
 
-// TTS defaults (env → fallback)
-// 👉 XTTS default; override with XTTS_URL or KOKORO_URL
+// TTS defaults (env → fallback). Kokoro is the only live engine.
 const DEFAULT_TTS_URL =
-  process.env.XTTS_URL ||
   process.env.KOKORO_URL ||
-  "http://127.0.0.1:8020/tts";
+  "http://kokoro:7001/tts";
 
-// voiceId: XTTS uses speaker ref or model voice (e.g. en_sample); Kokoro uses keys like af_alloy
 const DEFAULT_TTS_VOICE =
-  process.env.XTTS_VOICE_ID ||
   process.env.KOKORO_VOICE_ID ||
-  "en_sample";
+  "af_bella";
 
 // ───────────────────────────────────────────────
 // Voice tuning + presets (XTTS & Kokoro)
@@ -37,7 +39,7 @@ const DEFAULT_TTS_VOICE =
 // ───────────────────────────────────────────────
 
 export type VoicePreset = "neutral" | "warm" | "energetic" | "calm";
-export type TtsMode = "kokoro_http" | "coqui_xtts" | "chatterbox_http" | "qwen3_tts_http";
+export type TtsMode = "kokoro_http" | "coqui_xtts" | "chatterbox_http" | "qwen3_tts_http" | "miso_tts_http" | "magpie_tts_http" | "melo_tts_http" | "openai_tts" | "elevenlabs";
 export type ChatterboxVariant = "turbo" | "standard" | "multilingual";
 export type VoiceMode = "preset" | "cloned";
 
@@ -64,6 +66,12 @@ export interface SafeTtsPublicConfig {
   coquiXttsEndpointConfigured: boolean;
   chatterboxEndpointConfigured: boolean;
   qwen3EndpointConfigured: boolean;
+  misoEndpointConfigured: boolean;
+  magpieEndpointConfigured: boolean;
+  meloEndpointConfigured: boolean;
+  openaiTtsConfigured: boolean;
+  elevenlabsConfigured: boolean;
+  cloudTtsModel?: string;
   clonedVoiceReferenceConfigured: boolean;
   clonedVoiceLabel?: string;
   /** Portal-safe: no speakerWavUrl; use speakerWavConfigured + label only. */
@@ -81,6 +89,17 @@ export interface SafeTtsPublicConfig {
   qwen3SubtalkerTopP?: number;
   qwen3SubtalkerTemperature?: number;
   qwen3Streaming?: boolean;
+  misoMaxAudioLengthMs?: number;
+  misoTemperature?: number;
+  misoTopK?: number;
+  magpieTemperature?: number;
+  magpieCfgScale?: number;
+  magpieTopK?: number;
+  magpieUseCfg?: boolean;
+  magpieApplyTn?: boolean;
+  meloSdpRatio?: number;
+  meloNoiseScale?: number;
+  meloNoiseScaleW?: number;
   coquiTemperature?: number;
   coquiLengthPenalty?: number;
   coquiRepetitionPenalty?: number;
@@ -98,13 +117,21 @@ export interface TTSConfig {
   preset?: VoicePreset;
   
   // Extended fields for XTTS voice cloning
-  ttsMode?: TtsMode;                      // kokoro_http | coqui_xtts | chatterbox_http | qwen3_tts_http
+  ttsMode?: TtsMode;
+  /** OpenAI TTS / ElevenLabs model id (voice stays in voiceId). */
+  cloudTtsModel?: string;
   coquiXttsUrl?: string;                  // URL for XTTS server
   kokoroUrl?: string;                     // URL for Kokoro server
   /** Chatterbox TTS HTTP base (e.g. http://host:7005 — /tts is appended by runtime). */
   chatterboxUrl?: string;
   /** Qwen3-TTS HTTP base (e.g. http://host:7010 — /tts is appended by preview/runtime). */
   qwen3TtsUrl?: string;
+  /** Miso TTS 8B HTTP base (e.g. http://host:7011 — /tts is appended by preview/runtime). */
+  misoTtsUrl?: string;
+  /** NVIDIA Magpie HTTP base (e.g. http://host:7012). */
+  magpieTtsUrl?: string;
+  /** MeloTTS HTTP base (e.g. http://host:7013). */
+  meloTtsUrl?: string;
   /** Optional style hint for Qwen3 CustomVoice preview. */
   qwen3Instruct?: string;
   /** Qwen3 CustomVoice generation (optional; forwarded to qwen3_tts_server / generate_custom_voice). */
@@ -124,6 +151,18 @@ export interface TTSConfig {
    * synthesizes each via separate /tts calls so the first audio can start sooner.
    */
   qwen3Streaming?: boolean;
+  /** Miso TTS generate() knobs. */
+  misoMaxAudioLengthMs?: number;
+  misoTemperature?: number;
+  misoTopK?: number;
+  magpieTemperature?: number;
+  magpieCfgScale?: number;
+  magpieTopK?: number;
+  magpieUseCfg?: boolean;
+  magpieApplyTn?: boolean;
+  meloSdpRatio?: number;
+  meloNoiseScale?: number;
+  meloNoiseScaleW?: number;
   /** Coqui XTTS decoding (optional; forwarded to your XTTS HTTP API). */
   coquiTemperature?: number;
   coquiLengthPenalty?: number;
@@ -201,12 +240,30 @@ function sanitizeUrl(value: string | undefined): string | undefined {
   return trimmed.length ? trimmed : undefined;
 }
 
+const KOKORO_VOICE_RE = /^(a[fm]_|b[fm]_)[a-z]+$/i;
+
+function defaultKokoroVoice(): string {
+  const envV = (process.env.KOKORO_VOICE_ID || "").trim();
+  return KOKORO_VOICE_RE.test(envV) ? envV : "af_bella";
+}
+
+export function coerceKokoroVoiceId(voice?: string): string {
+  const v = (voice || "").trim();
+  return KOKORO_VOICE_RE.test(v) ? v : defaultKokoroVoice();
+}
+
+function coerceKokoroLanguage(lang?: string, voice?: string): string {
+  const l = (lang || "").trim();
+  if (/^en-GB$/i.test(l) || /^(bf_|bm_)/i.test(voice || "")) return "en-GB";
+  return "en-US";
+}
+
 function getEnvWhisperUrl(): string | undefined {
   return sanitizeUrl(process.env.WHISPER_URL);
 }
 
 function getEnvTtsUrl(): string | undefined {
-  return sanitizeUrl(process.env.XTTS_URL || process.env.KOKORO_URL);
+  return sanitizeUrl(process.env.KOKORO_URL);
 }
 
 function getEnvChatterboxUrl(): string | undefined {
@@ -215,6 +272,18 @@ function getEnvChatterboxUrl(): string | undefined {
 
 function getEnvQwen3TtsUrl(): string | undefined {
   return sanitizeUrl(process.env.QWEN3_TTS_URL);
+}
+
+function getEnvMisoTtsUrl(): string | undefined {
+  return sanitizeUrl(process.env.MISO_TTS_URL);
+}
+
+function getEnvMagpieTtsUrl(): string | undefined {
+  return sanitizeUrl(process.env.MAGPIE_TTS_URL) || "http://veralux-magpie-tts:7012";
+}
+
+function getEnvMeloTtsUrl(): string | undefined {
+  return sanitizeUrl(process.env.MELO_TTS_URL) || "http://veralux-melo-tts:7013";
 }
 
 /** Host is loopback — not reachable from the control-plane container in Docker. */
@@ -248,7 +317,23 @@ function isLegacyQwen3DockerHostname(urlStr: string): boolean {
   }
 }
 
-/** Prefer QWEN3_TTS_URL when the DB has loopback or legacy `qwen3-tts` (saved URL must not beat compose env). */
+function isNonQwen3TtsHost(urlStr: string): boolean {
+  try {
+    const host = new URL(urlStr).hostname.toLowerCase();
+    return (
+      host === "chatterbox" ||
+      host.includes("chatterbox") ||
+      host === "kokoro" ||
+      host.includes("kokoro") ||
+      host === "xtts" ||
+      host.includes("miso")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Prefer QWEN3_TTS_URL when the saved URL is loopback, legacy, or another engine. */
 function resolveQwen3TtsUrl(
   saved: string | undefined,
   envUrl: string | undefined
@@ -257,6 +342,36 @@ function resolveQwen3TtsUrl(
   const e = envUrl;
   if (e && s && isLoopbackHttpUrl(s)) return e;
   if (e && s && isLegacyQwen3DockerHostname(s)) return e;
+  if (e && s && isNonQwen3TtsHost(s)) return e;
+  return s || e;
+}
+
+function isLegacyMisoDockerHostname(urlStr: string): boolean {
+  try {
+    return new URL(urlStr).hostname.toLowerCase() === "miso-tts";
+  } catch {
+    return false;
+  }
+}
+
+function resolveMisoTtsUrl(
+  saved: string | undefined,
+  envUrl: string | undefined
+): string | undefined {
+  const s = sanitizeUrl(saved);
+  const e = envUrl;
+  if (e && s && isLoopbackHttpUrl(s)) return e;
+  if (e && s && isLegacyMisoDockerHostname(s)) return e;
+  return s || e;
+}
+
+function resolveEngineTtsUrl(
+  saved: string | undefined,
+  envUrl: string | undefined
+): string | undefined {
+  const s = sanitizeUrl(saved);
+  const e = envUrl;
+  if (e && s && isLoopbackHttpUrl(s)) return e;
   return s || e;
 }
 
@@ -268,7 +383,7 @@ const DEFAULT_TTS_RATE = clamp(
 );
 
 // XTTS default: ISO 639-1 (e.g. en, es, fr). Kokoro often uses "a" / "b".
-const DEFAULT_TTS_LANG = process.env.XTTS_LANG || process.env.KOKORO_LANG || "en";
+const DEFAULT_TTS_LANG = process.env.KOKORO_LANG || "en-US";
 
 const DEFAULT_TTS_PRESET: VoicePreset =
   ((process.env.XTTS_PRESET || process.env.KOKORO_PRESET) as VoicePreset) ||
@@ -295,8 +410,12 @@ export interface PromptConfig {
   greetingText: string;
 }
 
+export type SttMode = "whisper_http" | "disabled" | "http_wav_json" | "openai_whisper" | "deepgram";
+
 export interface STTConfig {
   whisperUrl: string;
+  mode?: SttMode;
+  model?: string;
 }
 
 /** Portal-safe STT flags (no whisperUrl). */
@@ -352,13 +471,14 @@ export class LLMConfigStore {
   private tts: TTSConfig;
 
   constructor(initial?: Partial<SerializedLLMConfig>) {
-    const providerEnv = (process.env.LLM_PROVIDER || "").toLowerCase();
-    const provider: LLMProvider = providerEnv === "local" ? "local" : "openai";
+    const provider = defaultLlmProvider();
 
     this.config = initial?.config || {
       provider,
       localUrl: process.env.LOCAL_LLM_URL || DEFAULT_LOCAL_URL,
-      openaiModel: process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+      openaiModel:
+        process.env.OPENAI_MODEL ||
+        (provider === "local" ? DEFAULT_ONPREM_MODEL : DEFAULT_OPENAI_MODEL),
       openaiApiKey: process.env.OPENAI_API_KEY,
     };
 
@@ -375,6 +495,7 @@ export class LLMConfigStore {
 
     this.stt = initial?.stt || {
       whisperUrl: DEFAULT_WHISPER_URL,
+      mode: "whisper_http",
     };
 
     // TTS – XTTS/Kokoro config
@@ -397,9 +518,7 @@ export class LLMConfigStore {
     const provider =
       next.provider ??
       this.config.provider ??
-      ((process.env.LLM_PROVIDER || "").toLowerCase() === "local"
-        ? "local"
-        : "openai");
+      defaultLlmProvider();
 
     const localUrl =
       next.localUrl ??
@@ -461,7 +580,7 @@ export class LLMConfigStore {
       provider: this.config.provider,
       openaiModel: this.config.openaiModel,
       hasOpenAIApiKey:
-        !!this.config.openaiApiKey || !!process.env.OPENAI_API_KEY,
+        hasUsableApiKey(this.config.openaiApiKey) || hasUsableApiKey(process.env.OPENAI_API_KEY),
       localLlmEndpointConfigured: Boolean(
         (this.config.localUrl || process.env.LOCAL_LLM_URL || "").trim().length
       ),
@@ -472,7 +591,19 @@ export class LLMConfigStore {
 
   getSttConfig(): STTConfig {
     const envWhisperUrl = getEnvWhisperUrl();
-    return { whisperUrl: envWhisperUrl || this.stt.whisperUrl || DEFAULT_WHISPER_URL };
+    return {
+      whisperUrl: envWhisperUrl || this.stt.whisperUrl || DEFAULT_WHISPER_URL,
+      mode: this.stt.mode || "whisper_http",
+      model: this.stt.model,
+    };
+  }
+
+  setSttConfig(next: Partial<STTConfig>): STTConfig {
+    this.stt = {
+      ...this.getSttConfig(),
+      ...next,
+    };
+    return this.getSttConfig();
   }
 
   getSafeSttPublic(): SafeSttPublicConfig {
@@ -496,17 +627,22 @@ export class LLMConfigStore {
 
     const config: TTSConfig = {
       xttsUrl: envTtsUrl || base.xttsUrl || DEFAULT_TTS_URL,
-      voiceId: vi,
-      language: lang,
+      voiceId: coerceKokoroVoiceId(vi),
+      language: coerceKokoroLanguage(lang, vi),
       // If a preset exists, it can provide a default rate — but explicit rate wins.
       rate: clamp(rateSource, 0.8, 1.2),
       preset,
-      // Extended fields - default to coqui_xtts for voice cloning support
-      ttsMode: base.ttsMode || "coqui_xtts",
+      ttsMode: "kokoro_http",
       coquiXttsUrl: base.coquiXttsUrl,
-      kokoroUrl: base.kokoroUrl,
+      kokoroUrl:
+        (base.kokoroUrl && /kokoro/i.test(base.kokoroUrl) ? base.kokoroUrl : "") ||
+        sanitizeUrl(process.env.KOKORO_URL) ||
+        DEFAULT_TTS_URL,
       chatterboxUrl: resolveChatterboxUrl(base.chatterboxUrl, getEnvChatterboxUrl()),
       qwen3TtsUrl: resolveQwen3TtsUrl(base.qwen3TtsUrl, getEnvQwen3TtsUrl()),
+      misoTtsUrl: resolveMisoTtsUrl(base.misoTtsUrl, getEnvMisoTtsUrl()),
+      magpieTtsUrl: resolveEngineTtsUrl(base.magpieTtsUrl, getEnvMagpieTtsUrl()),
+      meloTtsUrl: resolveEngineTtsUrl(base.meloTtsUrl, getEnvMeloTtsUrl()),
       qwen3Instruct: qInstr,
       qwen3DoSample: base.qwen3DoSample,
       qwen3Temperature: clampOptNum(base.qwen3Temperature, 0, 2),
@@ -520,6 +656,17 @@ export class LLMConfigStore {
       qwen3SubtalkerTopP: clampOptNum(base.qwen3SubtalkerTopP, 0, 1),
       qwen3SubtalkerTemperature: clampOptNum(base.qwen3SubtalkerTemperature, 0, 2),
       qwen3Streaming: base.qwen3Streaming === true,
+      misoMaxAudioLengthMs: clampOptInt(base.misoMaxAudioLengthMs, 500, 90_000),
+      misoTemperature: clampOptNum(base.misoTemperature, 0, 2),
+      misoTopK: clampOptInt(base.misoTopK, 1, 1000),
+      magpieTemperature: clampOptNum(base.magpieTemperature, 0.05, 1.5),
+      magpieCfgScale: clampOptNum(base.magpieCfgScale, 0.5, 5),
+      magpieTopK: clampOptInt(base.magpieTopK, 1, 200),
+      magpieUseCfg: base.magpieUseCfg,
+      magpieApplyTn: base.magpieApplyTn,
+      meloSdpRatio: clampOptNum(base.meloSdpRatio, 0, 1),
+      meloNoiseScale: clampOptNum(base.meloNoiseScale, 0, 2),
+      meloNoiseScaleW: clampOptNum(base.meloNoiseScaleW, 0, 2),
       coquiTemperature: clampOptNum(base.coquiTemperature, 0, 2),
       coquiLengthPenalty: clampOptNum(base.coquiLengthPenalty, -10, 10),
       coquiRepetitionPenalty: clampOptNum(base.coquiRepetitionPenalty, 0.5, 2),
@@ -530,6 +677,7 @@ export class LLMConfigStore {
       chatterboxVariant: base.chatterboxVariant ?? "turbo",
       clonedVoice: base.clonedVoice,
       defaultVoiceMode: base.defaultVoiceMode || "preset",
+      cloudTtsModel: base.cloudTtsModel,
     };
 
     return config;
@@ -552,16 +700,17 @@ export class LLMConfigStore {
         typeof next.language === "string" && next.language.trim().length
           ? truncateTtsField(next.language, 32)
           : current.language,
-      voiceId:
+      voiceId: coerceKokoroVoiceId(
         typeof next.voiceId === "string" && next.voiceId.trim().length
           ? truncateTtsField(next.voiceId, 100)
-          : current.voiceId,
+          : current.voiceId
+      ),
       xttsUrl:
         typeof next.xttsUrl === "string" && next.xttsUrl.trim().length
           ? next.xttsUrl.trim()
           : current.xttsUrl,
       // Extended fields for voice cloning
-      ttsMode: next.ttsMode ?? current.ttsMode,
+      ttsMode: "kokoro_http",
       coquiXttsUrl:
         typeof next.coquiXttsUrl === "string" && next.coquiXttsUrl.trim().length
           ? next.coquiXttsUrl.trim()
@@ -585,6 +734,24 @@ export class LLMConfigStore {
           ? next.qwen3TtsUrl.trim()
           : next.qwen3TtsUrl === undefined
           ? current.qwen3TtsUrl
+          : undefined,
+      misoTtsUrl:
+        typeof next.misoTtsUrl === "string" && next.misoTtsUrl.trim().length
+          ? next.misoTtsUrl.trim()
+          : next.misoTtsUrl === undefined
+          ? current.misoTtsUrl
+          : undefined,
+      magpieTtsUrl:
+        typeof next.magpieTtsUrl === "string" && next.magpieTtsUrl.trim().length
+          ? next.magpieTtsUrl.trim()
+          : next.magpieTtsUrl === undefined
+          ? current.magpieTtsUrl
+          : undefined,
+      meloTtsUrl:
+        typeof next.meloTtsUrl === "string" && next.meloTtsUrl.trim().length
+          ? next.meloTtsUrl.trim()
+          : next.meloTtsUrl === undefined
+          ? current.meloTtsUrl
           : undefined,
       qwen3Instruct:
         next.qwen3Instruct !== undefined
@@ -616,6 +783,17 @@ export class LLMConfigStore {
         2
       ),
       qwen3Streaming: next.qwen3Streaming !== undefined ? next.qwen3Streaming : current.qwen3Streaming,
+      misoMaxAudioLengthMs: mergeBoundedInt(next.misoMaxAudioLengthMs, current.misoMaxAudioLengthMs, 500, 90_000),
+      misoTemperature: mergeBoundedNum(next.misoTemperature, current.misoTemperature, 0, 2),
+      misoTopK: mergeBoundedInt(next.misoTopK, current.misoTopK, 1, 1000),
+      magpieTemperature: mergeBoundedNum(next.magpieTemperature, current.magpieTemperature, 0.05, 1.5),
+      magpieCfgScale: mergeBoundedNum(next.magpieCfgScale, current.magpieCfgScale, 0.5, 5),
+      magpieTopK: mergeBoundedInt(next.magpieTopK, current.magpieTopK, 1, 200),
+      magpieUseCfg: next.magpieUseCfg !== undefined ? next.magpieUseCfg : current.magpieUseCfg,
+      magpieApplyTn: next.magpieApplyTn !== undefined ? next.magpieApplyTn : current.magpieApplyTn,
+      meloSdpRatio: mergeBoundedNum(next.meloSdpRatio, current.meloSdpRatio, 0, 1),
+      meloNoiseScale: mergeBoundedNum(next.meloNoiseScale, current.meloNoiseScale, 0, 2),
+      meloNoiseScaleW: mergeBoundedNum(next.meloNoiseScaleW, current.meloNoiseScaleW, 0, 2),
       coquiTemperature: mergeBoundedNum(next.coquiTemperature, current.coquiTemperature, 0, 2),
       coquiLengthPenalty: mergeBoundedNum(next.coquiLengthPenalty, current.coquiLengthPenalty, -10, 10),
       coquiRepetitionPenalty: mergeBoundedNum(
@@ -634,6 +812,12 @@ export class LLMConfigStore {
       clonedVoice: next.clonedVoice !== undefined
         ? next.clonedVoice
         : current.clonedVoice,
+      cloudTtsModel:
+        typeof next.cloudTtsModel === "string" && next.cloudTtsModel.trim()
+          ? next.cloudTtsModel.trim()
+          : next.cloudTtsModel === undefined
+            ? current.cloudTtsModel
+            : undefined,
     };
 
     this.tts = merged;
@@ -660,8 +844,8 @@ export class LLMConfigStore {
   getSafeTtsConfig(): SafeTtsPublicConfig {
     const t = this.getTtsConfig();
     return {
-      ttsMode: t.ttsMode || "kokoro_http",
-      voiceId: t.voiceId,
+      ttsMode: "kokoro_http",
+      voiceId: coerceKokoroVoiceId(t.voiceId),
       language: t.language,
       rate: t.rate,
       preset: t.preset,
@@ -672,6 +856,12 @@ export class LLMConfigStore {
       coquiXttsEndpointConfigured: Boolean((t.coquiXttsUrl || "").trim()),
       chatterboxEndpointConfigured: Boolean((t.chatterboxUrl || "").trim()),
       qwen3EndpointConfigured: Boolean((t.qwen3TtsUrl || "").trim()),
+      misoEndpointConfigured: Boolean((t.misoTtsUrl || "").trim()),
+      magpieEndpointConfigured: Boolean((t.magpieTtsUrl || "").trim()),
+      meloEndpointConfigured: Boolean((t.meloTtsUrl || "").trim()),
+      openaiTtsConfigured: hasUsableApiKey(process.env.OPENAI_API_KEY),
+      elevenlabsConfigured: hasUsableApiKey(process.env.ELEVENLABS_API_KEY),
+      cloudTtsModel: t.cloudTtsModel,
       clonedVoiceReferenceConfigured: Boolean(t.clonedVoice?.speakerWavUrl?.trim()),
       clonedVoiceLabel: t.clonedVoice?.label,
       clonedVoice:
@@ -694,6 +884,17 @@ export class LLMConfigStore {
       qwen3SubtalkerTopP: t.qwen3SubtalkerTopP,
       qwen3SubtalkerTemperature: t.qwen3SubtalkerTemperature,
       qwen3Streaming: t.qwen3Streaming === true,
+      misoMaxAudioLengthMs: t.misoMaxAudioLengthMs,
+      misoTemperature: t.misoTemperature,
+      misoTopK: t.misoTopK,
+      magpieTemperature: t.magpieTemperature,
+      magpieCfgScale: t.magpieCfgScale,
+      magpieTopK: t.magpieTopK,
+      magpieUseCfg: t.magpieUseCfg,
+      magpieApplyTn: t.magpieApplyTn,
+      meloSdpRatio: t.meloSdpRatio,
+      meloNoiseScale: t.meloNoiseScale,
+      meloNoiseScaleW: t.meloNoiseScaleW,
       coquiTemperature: t.coquiTemperature,
       coquiLengthPenalty: t.coquiLengthPenalty,
       coquiRepetitionPenalty: t.coquiRepetitionPenalty,

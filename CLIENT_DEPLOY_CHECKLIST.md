@@ -16,7 +16,7 @@ Use this in order. **Official orchestration:** `./up` or `./deploy.sh up` from t
 ## B. Configuration files
 
 - [ ] **`cp .env.example .env`** and fill required keys (see **`QUICKSTART.md`** table).
-- [ ] **`TTS_MODE`** is one of: `coqui_xtts`, `kokoro_http`, `chatterbox_http`, `qwen3_tts_http` (voice deployments).
+- [ ] **`TTS_MODE`** is one of: `coqui_xtts`, `kokoro_http`, `chatterbox_http`, `qwen3_tts_http`, `miso_tts_http` (voice deployments).
 - [ ] If **`TTS_MODE=chatterbox_http`**: host must use **GPU** profile (no `chatterbox-cpu` in this repo — **`DEPLOYMENT_CONTRACT.md`**).
 - [ ] Optional: **`.env.internal`** for overrides; **`deploy.sh`** merges it when present.
 - [ ] **`VERSION`** / **`REGISTRY`** pinned (avoid **`latest`** for fleets — **`RELEASE_CHANNELS.md`**).
@@ -98,3 +98,21 @@ docker logs veralux-whisper 2>&1 | tail -80   # STT container name is fixed; ser
 ```
 
 Requires **`NGROK_AUTHTOKEN`** in env.
+
+---
+
+## I. Night desk cutover (white-glove)
+
+Gated in **Admin → Cutover** / **Portal → Go-live**. Do not tell the shop they are live until every row passes.
+
+- [ ] DID inbound rings this tenant.
+- [ ] Hours published (reuse `businessHours`, no second hours engine).
+- [ ] Shop playbook published (area, refuse, quote-hold, emergencies).
+- [ ] On-call SMS received on the static E.164.
+- [ ] Refuse out-of-area test call.
+- [ ] Book-or-hold test creates a real Jobber board job. Dry-run is development-only and does not pass cutover.
+- [ ] Scripted test call (`test_call` row).
+- [ ] Day desk: hours/FAQ, transfer-or-message, existing CID, quote-or-hold (`scripts/assert-receptionist-desk-source.sh`, then `scripts/receptionist-desk-proof.sh`). Audio demo-tts bind mounts stay until feel-pass image bake.
+- [ ] Sales leave-behind: `docs/sales/telnyx-local-voice.md`.
+- [ ] Configure `JOBBER_CLIENT_ID` / `JOBBER_CLIENT_SECRET`, register the callback shown in `.env.example`, then connect from **Admin → Settings**.
+- [ ] Run `TENANT_ID=... ADMIN_API_KEY=... bash scripts/night-desk-demo-proof.sh`; use `RUN_LIVE_ONCALL_DRILL=1` and `RUN_LIVE_FSM_WRITE=1` only during the supervised cutover.

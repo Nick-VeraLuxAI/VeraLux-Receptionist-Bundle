@@ -13,7 +13,9 @@ This document describes the **three-level** model for call telemetry on the Vera
 ### Call Quality Analytics (tenant / admin configurable)
 
 - When **enabled** (default), the voice runtime builds a **quality summary** per call (derived metrics only) and `POST`s it to the control plane.
-- Summaries include latency risk, echo risk, transcript quality, dead-air / barge-in flags, and counts such as assistant-echo rejections.
+- Summaries include latency risk, echo risk, transcript quality, dead-air / barge-in flags, counts such as assistant-echo rejections, and an **audio invariant** scorecard (`audioInvariants` on the stored JSON).
+- Audio invariants classify SID / comfort-noise decode ticks (budget) vs product-class fails: stacked Telnyx plays, playback sample rate ≠ 16 kHz AEC tap, speech-decode spikes, large sequence gaps. They **do not** retune AMR-WB decode.
+- Hangup also logs `event=audio_invariant_report` with marker `VERA_DEMO_SHOP_AUDIOINV_20260907`.
 - **No raw WAV** by default.
 - Client portal visibility is controlled with **Show quality summary in client portal** (on by default).
 

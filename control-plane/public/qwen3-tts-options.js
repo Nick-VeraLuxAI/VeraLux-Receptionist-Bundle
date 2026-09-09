@@ -1,5 +1,5 @@
 /**
- * TTS voice & language dropdown data + helpers (Qwen3 CustomVoice, Kokoro, XTTS, ISO languages).
+ * TTS voice & language dropdown data + helpers (Qwen3 CustomVoice, Miso, Kokoro, XTTS, ISO languages).
  * Qwen3: https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
  * Kokoro voices: VOICES.md (Kokoro v1.0 style IDs)
  */
@@ -21,15 +21,63 @@
 
   /** @type {{ value: string, label: string }[]} */
   const QWEN3_SPEAKERS = [
-    { value: "Vivian", label: "Vivian — bright young female (Chinese)" },
-    { value: "Serena", label: "Serena — warm gentle female (Chinese)" },
-    { value: "Uncle_Fu", label: "Uncle Fu — seasoned low male (Chinese)" },
-    { value: "Dylan", label: "Dylan — Beijing male, clear (Chinese)" },
-    { value: "Eric", label: "Eric — Chengdu male, lively (Sichuan)" },
+    { value: "Serena", label: "Serena — warm receptionist (best English female)" },
+    { value: "Vivian", label: "Vivian — bright slightly edgy young female" },
+    { value: "Sohee", label: "Sohee — warm emotional female" },
+    { value: "Ono_Anna", label: "Ono Anna — playful light female" },
     { value: "Ryan", label: "Ryan — dynamic English male" },
-    { value: "Aiden", label: "Aiden — sunny US English male" },
-    { value: "Ono_Anna", label: "Ono Anna — playful Japanese female" },
-    { value: "Sohee", label: "Sohee — warm Korean female" },
+    { value: "Aiden", label: "Aiden — sunny American male" },
+    { value: "Uncle_Fu", label: "Uncle Fu — seasoned low male" },
+    { value: "Dylan", label: "Dylan — clear Beijing male" },
+    { value: "Eric", label: "Eric — lively Chengdu male" },
+  ];
+
+  /** Miso TTS uses integer speaker IDs in its prompt format. */
+  const MISO_SPEAKERS = [
+    { value: "0", label: "0 — default speaker" },
+    { value: "1", label: "1 — alternate speaker" },
+  ];
+
+  const MAGPIE_SPEAKERS = [
+    { value: "Aria", label: "Aria — bright female" },
+    { value: "Jason", label: "Jason — clear male" },
+    { value: "John", label: "John — warm male" },
+    { value: "Leo", label: "Leo — deeper male" },
+    { value: "Sofia", label: "Sofia — warm receptionist female" },
+  ];
+  const MAGPIE_LANGUAGES = [
+    { value: "en", label: "English" },
+    { value: "es", label: "Spanish" },
+    { value: "fr", label: "French" },
+    { value: "de", label: "German" },
+    { value: "it", label: "Italian" },
+    { value: "pt", label: "Portuguese" },
+    { value: "zh", label: "Chinese" },
+    { value: "ja", label: "Japanese" },
+    { value: "ko", label: "Korean" },
+    { value: "hi", label: "Hindi" },
+    { value: "vi", label: "Vietnamese" },
+    { value: "ar", label: "Arabic" },
+  ];
+  const MELO_SPEAKERS = [
+    { value: "EN-US", label: "EN-US — American English" },
+    { value: "EN-BR", label: "EN-BR — British English" },
+    { value: "EN-INDIA", label: "EN-INDIA — Indian English" },
+    { value: "EN-AU", label: "EN-AU — Australian English" },
+    { value: "EN-Default", label: "EN-Default — default English" },
+    { value: "ES", label: "ES — Spanish" },
+    { value: "FR", label: "FR — French" },
+    { value: "ZH", label: "ZH — Chinese" },
+    { value: "JP", label: "JP — Japanese" },
+    { value: "KR", label: "KR — Korean" },
+  ];
+  const MELO_LANGUAGES = [
+    { value: "EN", label: "English" },
+    { value: "ES", label: "Spanish" },
+    { value: "FR", label: "French" },
+    { value: "ZH", label: "Chinese" },
+    { value: "JP", label: "Japanese" },
+    { value: "KR", label: "Korean" },
   ];
 
   /** Kokoro v1.0 preset voice IDs (hexgrad/misaki voice packs). */
@@ -201,6 +249,18 @@
       fillSelect(selectEl, QWEN3_SPEAKERS, selectedValue, "saved");
       return;
     }
+    if (mode === "magpie_tts_http") {
+      fillSelect(selectEl, MAGPIE_SPEAKERS, selectedValue, "saved");
+      return;
+    }
+    if (mode === "melo_tts_http") {
+      fillSelect(selectEl, MELO_SPEAKERS, selectedValue, "saved");
+      return;
+    }
+    if (mode === "miso_tts_http") {
+      fillSelect(selectEl, MISO_SPEAKERS, selectedValue, "custom");
+      return;
+    }
     if (mode === "kokoro_http") {
       fillSelect(selectEl, KOKORO_VOICES, selectedValue, "custom");
       return;
@@ -221,6 +281,14 @@
     if (!selectEl) return;
     if (mode === "qwen3_tts_http") {
       fillSelect(selectEl, QWEN3_LANGUAGES, selectedValue, "saved");
+      return;
+    }
+    if (mode === "magpie_tts_http") {
+      fillSelect(selectEl, MAGPIE_LANGUAGES, selectedValue, "saved");
+      return;
+    }
+    if (mode === "melo_tts_http") {
+      fillSelect(selectEl, MELO_LANGUAGES, selectedValue, "saved");
       return;
     }
     if (mode === "coqui_xtts" || mode === "chatterbox_http") {
@@ -249,8 +317,17 @@
     } else if (mode === "kokoro_http") {
       if (!v || !KOKORO_VOICE_PATTERN.test(v)) v = "af_bella";
     } else if (mode === "qwen3_tts_http") {
-      if (!v) v = "Ryan";
+      if (!v) v = "Serena";
       if (!l) l = "English";
+    } else if (mode === "magpie_tts_http") {
+      if (!v) v = "Sofia";
+      if (!l) l = "en";
+    } else if (mode === "melo_tts_http") {
+      if (!v) v = "EN-US";
+      if (!l) l = "EN";
+    } else if (mode === "miso_tts_http") {
+      if (!v || !/^\d+$/.test(v)) v = "0";
+      l = "en";
     } else if (mode === "chatterbox_http") {
       if (!l || KOKORO_LANG_SINGLE.includes(l)) l = "en";
     }
@@ -265,7 +342,7 @@
     const lSel = document.getElementById(ids.langSelect);
     if (!vIn || !vSel || !lIn || !lSel) return;
     if (isQwen3) {
-      fillSelect(vSel, QWEN3_SPEAKERS, vIn.value || "Ryan", "saved");
+      fillSelect(vSel, QWEN3_SPEAKERS, vIn.value || "Serena", "saved");
       fillSelect(lSel, QWEN3_LANGUAGES, lIn.value || "English", "saved");
       vIn.style.display = "none";
       vSel.style.display = "block";
@@ -302,5 +379,6 @@
     ISO_LANGUAGES: ISO_LANGUAGES,
     QWEN3_LANGUAGES: QWEN3_LANGUAGES,
     QWEN3_SPEAKERS: QWEN3_SPEAKERS,
+    MISO_SPEAKERS: MISO_SPEAKERS,
   };
 })(typeof window !== "undefined" ? window : globalThis);

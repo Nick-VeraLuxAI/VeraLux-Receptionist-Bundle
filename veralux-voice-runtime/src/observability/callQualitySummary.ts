@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { CallSessionMetrics, CallTranscript } from '../calls/types';
 import type { AudioForensicsSession } from './audioForensics';
+import type { AudioInvariantReport } from './audioInvariantReport';
 import { mergeCallQualityDefaults } from './callQualityPolicy';
 import type { RuntimeTenantConfig } from '@veralux/shared';
 
@@ -14,6 +15,7 @@ export type QualitySignalsSnapshot = {
   sttLatencyMs: number[];
   ttsLatencyMs: number[];
   llmLatencyMs: number[];
+  audioInvariants?: AudioInvariantReport;
 };
 
 function avg(nums: number[]): number | null {
@@ -131,13 +133,18 @@ export function buildCallQualitySummaryPayload(opts: {
   if (opts.qualitySignals.transcriptDeferred > 0) {
     notes.push('transcript_deferred_during_playback');
   }
+  const audioInvariants = opts.qualitySignals.audioInvariants;
+  if (audioInvariants?.fails?.length) {
+    for (const fail of audioInvariants.fails) notes.push(`audio_invariant:${fail}`);
+  }
 
   let qualityStatus: 'good' | 'warning' | 'poor' | 'unknown' = 'good';
   if (
     latencyRisk === 'high' ||
     echoRisk === 'high' ||
     missedSpeechRisk === 'high' ||
-    transcriptQuality === 'poor'
+    transcriptQuality === 'poor' ||
+    audioInvariants?.productClassFail === true
   ) {
     qualityStatus = 'poor';
   } else if (
@@ -173,6 +180,7 @@ export function buildCallQualitySummaryPayload(opts: {
     avgTtsLatencyMs: avgTts,
     postPlaybackFrameDropped,
     postPlaybackFrameReleased,
+    audioInvariants: audioInvariants ?? null,
     callQualityAnalyticsEnabled: cq.callQualityAnalyticsEnabled,
     rawDiagnosticsSession: opts.forensics ? path.basename(opts.forensics.sessionDir) : null,
     notes,

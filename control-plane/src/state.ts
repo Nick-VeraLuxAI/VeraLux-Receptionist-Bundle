@@ -1,10 +1,24 @@
 import { randomUUID } from "crypto";
-import type { CallState, Stage } from "./runTypes";
+import type { CallState, Lead, Stage } from "./runTypes";
+import { isUuid } from "./utils/validation";
 
 const INITIAL_STAGE: Stage = "greeting";
 
-const CALL_TTL_MS = Number(process.env.CALL_TTL_MS ?? 30 * 60_000); // 30 min
+export const CALL_TTL_MS = Number(process.env.CALL_TTL_MS ?? 30 * 60_000); // 30 min
 const SWEEP_MS = Number(process.env.CALL_SWEEP_MS ?? 60_000); // 60 sec
+
+const ENDED_STAGES = new Set(["end", "ended", "closed", "completed", "missed"]);
+
+export function isEndedCallStage(stage: unknown): boolean {
+  return ENDED_STAGES.has(String(stage || "").toLowerCase());
+}
+
+/** In-progress calls only — excludes ended rows and history hydrated without a live timestamp. */
+export function isLiveCall(call: Pick<CallState, "stage" | "lastActivityAt" | "createdAt">, now = Date.now()): boolean {
+  if (isEndedCallStage(call.stage)) return false;
+  const last = call.lastActivityAt ?? call.createdAt ?? 0;
+  return Boolean(last) && now - last <= CALL_TTL_MS;
+}
 
 export class InMemoryCallStore {
   private calls = new Map<string, CallState>();
@@ -19,7 +33,7 @@ export class InMemoryCallStore {
   ) {
     if (initialCalls) {
       initialCalls.forEach((call) => {
-        if (call && call.id) this.calls.set(call.id, call);
+        if (call && call.id) this.index(call);
       });
     }
 
@@ -28,19 +42,41 @@ export class InMemoryCallStore {
     this.sweepTimer.unref();
   }
 
-  createCall(callerId?: string): CallState {
+  private keysFor(call: CallState): string[] {
+    const keys = [call.id];
+    const cc =
+      call.lead && typeof (call.lead as Lead).voiceCallControlId === "string"
+        ? String((call.lead as Lead).voiceCallControlId).trim()
+        : "";
+    if (cc && cc !== call.id) keys.push(cc);
+    return keys;
+  }
+
+  private index(call: CallState): void {
+    for (const key of this.keysFor(call)) this.calls.set(key, call);
+  }
+
+  private unindex(call: CallState): void {
+    for (const key of this.keysFor(call)) this.calls.delete(key);
+  }
+
+  createCall(callerId?: string, callId?: string): CallState {
     const now = Date.now();
+    const externalId = typeof callId === "string" && callId.trim() ? callId.trim() : undefined;
+    const id = externalId && isUuid(externalId) ? externalId : randomUUID();
+    const lead: Lead = {};
+    if (externalId) lead.voiceCallControlId = externalId;
     const call: CallState = {
-      id: randomUUID(),
+      id,
       tenantId: this.tenantId,
       callerId,
       stage: INITIAL_STAGE,
-      lead: {},
+      lead,
       history: [],
       createdAt: now,
       lastActivityAt: now,
     };
-    this.calls.set(call.id, call);
+    this.index(call);
     this.onChange?.();
     return call;
   }
@@ -50,7 +86,18 @@ export class InMemoryCallStore {
   }
 
   listCalls(): CallState[] {
-    return Array.from(this.calls.values());
+    const seen = new Set<string>();
+    const out: CallState[] = [];
+    for (const call of this.calls.values()) {
+      if (seen.has(call.id)) continue;
+      seen.add(call.id);
+      out.push(call);
+    }
+    return out;
+  }
+
+  countLiveCalls(now = Date.now()): number {
+    return this.listCalls().filter((call) => isLiveCall(call, now)).length;
   }
 
   save(call: CallState): CallState {
@@ -60,31 +107,39 @@ export class InMemoryCallStore {
       createdAt: call.createdAt ?? now,
       lastActivityAt: now,
     };
-    this.calls.set(call.id, next);
+    this.index(next);
     this.onChange?.();
     return next;
   }
 
   deleteCall(callId: string): void {
-    if (this.calls.delete(callId)) {
-      this.onDeleteCall?.(callId);
-      this.onChange?.();
-    }
+    const call = this.getCall(callId);
+    if (!call) return;
+    this.unindex(call);
+    this.onDeleteCall?.(call.id);
+    this.onChange?.();
   }
 
   serialize(): CallState[] {
-    return Array.from(this.calls.values());
+    return this.listCalls();
+  }
+
+  dispose(): void {
+    if (this.sweepTimer) {
+      clearInterval(this.sweepTimer);
+      this.sweepTimer = null;
+    }
   }
 
   private sweepExpiredCalls(): void {
     const now = Date.now();
     let changed = false;
 
-    for (const [callId, call] of this.calls.entries()) {
+    for (const call of this.listCalls()) {
       const last = call.lastActivityAt ?? call.createdAt ?? 0;
       if (last && now - last > CALL_TTL_MS) {
-        this.calls.delete(callId);
-        this.onDeleteCall?.(callId);
+        this.unindex(call);
+        this.onDeleteCall?.(call.id);
         changed = true;
       }
     }

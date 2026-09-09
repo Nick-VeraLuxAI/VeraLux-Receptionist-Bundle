@@ -1,0 +1,40 @@
+/* Keep minimal; Tailwind + index.css tokens drive styling. No app-level centering. */
+.App {
+  min-height: 100vh;
+}
+
+/* ---- Toasts: VeraLux semantic theme (no stock red/green) ---- */
+[data-sonner-toast].vl-toast {
+  background: var(--vl-surface);
+  color: var(--vl-text);
+  border: 1px solid var(--vl-border);
+  border-left-width: 4px;
+  border-radius: var(--vl-radius-card);
+  box-shadow: var(--vl-shadow-sm);
+}
+[data-sonner-toast].vl-toast [data-icon] { color: var(--vl-gold); }
+[data-sonner-toast].vl-toast-success { border-left-color: var(--vl-success); }
+[data-sonner-toast].vl-toast-success [data-icon] { color: var(--vl-success); }
+[data-sonner-toast].vl-toast-error { border-left-color: var(--vl-danger); }
+[data-sonner-toast].vl-toast-error [data-icon] { color: var(--vl-danger); }
+[data-sonner-toast].vl-toast-warning { border-left-color: var(--vl-warning); }
+[data-sonner-toast].vl-toast-warning [data-icon] { color: var(--vl-warning); }
+[data-sonner-toast].vl-toast-info { border-left-color: var(--vl-gold-light); }
+[data-sonner-toast].vl-toast [data-description] { color: var(--vl-text-secondary); }
+[data-sonner-toast].vl-toast [data-close-button] {
+  background: var(--vl-surface);
+  border-color: var(--vl-border);
+  color: var(--vl-text-secondary);
+}
+
+.vl-brand-footer a {
+  color: var(--vl-gold-deep);
+  border-bottom: 1px solid var(--vl-gold-hairline);
+  padding-bottom: 2px;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.vl-brand-footer a:hover {
+  color: var(--vl-text);
+  border-bottom-color: var(--vl-text);
+}

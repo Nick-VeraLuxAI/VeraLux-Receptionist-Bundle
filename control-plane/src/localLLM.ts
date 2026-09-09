@@ -1,3 +1,4 @@
+import { ONPREM_NEMOTRON_CHAT_URL, ONPREM_NEMOTRON_MODEL } from "@veralux/shared";
 import type { LLMProvider, LLMConfigStore } from "./config";
 import { tenants, DEFAULT_TENANT_ID } from "./tenants";
 import { fetchWithTimeoutRetry } from "./httpClient";
@@ -10,9 +11,20 @@ export interface LocalLLMOutput {
   rawText: string;
 }
 
-const DEFAULT_LLM_URL = "http://127.0.0.1:8080/completion";
+const DEFAULT_LLM_URL = ONPREM_NEMOTRON_CHAT_URL;
 const DEFAULT_OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_OPENAI_MODEL = "gpt-4o-mini";
+
+function isOpenAiCompatibleLocalUrl(url: string): boolean {
+  return /\/v1(\/|$)/i.test(url) || /chat\/completions/i.test(url);
+}
+
+function toChatCompletionsUrl(url: string): string {
+  const trimmed = url.replace(/\/$/, "");
+  if (/chat\/completions$/i.test(trimmed)) return trimmed;
+  if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`;
+  return trimmed;
+}
 
 function getConfigStore(
   opts?: Partial<{ tenantId?: string; config?: LLMConfigStore }>
@@ -29,6 +41,16 @@ export async function callLocalLLM(
   const cfgStore = getConfigStore(opts);
   const cfg = cfgStore.get();
   const url = cfg.localUrl || process.env.LOCAL_LLM_URL || DEFAULT_LLM_URL;
+
+  if (isOpenAiCompatibleLocalUrl(url)) {
+    return callOpenAILLM(input, {
+      ...opts,
+      config: cfgStore,
+      apiKey: cfg.openaiApiKey || process.env.OPENAI_API_KEY || "local-onprem",
+      baseUrl: toChatCompletionsUrl(url),
+      model: cfg.openaiModel || process.env.LOCAL_LLM_MODEL || process.env.OPENAI_MODEL || ONPREM_NEMOTRON_MODEL,
+    });
+  }
 
   const body = {
     prompt: input.prompt,

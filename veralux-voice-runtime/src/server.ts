@@ -9,7 +9,6 @@ import { SessionManager } from './calls/sessionManager';
 import { log } from './log';
 import { describeWavHeader, parseWavInfo } from './audio/wavInfo';
 import { runPlaybackPipeline } from './audio/playbackPipeline';
-import { parseTelnyxAcceptCodecs } from './audio/codecDecode';
 import { MediaIngest } from './media/mediaIngest';
 import { attachAudioMeta, getAudioMeta, probeWav } from './diagnostics/audioProbe';
 import { healthRouter } from './routes/health';
@@ -20,6 +19,8 @@ import { synthesizeSpeech } from './tts';
 import { metricsHandler, metricsMiddleware, startStageTimer } from './metrics';
 import { TelnyxClient } from './telnyx/telnyxClient';
 import { ensureForensicsSession } from './observability/audioForensics';
+import { buildMediaStreamUrl } from './telnyx/mediaStreamUrl';
+import { TELNYX_WS_STREAM_CODEC } from './telnyx/streamCodec';
 
 type RequestWithRawBody = Request & { rawBody?: Buffer; id?: string };
 
@@ -43,7 +44,7 @@ function getErrorMessage(error: unknown): string {
 
 function normalizeCodec(value: string | undefined): string {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
-  if (!normalized) return 'PCMU';
+  if (!normalized) return TELNYX_WS_STREAM_CODEC;
   if (normalized === 'AMRWB' || normalized === 'AMR_WB') return 'AMR-WB';
   return normalized;
 }
@@ -110,7 +111,7 @@ function buildProbeMeta(
   const bitDepth = mapCodecToBitDepth(codec);
   const sampleRateHz =
     connection.mediaSampleRate ??
-    (codec === 'PCMU' || codec === 'PCMA' ? 8000 : codec === 'AMR-WB' ? 16000 : undefined);
+    (codec === 'PCMU' || codec === 'PCMA' ? 8000 : codec === 'AMR-WB' || codec === 'L16' ? 16000 : undefined);
   const channels = connection.mediaChannels ?? 1;
 
   return {
@@ -685,26 +686,11 @@ function parseMediaRequest(request: http.IncomingMessage): { callControlId: stri
   return { callControlId, token: url.searchParams.get('token') };
 }
 
-function buildMediaStreamUrl(callControlId: string): string {
-  const trimmedBase = env.PUBLIC_BASE_URL.replace(/\/$/, '');
-  let wsBase = trimmedBase;
-  if (trimmedBase.startsWith('https://')) {
-    wsBase = `wss://${trimmedBase.slice('https://'.length)}`;
-  } else if (trimmedBase.startsWith('http://')) {
-    wsBase = `ws://${trimmedBase.slice('http://'.length)}`;
-  } else if (!trimmedBase.startsWith('ws://') && !trimmedBase.startsWith('wss://')) {
-    wsBase = `wss://${trimmedBase}`;
-  }
-  return `${wsBase}/v1/telnyx/media/${callControlId}?token=${encodeURIComponent(env.MEDIA_STREAM_TOKEN)}`;
-}
-
 function attachMediaWebSocketServer(server: http.Server, sessionManager: SessionManager): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
   const debugMedia = mediaDebugEnabled();
 
-  const acceptCodecs = parseTelnyxAcceptCodecs(env.TELNYX_ACCEPT_CODECS);
-  acceptCodecs.add('PCMU');
-  acceptCodecs.add('PCMA');
+  const acceptCodecs = new Set<string>(['L16', 'LINEAR16', 'PCM16', 'PCM16LE']);
 
   server.on('upgrade', (request, socket, head) => {
     const parsed = parseMediaRequest(request);
@@ -756,7 +742,7 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
       expectedTrack: env.TELNYX_STREAM_TRACK,
       acceptCodecs,
       targetSampleRateHz: env.TELNYX_TARGET_SAMPLE_RATE,
-      allowAmrWb: env.TELNYX_AMRWB_DECODE,
+      allowAmrWb: false,
       allowG722: env.TELNYX_G722_DECODE,
       allowOpus: env.TELNYX_OPUS_DECODE,
       maxRestartAttempts: env.TELNYX_STREAM_RESTART_MAX,
@@ -781,6 +767,12 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
           'accepted payload (post-gating)',
         );
       },
+      onMark: (name) => {
+        sessionManager.onTelnyxPlaybackEnded(callControlId, {
+          requestId: name,
+          source: 'stream_mark',
+        });
+      },
 
       onFrame: (frame) => {
         const ok = sessionManager.pushPcm16Frame(callControlId, frame);
@@ -797,7 +789,7 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
         const telnyx = new TelnyxClient({ call_control_id: callControlId });
         const streamUrl = buildMediaStreamUrl(callControlId);
         await telnyx.startStreaming(callControlId, streamUrl, {
-          streamCodec: codec,
+          streamCodec: TELNYX_WS_STREAM_CODEC,
           streamTrack: env.TELNYX_STREAM_TRACK,
         });
         return true;
@@ -807,17 +799,21 @@ function attachMediaWebSocketServer(server: http.Server, sessionManager: Session
       },
     });
 
-    if (debugMedia) {
-      log.info(
+    log.info(
         {
           event: 'media_ws_connected',
           call_control_id: callControlId,
           remote: request.socket.remoteAddress,
           url: request.url,
+          requested_stream_codec: TELNYX_WS_STREAM_CODEC,
+          stream_bidirectional_mode: 'rtp',
+          stream_bidirectional_codec: 'L16',
+          stream_bidirectional_sampling_rate: 16000,
+          stream_track: env.TELNYX_STREAM_TRACK,
+          sip_accept_codecs: env.TELNYX_ACCEPT_CODECS,
         },
         'media ws connected',
       );
-    }
 
     ws.on('message', (data, isBinary) => {
       if (isBinary) {

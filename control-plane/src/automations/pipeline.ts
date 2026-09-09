@@ -4,7 +4,7 @@
  */
 
 import type {
-  Workflow, WorkflowEvent, PipelineContext, StepResult, WorkflowStep,
+  Workflow, WorkflowEvent, PipelineContext, StepResult,
 } from "./types";
 import { createRun, updateRun, getWorkflow } from "./db";
 import { actionHandlers } from "./actions";
@@ -148,37 +148,47 @@ export async function executePipeline(job: WorkflowJob): Promise<void> {
 export async function dryRunPipeline(
   workflow: Workflow,
   event: WorkflowEvent
-): Promise<{ steps: StepResult[]; wouldMatch: boolean }> {
+): Promise<{
+  steps: Array<StepResult & { type?: string; rendered?: string }>;
+  wouldMatch: boolean;
+  matched: boolean;
+  enabled: boolean;
+  reason: string;
+  sample?: { callerId?: string; callId?: string };
+}> {
+  const { evaluateConditions } = await import("./matcher");
+  const wouldMatch = evaluateConditions(workflow, event);
   const steps = [...workflow.steps].sort((a, b) => a.order - b.order);
 
-  const ctx: PipelineContext = {
-    event,
-    workflow,
-    runId: "dry-run",
-    tenantId: workflow.tenantId,
-    stepOutputs: {},
-  };
+  const results: Array<StepResult & { type?: string; rendered?: string }> = [];
 
-  const results: StepResult[] = [];
-
-  // Check if conditions would match
-  // We simulate — just verify each step handler exists and describe what would happen
   for (const step of steps) {
     const handler = actionHandlers[step.action];
+    const rendered =
+      (step.config?.message as string) ||
+      (step.config?.template as string) ||
+      (step.config?.body as string) ||
+      (step.config?.url as string) ||
+      (step.config?.summary as string) ||
+      `Would execute ${step.action}`;
     if (!handler) {
       results.push({
         action: step.action,
+        type: step.action,
         order: step.order,
         status: "error",
         error: `Unknown action: ${step.action}`,
+        rendered,
       });
       continue;
     }
 
     results.push({
       action: step.action,
+      type: step.action,
       order: step.order,
       status: "ok",
+      rendered,
       output: {
         dryRun: true,
         description: `Would execute ${step.action} with config: ${JSON.stringify(step.config)}`,
@@ -186,5 +196,17 @@ export async function dryRunPipeline(
     });
   }
 
-  return { steps: results, wouldMatch: true };
+  return {
+    steps: results,
+    wouldMatch,
+    matched: wouldMatch,
+    enabled: workflow.enabled,
+    reason: wouldMatch
+      ? "Sample event matches this trigger."
+      : "Sample event would not match this trigger’s conditions.",
+    sample: {
+      callerId: (event as any).callerId,
+      callId: (event as any).callId,
+    },
+  };
 }

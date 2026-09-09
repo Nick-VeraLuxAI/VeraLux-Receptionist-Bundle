@@ -715,9 +715,20 @@ function normalizeTelnyxEncoding(raw: string | undefined): { raw: string; normal
     G_722: 'G722',
 
     OPUS: 'OPUS',
+
+    L16: 'L16',
+    LINEAR16: 'L16',
+    PCM16: 'L16',
+    PCM16LE: 'L16',
+    PCM_16: 'L16',
+    PCM_S16LE: 'L16',
+    S16LE: 'L16',
+    LINEAR_PCM: 'L16',
   };
 
   if (!aliases[s] && s.includes('OPUS')) return { raw: rawValue, normalized: 'OPUS' };
+  if (!aliases[s] && (s.includes('L16') || s.includes('LINEAR16') || s.includes('PCM16')))
+    return { raw: rawValue, normalized: 'L16' };
   if (!aliases[s] && s.includes('AMR') && s.includes('WB')) return { raw: rawValue, normalized: 'AMR-WB' };
   if (!aliases[s] && (s.includes('G722') || s.includes('G_722'))) return { raw: rawValue, normalized: 'G722' };
   if (!aliases[s] && (s.includes('PCMU') || s.includes('MULAW') || s.includes('ULAW')))
@@ -1977,6 +1988,21 @@ export async function decodeTelnyxPayloadToPcm16(opts: DecodeTelnyxOptions): Pro
   if (encoding === 'PCMA') {
     const pcm = decodePcma(opts.payload);
     const resampled = resamplePcm16(pcm, 8000, targetRate);
+    scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
+    scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
+    return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };
+  }
+
+  if (encoding === 'L16') {
+    if (opts.payload.length < 2) return null;
+    const evenLen = opts.payload.length - (opts.payload.length % 2);
+    const sampleCount = evenLen / 2;
+    const pcm = new Int16Array(sampleCount);
+    for (let i = 0; i < sampleCount; i += 1) {
+      pcm[i] = opts.payload.readInt16LE(i * 2);
+    }
+    const inputRate = opts.reportedSampleRateHz && opts.reportedSampleRateHz > 0 ? opts.reportedSampleRateHz : 16000;
+    const resampled = inputRate === targetRate ? pcm : resamplePcm16(pcm, inputRate, targetRate);
     scheduleCodecDebugDump('post_decode', maybeDumpPostDecode(resampled, targetRate, encoding, state, opts.logContext));
     scheduleCodecDebugDump('pcm16', maybeDumpPcm16(resampled, targetRate, encoding, state, opts.logContext));
     return { pcm16: resampled, sampleRateHz: targetRate, decodedFrames: 1 };

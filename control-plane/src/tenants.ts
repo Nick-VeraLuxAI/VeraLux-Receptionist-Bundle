@@ -9,6 +9,7 @@ import {
   upsertCalls,
   upsertConfig,
   upsertTenant,
+  deleteTenantRow,
   type AnalyticsRow,
   type CallRow,
   type ConfigRow,
@@ -50,6 +51,10 @@ export interface TenantContext {
   businessHours: unknown;
   /** Operator handoff flags (e.g. test call completed); persisted in tenant_configs.operator_state */
   operatorState: Record<string, unknown>;
+  /** Shop law loaded from shop_playbooks at publish time (not persisted on tenant_configs). */
+  shopPlaybook?: unknown;
+  /** Public webhook verification key for a tenant-owned Telnyx account. */
+  telnyxPublicKey?: string;
 }
 
 
@@ -234,6 +239,37 @@ export class TenantRegistry {
   listMetas(): TenantMeta[] {
     this.ensureInitialized();
     return Array.from(this.tenants.values()).map((t) => t.meta);
+  }
+
+  get(id: string): TenantContext | undefined {
+    this.ensureInitialized();
+    return this.tenants.get(id);
+  }
+
+  async deleteTenant(tenantId: string): Promise<
+    { deleted: true; numbers: string[] } | { deleted: false; error: string }
+  > {
+    this.ensureInitialized();
+    if (tenantId === DEFAULT_TENANT_ID) {
+      return { deleted: false, error: "default_tenant_protected" };
+    }
+    const ctx = this.tenants.get(tenantId);
+    const numbers = [...(ctx?.meta.numbers || [])];
+    const removed = await deleteTenantRow(tenantId);
+    if (!ctx && !removed) {
+      return { deleted: false, error: "tenant_not_found" };
+    }
+    if (ctx) {
+      for (const n of numbers) {
+        const normalized = normalizePhoneNumber(n);
+        if (normalized && this.numberToTenant.get(normalized) === tenantId) {
+          this.numberToTenant.delete(normalized);
+        }
+      }
+      ctx.calls.dispose();
+      this.tenants.delete(tenantId);
+    }
+    return { deleted: true, numbers };
   }
 
   getOrCreate(id?: string, name?: string): TenantContext {

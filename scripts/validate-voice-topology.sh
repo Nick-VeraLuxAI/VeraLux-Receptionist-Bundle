@@ -58,6 +58,24 @@ case "$TTS_MODE" in
     }
     echo ""
     ;;
+  qwen3_tts_http)
+    echo "--- runtime → DNS qwen3-tts ---"
+    docker exec veralux-runtime getent hosts qwen3-tts
+    docker exec veralux-runtime wget -qO- --timeout=10 http://qwen3-tts:7010/health | head -c 200 || {
+      echo "[fail] qwen3-tts /health unreachable"
+      exit 1
+    }
+    echo ""
+    ;;
+  miso_tts_http)
+    echo "--- runtime → DNS miso-tts ---"
+    docker exec veralux-runtime getent hosts miso-tts
+    docker exec veralux-runtime wget -qO- --timeout=10 http://miso-tts:7011/health | head -c 200 || {
+      echo "[fail] miso-tts /health unreachable"
+      exit 1
+    }
+    echo ""
+    ;;
   *)
     echo "[warn] no extra TTS checks for TTS_MODE=$TTS_MODE"
     ;;

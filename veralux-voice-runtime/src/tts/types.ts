@@ -1,6 +1,9 @@
 export interface TTSRequest {
   text: string;
+  tenantId?: string;
   voice?: string;
+  /** Cloud TTS model (OpenAI TTS / ElevenLabs). */
+  cloudTtsModel?: string;
   format?: string;
   sampleRate?: number;
   /** Kokoro: speaking speed (JSON field `rate`; server maps to synthesis speed). */
@@ -13,8 +16,28 @@ export interface TTSRequest {
   chatterboxUrl?: string;
   /** Qwen3-TTS: base URL (e.g. http://host:7010 or http://host:7010/tts). */
   qwen3TtsUrl?: string;
+  /** Miso TTS 8B: base URL (e.g. http://host:7011 or http://host:7011/tts). */
+  misoTtsUrl?: string;
+  /** NVIDIA Magpie TTS: base URL (e.g. http://host:7012). */
+  magpieTtsUrl?: string;
+  /** MeloTTS: base URL (e.g. http://host:7013). */
+  meloTtsUrl?: string;
   /** Qwen3-TTS: optional style instruction. */
   instruct?: string;
+  /** Miso TTS: optional transcript for speakerWavUrl context. */
+  speakerText?: string;
+  /** Miso TTS generation controls. */
+  misoMaxAudioLengthMs?: number;
+  misoTemperature?: number;
+  misoTopK?: number;
+  magpieTemperature?: number;
+  magpieCfgScale?: number;
+  magpieTopK?: number;
+  magpieUseCfg?: boolean;
+  magpieApplyTn?: boolean;
+  meloSdpRatio?: number;
+  meloNoiseScale?: number;
+  meloNoiseScaleW?: number;
   /** Qwen3-TTS generation (optional; sent to qwen3_tts_server). */
   qwen3DoSample?: boolean;
   qwen3Temperature?: number;
